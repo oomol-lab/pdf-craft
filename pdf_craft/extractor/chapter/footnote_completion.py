@@ -23,7 +23,7 @@ def _left_completions(local, scores, threshold):
     boundary = 1 - threshold
     risks = {key: threshold if value == boundary else 1 - value
              for key, value in scores.items()}
-    yield from (job for job in _quotes(local, risks, threshold=threshold)
+    yield from (job for job in _quotes(local, risks, threshold=threshold, entry='footnote_followup')
                 if job[0].startswith(('left_word_complete_', 'left_frame_complete_')))
     for key, check in local['checks'].items():
         if (not key.startswith('gap_') or check['present_decision']
@@ -39,7 +39,7 @@ def _left_completions(local, scores, threshold):
                 or not ending[:-1].rstrip().endswith(('…', '...'))):
             continue
         name = 'ended_utterance_boundary_' + key.rsplit('_', 1)[1]
-        yield name, question('ended_utterance_boundary', name), dict(check,
+        yield name, question('ended_utterance_boundary', name, entry='footnote_followup'), dict(check,
             raw_delimiter_cues=dict(preceding_hint_ends_ellipsis_and_quote=True))
 
 
@@ -54,7 +54,7 @@ def _math_units(local, scores, threshold):
                 and not (prior and '\\(' in prior['text_end'])):
             continue
         name = 'math_unit_boundary_' + key.rsplit('_', 1)[1]
-        yield name, question('math_unit_boundary', name), check
+        yield name, question('math_unit_boundary', name, entry='footnote_followup'), check
 
 
 def _reporting_joins(local, scores, threshold):
@@ -69,7 +69,7 @@ def _reporting_joins(local, scores, threshold):
                 or not text or text[0] not in pairs or not text.endswith(pairs[text[0]])):
             continue
         name = 'reporting_join_' + key.rsplit('_', 1)[1]
-        yield name, question('reporting_join', name), check
+        yield name, question('reporting_join', name, entry='footnote_followup'), check
 
 
 def _paired_words(local, scores, threshold):
@@ -87,7 +87,7 @@ def _paired_words(local, scores, threshold):
             literal_left_tail=prior['text_end'][-24:], short_current_prefix=prefix[1])
         for kind in ('seam_predecessor', 'seam_word'):
             name = kind + '_' + key.rsplit('_', 1)[1]
-            yield name, question(kind, name), value
+            yield name, question(kind, name, entry='footnote_followup'), value
 
 
 
@@ -103,9 +103,9 @@ def _paired_dependencies(local, scores, threshold):
             page_index=prior['page_index'], source_order=prior['source_order']))
         order = key.rsplit('_', 1)[1]
         name = 'dependency_predecessor_' + order
-        yield name, question('seam_predecessor', name), value
+        yield name, question('seam_predecessor', name, entry='footnote_followup'), value
         name = 'dependency_completion_' + order
-        yield name, question('dependency_completion', name), value
+        yield name, question('dependency_completion', name, entry='footnote_followup'), value
 
 
 def _displayed_numbers(local, scores, threshold):
@@ -134,7 +134,7 @@ def _displayed_numbers(local, scores, threshold):
                 or abs(x - a) > 1.5 * height):
             continue
         name = 'displayed_number_' + key.rsplit('_', 1)[1]
-        yield name, question('displayed_number', name), dict(check, measured_display_geometry=dict(
+        yield name, question('displayed_number', name, entry='footnote_followup'), dict(check, measured_display_geometry=dict(
             target_bbox=target['bbox_normalized'], preceding_bbox=before['bbox_normalized'],
             following_bbox=after['bbox_normalized']))
 

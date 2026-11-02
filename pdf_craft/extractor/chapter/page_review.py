@@ -169,7 +169,7 @@ def build_jev_review_states(
             state = {
                 "format": "pdf-craft PageReviewPacket v2",
                 "coordinate_note": (
-                    review_text('shared/coordinates')
+                    review_text('evidence', kind='coordinates')
                 ),
                 "target_page": target,
                 "previous_page": _boundary_context(

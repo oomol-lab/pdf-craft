@@ -40,17 +40,26 @@ JEV 评分不进入当前请求，避免并发时序改变审核输入，也不�
 
 ## 提示模板
 
-JEV 的提示说明统一使用英文；原始文档证据保留原语言。每个独立问题维护为一份可直接
-阅读的 Jinja 正文，不使用宏函数库或在模板里拼装 JSON。完整清单见[模板索引](../../pdf_craft/extractor/chapter/data/README.md)。
+JEV 的提示说明统一使用英文，原始文档证据保留原语言。提示按两种模式、两轮审核组织为
+四个根模板：
 
-- [正文归属](../../pdf_craft/extractor/chapter/data/body/ownership.jinja)与[具体续接](../../pdf_craft/extractor/chapter/data/body/concrete_join.jinja)：关闭脚注路线。
-- [脚注角色](../../pdf_craft/extractor/chapter/data/footnote/footnote_role.jinja)、[定义](../../pdf_craft/extractor/chapter/data/footnote/definition.jinja)和[引用](../../pdf_craft/extractor/chapter/data/footnote/reference.jinja)：开启脚注路线。
-- [词界](../../pdf_craft/extractor/chapter/data/shared/gap_word.jinja)与[句法](../../pdf_craft/extractor/chapter/data/shared/gap_syntax.jinja)：共享问题。
+| 脚注 | 基础审核 | 补充事实审核 |
+| --- | --- | --- |
+| 关闭 | [body_base.jinja](../../pdf_craft/extractor/chapter/data/body_base.jinja) | [body_followup.jinja](../../pdf_craft/extractor/chapter/data/body_followup.jinja) |
+| 开启 | [footnote_base.jinja](../../pdf_craft/extractor/chapter/data/footnote_base.jinja) | [footnote_followup.jinja](../../pdf_craft/extractor/chapter/data/footnote_followup.jinja) |
 
-`Instructions`、`True`、`False` 标题只划分供应商需要的字段，不作为提示文字发送。
-空行划分指令段落；少量补充范围说明独立存为文字片段。Python 负责选择问题、准备证据、
-组织请求和聚合分数。模板随包发布；纯排版迁移应核对完整请求不变，翻译提示说明时需
-核对原意与输入结构，并另行验证实际审核效果。
+每个根模板按问题种类用直接可读的条件分支选择正文。入口独有的规则直接展开；仅跨入口
+共用的问题和证据说明提取为共享模板，不因内容长就另拆文件，不使用宏函数库或 JSON 拼装。
+根入口及三份共享文件的用途见[模板索引](../../pdf_craft/extractor/chapter/data/README.md)。
+
+Python 负责候选与问题选择、原始证据、请求批次和评分聚合；定位说明和条件规则也由
+根模板呈现，不在 Python 里追加提示正文。四个入口不是四次物理请求：每轮可有多个
+具名问题批次，每请求最多四题。
+
+`Instructions`、`True`、`False` 标题划分供应商字段，不作为提示文字发送；空行划分
+指令段落。纯文件组织重构必须生成两种模式、两轮审核的请求，对照完整字段、顺序和
+每条指令文字，并用固定评分核对补充问题选择与聚合结果；无需调用供应商。翻译或措辞
+变化另作模型效果验证，不能与文件整理混为等效性保证。
 
 ## 关闭脚注时的局部协议
 

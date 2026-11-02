@@ -10,19 +10,19 @@ _ENVIRONMENT = Environment(
 )
 
 
+_ENTRIES = frozenset(('body_base', 'body_followup', 'footnote_base', 'footnote_followup'))
+
+
 def review_text(path: str, **context: Any) -> str:
     """Render one prose template without JSON encoding or macro dispatch."""
     return _ENVIRONMENT.get_template(f'{path}.jinja').render(**context).strip()
 
 
-def review_instructions(path: str, **context: Any) -> list[str]:
-    """Each blank-line-separated paragraph is one provider instruction."""
-    return _paragraphs(review_text(path, **context))
-
-
 def review_question(path: str, **context: Any) -> dict[str, Any]:
     """Separate readable instructions and criteria at their explicit headings."""
-    text = review_text(path, **context)
+    if path not in _ENTRIES:
+        raise ValueError(f'Not a JEV review entry: {path}')
+    text = review_text(path, entry=path, **context)
     before_false, false_heading, false = text.rpartition('\n# False\n')
     instructions, true_heading, true = before_false.rpartition('\n# True\n')
     if not (text.startswith('# Instructions\n') and true_heading and false_heading):

@@ -1,0 +1,239 @@
+{# Footnotes enabled: base review. Incoming joins, printed roles, note definitions and references are inline; proposed breaks are shared. #}
+
+{% if kind == 'incoming_join' %}
+# Instructions
+
+Audit only the existing decision at checks.{{ key }}: continuing the current block from the preceding main text as one natural paragraph. The complete three-page evidence is in local_raw_evidence.
+
+First locate the genuine main-text predecessor in preceding_source_index using preceding_source_candidates, then audit the current incoming edge. ownership_hint and immediate_paragraph_hint are not facts: OCR or the algorithm may have misclassified a footnote as paragraph. Do not simply compare the last array entry with the current block.
+
+If the nearest entry is a note, page number or running header, skip it and check the earlier genuine main-text candidates. Judge only the incoming edge of the current page; an independent ownership error on a neighboring page does not by itself invalidate this question. Do not use anything outside the three supplied pages or select next_page as an incoming predecessor.
+
+The genuine predecessor must be the nearest main text after excluding ancillary material. Do not skip intervening genuine main text to choose an older passage whose wording happens to fit. Candidates are not a pool of interchangeable text. If the nearest main text is already complete, the current block may start a new paragraph even when both describe the same event.
+
+Use only the supplied local raw text to decide whether the two blocks form one natural paragraph. Do not audit the whole page or the fields of neighboring pages.
+
+A split word or unfinished grammatical construction requires continuation. Clearly independent utterances, headings and numbered items require separate paragraphs. Do not reverse these rules: lack of a mandatory dependency does not prove that an existing join is wrong. Shared topic, question-and-answer wording or a period alone does not decide the boundary.
+
+Do not proofread text, supply missing OCR characters or assume distant content. Even when the current block is long, inspect its opening and the direct seam with the preceding ending.
+
+This question audits a JOIN, not a proposed break. The two decisions have different failure conditions: an existing break is wrong when it cuts an obligatory dependency; an existing join is wrong when it combines clearly independent reading units. Do not reject an existing join merely because a break would also be acceptable. A conjunction, consequence, contrast or shared topic alone proves neither decision wrong.
+
+A paragraph introducing a quotation and the following independent quotation may be separate paragraphs. An attribution or source after a quotation may also stand alone. A colon or an attribution relationship is not evidence that joining is mandatory.
+
+Judge only whether the existing incoming decision has a definite structural error. Do not infer unprovided first-line indentation from the overall box or impose your own paragraph-layout preference.
+
+The current decision is a JOIN. First combine one or two characters at the predecessor ending and target opening to check for a complete word. If the two parts of a word are split across pages, keeping this join is correct; do not be distracted by other complete sentences later in the current block.
+
+# True
+
+The current block can legitimately continue the preceding block as one natural paragraph; no definite structural error in this join is established.
+
+# False
+
+The current block must start a new natural paragraph; the existing join incorrectly combines two independent paragraphs.
+
+{% elif kind == 'reference_position' %}
+# Instructions
+
+For state.checks.{{ name }} ONLY: find this source by its source_order; do not evaluate any other source in this packet.
+
+Assess ONLY the physical text position of reference replacements in this source, not note meaning, targets, paragraph joins or missing OCR.
+
+literal_edits describes edits from the original raw_text to analysed_text. Each original field was removed and each analysed field inserted at that location. A REF replacement must occupy the original printed marker position. An insertion of REF where the original contained no marker, combined with removing a marker elsewhere, does NOT preserve its position.
+
+Check the literal edit operations and their original_before/original_after context. Inline math or Markdown escaping around the SAME marker can change; whitespace changes do not relocate a marker. If position is preserved, accept. If it demonstrably moved, reject. Insufficient evidence is not a demonstrable error.
+
+# True
+
+The replacements preserve original marker positions, or no displacement is established.
+
+# False
+
+A reference token demonstrably occupies a different position from its original marker.
+
+{% elif kind == 'caption_reading' %}
+# Instructions
+
+The sole audit target is state.checks.{{ name }}. Locate it by source_order in local_raw_evidence.target_page.layouts, or by its definition record for a definition check. Other checks are parallel questions; their errors must not invalidate this one.
+
+Decide ONLY the source identified by this check, using its complete original text and the supplied three-page context. Current OCR stream and ownership are hypotheses, not evidence of correctness. Do not judge adjacent pages, author accuracy, missing OCR or final heading levels.
+
+Is this WHOLE source retained reading content outside the ancillary footnote stream?
+
+Reading content includes narrative, section explanations, instructions, chapter-end commentary and separately placed figure captions or labels. A full-page image with its own adjacent description does not establish a footnote apparatus. Page numbers, running headers and publishing directions are not reading content. Follow the supplied original text and printed column organization, not the current citation label. In vertical writing, a narrow fragment continuing or repeating a main-text column can still be main reading: cropping, an incomplete sentence or a second OCR pass does not make it a footnote. Require a concrete relationship to the main passage or figure, not merely similar subject matter. Genuine detached footnotes and their unmarked continuations remain footnotes even when they are grammatical explanations, quotations or short text. Read the supplied neighboring pages before reclassifying a long continuation: a detached note can fill a column or page, and a printing-only continued-page direction is not a new section heading. A continuation of an established marked note does not become autonomous main commentary merely because it is long, and it need not repeat its note marker on every block.
+
+Insufficient or ambiguous evidence means false. Pure punctuation/empty OCR noise is outside this judgement.
+
+# True
+
+There is concrete positive evidence for the stated role of this specific source.
+
+# False
+
+That role is not established; do not infer it from neighbouring sources or a vague suspicion.
+
+{% elif kind == 'definition' %}
+# Instructions
+
+The sole audit target is state.checks.{{ name }}. Locate it by source_order in local_raw_evidence.target_page.layouts, or by its definition record for a definition check. Other checks are parallel questions; their errors must not invalidate this one.
+
+Audit only the current target decision identified by checks. Neighboring pages are read-only context; their independent errors do not invalidate the target. Do not proofread typos, calculate formulas, judge author opinions, invent absent text or audit final heading levels. FAIL requires a concrete, locatable error repairable through ownership, continuation or an existing reference relationship. Vague suspicion is not an error.
+
+A footnote definition newly starting on this page needs a page-local index in the consecutive sequence from 1 and its corresponding printed mark. The actual mark may be a number, circled character, letter or star; it is not an internal ID. A new mark must not be treated as an unindexed continuation of the preceding note.
+
+A cross-page note or one whose starting point cannot be established may have index=null. Do not guess a missing start or force a match. One note may have several natural paragraphs or layouts without a fresh index for each. Distinct new notes must not be combined into one unindexed definition merely because they are adjacent.
+
+Judge only the supplied note definition and its members. Main-text typos or neighboring ownership errors do not constitute a definition error on this page. A page number wrongly classified as citation is an ownership issue; do not invent a note-index error for it.
+
+# True
+
+The specified existing structural decision is valid, or the evidence is insufficient to require correction.
+
+# False
+
+The specified decision has a clear, locatable and structurally repairable error.
+
+{% elif kind == 'footnote_role' %}
+# Instructions
+
+The sole audit target is state.checks.{{ name }}. Locate it by source_order in local_raw_evidence.target_page.layouts, or by its definition record for a definition check. Other checks are parallel questions; their errors must not invalidate this one.
+
+Decide ONLY the source identified by this check, using its complete original text and the supplied three-page context. Current OCR stream and ownership are hypotheses, not evidence of correctness. Do not judge adjacent pages, author accuracy, missing OCR or final heading levels.
+
+Does the local printed structure establish that this ENTIRE source belongs to a separate ancillary footnote flow supporting another main passage?
+
+Look for an actual local reference/definition or a clear continuation of note prose. A low position, small print, a numbered item or the word Note alone is insufficient. Chapter-end or full-page commentary and classroom instructions belong to the main reading flow. A mixed body/note source must not be removed wholesale.
+
+Judge the printed role of the WHOLE source, not whether its sentences explain, correct or comment on something. Parentheses, editorial remarks, quotations, definitions and scholarly citations are also ordinary main reading.
+
+An inline parenthesis stays with its surrounding narrative paragraph. A source mixing main narrative with an author aside is not wholly a footnote.
+
+An autonomous commentary or endnote section is main reading even when it consists of short numbered annotations and continues without repeating a heading. Conversely, a genuine detached note can have multiple paragraphs or fill a page: positive local evidence of its note origin or continuation still establishes that role.
+
+Follow the printed reading sequence across columns. A later-column continuation or long quotation inside an autonomous commentary section remains part of that main section; its words being a quotation do not establish a detached footnote flow.
+
+Within an actually detached note area, the target need not repeat its own marker: a source between a genuine note opening and the next opening can continue that note across natural-paragraph breaks. Grammatical, independent-looking prose can still be a note continuation. First establish the ancillary stream; numbered entries alone do not establish it.
+
+Insufficient or ambiguous evidence means false. Pure punctuation/empty OCR noise is outside this judgement.
+
+# True
+
+There is concrete positive evidence for the stated role of this specific source.
+
+# False
+
+That role is not established; do not infer it from neighbouring sources or a vague suspicion.
+
+{% elif kind == 'furniture' %}
+# Instructions
+
+The sole audit target is state.checks.{{ name }}. Locate it by source_order in local_raw_evidence.target_page.layouts, or by its definition record for a definition check. Other checks are parallel questions; their errors must not invalidate this one.
+
+Decide ONLY the source identified by this check, using its complete original text and the supplied three-page context. Current OCR stream and ownership are hypotheses, not evidence of correctness. Do not judge adjacent pages, author accuracy, missing OCR or final heading levels.
+
+Is this entire source unmistakably recurring page furniture, or a standalone continued-page printing direction, rather than reading content?
+
+Require an isolated current-page number, a running book/chapter label or language footer in the page apparatus, or a printing-only continued-page direction. Ordinary section/exercise headings, in-body navigation/link lists, captions, attributions and See-page cross-references are reading content, not running page furniture. A note beginning with a number is not a page number. Merely mentioning a page or section does not satisfy this question.
+
+Insufficient or ambiguous evidence means false. Pure punctuation/empty OCR noise is outside this judgement.
+
+# True
+
+There is concrete positive evidence for the stated role of this specific source.
+
+# False
+
+That role is not established; do not infer it from neighbouring sources or a vague suspicion.
+
+{% elif kind == 'main_reading' %}
+# Instructions
+
+The sole audit target is state.checks.{{ name }}. Locate it by source_order in local_raw_evidence.target_page.layouts, or by its definition record for a definition check. Other checks are parallel questions; their errors must not invalidate this one.
+
+Decide ONLY the source identified by this check, using its complete original text and the supplied three-page context. Current OCR stream and ownership are hypotheses, not evidence of correctness. Do not judge adjacent pages, author accuracy, missing OCR or final heading levels.
+
+Is this source unmistakably part of the main reading sequence, rather than an ancillary footnote?
+
+Section explanations, continuing narrative, instructions and chapter-end commentary are main reading. Geometric headings above this source are supplied independently of the possibly wrong document_order; determine whether this is their main explanatory passage, not just text on the same topic. Follow the actual prose and nearby headings, including across columns. Do not decide from its original footnote stream or current citation label. Real unnumbered footnote continuations are not main reading merely because their prose is grammatical.
+
+Insufficient or ambiguous evidence means false. Pure punctuation/empty OCR noise is outside this judgement.
+
+# True
+
+There is concrete positive evidence for the stated role of this specific source.
+
+# False
+
+That role is not established; do not infer it from neighbouring sources or a vague suspicion.
+
+{% elif kind == 'new_note' %}
+# Instructions
+
+The sole audit target is state.checks.{{ name }}. Locate it by source_order in local_raw_evidence.target_page.layouts, or by its definition record for a definition check. Other checks are parallel questions; their errors must not invalidate this one.
+
+Inspect only the current source in checks.{{ name }}. Does its ORIGINAL text clearly start a distinct new footnote here, rather than continue an earlier note?
+
+A genuine opening has an actual printed note marker (number, circled character, letter or star) followed by the note explanation. Markdown/LaTeX escaping around a literal marker does not erase that marker. A corresponding body mark may be absent from the OCR; do not require it to recognise an explicitly marked new definition.
+
+Do not trust existing index=null or mark=null as evidence of continuation: these are the algorithm claims being checked. Equally do not invent a missing printed marker or start from the meaning of the prose alone. A footer page number, list item in main commentary, unmarked continuation or pure noise is not a new footnote opening.
+
+A footnote may have multiple natural paragraphs without a new definition. Inspect the actual mark and its role, not merely a sentence beginning or indentation.
+
+# True
+
+This source clearly opens a new real footnote with an explicit note marker.
+
+# False
+
+A distinct new marked footnote start is not established.
+
+{% elif kind == 'note_gap' %}
+# Instructions
+
+The sole audit target is state.checks.{{ name }}. Locate it by source_order in local_raw_evidence.target_page.layouts, or by its definition record for a definition check. Other checks are parallel questions; their errors must not invalidate this one.
+
+Audit only the current target decision identified by checks. Neighboring pages are read-only context; their independent errors do not invalidate the target. Do not proofread typos, calculate formulas, judge author opinions, invent absent text or audit final heading levels. FAIL requires a concrete, locatable error repairable through ownership, continuation or an existing reference relationship. Vague suspicion is not an error.
+
+Audit continues_from_previous for the current footnote text block: whether it belongs to the same natural paragraph as its genuine footnote predecessor. Body and footnotes are independent streams. Page numbers, main text and publisher directions cannot serve as a footnote predecessor.
+
+One footnote may contain several natural paragraphs, so sharing a citation ID does not require joining. Two distinct new notes must be separate. Join blocks splitting one word or an unfinished syntactic construction; keep independent new paragraphs separate. A standalone formula is a hard boundary; an image or table alone does not force a break.
+
+# True
+
+The specified existing structural decision is valid, or the evidence is insufficient to require correction.
+
+# False
+
+The specified decision has a clear, locatable and structurally repairable error.
+
+{% elif kind == 'reference' %}
+# Instructions
+
+The sole audit target is state.checks.{{ name }}. Locate it by source_order in local_raw_evidence.target_page.layouts, or by its definition record for a definition check. Other checks are parallel questions; their errors must not invalidate this one.
+
+Audit only the current target decision identified by checks. Neighboring pages are read-only context; their independent errors do not invalidate the target. Do not proofread typos, calculate formulas, judge author opinions, invent absent text or audit final heading levels. FAIL requires a concrete, locatable error repairable through ownership, continuation or an existing reference relationship. Vague suspicion is not an error.
+
+Check only the literal correspondence of existing references in this source, not paragraph continuation, completeness of the original or whether the note explains the prose. raw_text is the original. Each ⟦REF⟧ in analysed_text replaces a printed reference marker. Match them in occurrence order to references. path is an internal XML path, not a character position or footnote number.
+
+Compare each replaced original marker with definition.mark of its references target. definition.index is internal numbering and may differ from the printed mark. Markdown backslash escaping and inline-math wrappers are not part of the printed marker. Other sentences, formulas and ordinary numbers in the original are not reference-correspondence errors.
+
+No ⟦REF⟧ and an empty references list do not imply an error; not every body source must cite a footnote. Report a missing reference only when this original source clearly contains a genuine footnote marker matching a definition mark on the same page but no corresponding reference was created. Do not force matches for author-year citations, bibliographic references, chapter-end notes or numbers that do not correspond to existing marks. Do not invent absent definitions.
+
+Reject only with concrete literal evidence of a wrong target, displaced replacement or missing mapping. Do not reject because the target ending is unfinished, a neighboring source is wrong, a definition has no body citation, one definition is referenced repeatedly or its explanation is off topic.
+
+
+literal_edits lists literal changes from original to analysed text: original is removed text, analysed is inserted text, and before/after preserve the location context. references lists targets in ⟦REF⟧ occurrence order; target_definitions supplies printed marks of same-page definitions. This list is raw evidence to audit, not a correctness verdict. Judge only whether this source preserves the reference identity and original location. Whitespace, escaping or math wrappers do not change the identity of the same printed marker.
+
+# True
+
+The specified existing structural decision is valid, or the evidence is insufficient to require correction.
+
+# False
+
+The specified decision has a clear, locatable and structurally repairable error.
+
+{% else %}
+{% include 'shared_base.jinja' %}
+
+{% endif %}

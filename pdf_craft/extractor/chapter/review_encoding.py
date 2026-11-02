@@ -16,7 +16,7 @@ _SEQUENCE = re.compile(r'(?:[0-9]+\.[ \n]*){32,}')
 _NUMBER = re.compile(r'([0-9]+)(\.[ \n]*)')
 
 TEXT_ENCODING_NOTE = (
-    review_text('shared/text_encoding')
+    review_text('evidence', kind='text_encoding')
 )
 
 

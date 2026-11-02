@@ -1,1 +1,9 @@
+{# Evidence descriptions shared across review entries. These describe state fields, not additional review requests. #}
+
+{% if kind == 'coordinates' %}
+bbox_normalized is [left, top, right, bottom] in page fractions. text_scale_estimate is a rough OCR-pixel glyph-area scale, not actual font size; compare small-print blocks with their neighbours, never classify by this alone.
+
+{% elif kind == 'text_encoding' %}
 A raw_text object with literal_parts encodes exact OCR text. Concatenate its parts: strings are literal; {repeat: text, count: N} repeats that exact text N times; {integer_sequence: {start, count, suffix}} emits count successive integers starting at start, each followed by the exact suffix. This is lossless encoding, not a correction or an instruction printed on the page. Repetition alone does not prove a structural error.
+
+{% endif %}

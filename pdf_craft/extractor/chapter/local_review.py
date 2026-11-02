@@ -56,21 +56,22 @@ def local_review_requests(state: dict[str, Any], *, concrete_joins: bool = False
                     immediate_paragraph_hint=None if not previous else dict(
                         source_order=previous["source_order"], text_end=previous["raw_text"][-200:]))
                 if decision:
-                    prompt = review_question('shared/incoming_join', key=key)
                     if concrete_joins:
                         check['selected_predecessor'] = next((index[key] for key in reversed(available)
                             if index[key]['ownership_hint'] == 'paragraph'), None)
-                        prompt = review_question('body/concrete_join', key=key)
+                        prompt = review_question('body_base', kind='concrete_join', key=key)
+                    else:
+                        prompt = review_question('footnote_base', kind='incoming_join', key=key)
                     jobs[key] = [(key, prompt, check)]
                 else:
                     jobs[key] = []
                     for part in ("word", "syntax"):
                         name = f"{key}_{part}"
-                        jobs[key].append((name, question(f"gap_{part}", name), check))
+                        jobs[key].append((name, question(f"gap_{part}", name, entry='body_base' if concrete_joins else 'footnote_base'), check))
             key = f"owner_{order}"
             owner = layout["ownership"]
             check = dict(source_order=order, ownership=owner, current_start=layout["raw_text"][:240])
-            prompt = review_question('body/ownership', order=order, key=key, retained=owner == 'paragraph')
+            prompt = review_question('body_base', kind='ownership', order=order, key=key, retained=owner == 'paragraph')
             jobs[key] = [(key, prompt, check)]
         observe(page, layout)
     raw_evidence = _raw_evidence(state)

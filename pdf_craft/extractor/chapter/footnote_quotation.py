@@ -4,11 +4,6 @@ from .review_evidence import _quotes, previous_paragraph
 from .review_questions import question
 from .review_encoding import compact_review_evidence, TEXT_ENCODING_NOTE
 from .structural_review import _decisions
-from .review_templates import review_text
-
-_RECITATION = (
-    review_text('footnote/recitation')
-)
 
 
 def quotation_requests(state, scores, threshold):
@@ -23,7 +18,7 @@ def quotation_requests(state, scores, threshold):
         jobs = []
         for checks in _decisions(packet['state']['checks']):
             local = dict(packet['state'], checks=checks)
-            candidates = [job for job in _quotes(local, risks, threshold=threshold)
+            candidates = [job for job in _quotes(local, risks, threshold=threshold, entry='footnote_followup')
                           if job[0].startswith('quotation_boundary_')]
             for key, check in checks.items():
                 if (not key.startswith('gap_') or check['present_decision']
@@ -35,8 +30,7 @@ def quotation_requests(state, scores, threshold):
                 name = 'quotation_boundary_' + key.rsplit('_', 1)[1]
                 if any(job[0] == name for job in candidates):
                     continue
-                spec = question('quotation_boundary', name)
-                spec['instructions'] += [_RECITATION]
+                spec = question('quotation_boundary', name, entry='footnote_followup', recitation=True)
                 candidates.append((name, spec, dict(check,
                     raw_delimiter_cues=dict(preceding_hint_ends_colon=True))))
             for job in candidates:

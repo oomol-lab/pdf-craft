@@ -17,19 +17,13 @@ from .review_encoding import (
     literal_reference_edits,
 )
 from .structural_review import _collect, aggregate_risks
-from .review_templates import review_question, review_instructions, review_text
+from .review_templates import review_question
 
 FOOTNOTE_REVIEW_THRESHOLD = 0.45
 
-def role_fact(kind, *, from_citation=False):
-    path = 'caption_reading' if kind == 'main_reading' and from_citation else kind
-    return review_question('footnote/' + path)
-
-
-def bound(packet):
-    for name, spec in packet["questions"].items():
-        spec["instructions"] = [review_text('footnote/check_scope', name=name), *spec['instructions']]
-    return packet
+def role_fact(kind, name, *, from_citation=False):
+    kind = 'caption_reading' if kind == 'main_reading' and from_citation else kind
+    return review_question('footnote_base', kind=kind, name=name)
 
 
 def raw_roles(state):
@@ -128,7 +122,7 @@ def footnote_review_requests(state):
             owners.append(
                 (
                     f"{kind}_{order}",
-                    role_fact(kind, from_citation=l["ownership"] == "citation"),
+                    role_fact(kind, f"{kind}_{order}", from_citation=l["ownership"] == "citation"),
                     check,
                 )
             )
@@ -136,7 +130,7 @@ def footnote_review_requests(state):
             gaps.append(
                 (
                     f"note_gap_{order}",
-                    review_question('footnote/note_gap'),
+                    review_question('footnote_base', kind='note_gap', name=f'note_gap_{order}'),
                     dict(
                         check,
                         present_decision=l["continues_from_previous"],
@@ -149,7 +143,7 @@ def footnote_review_requests(state):
             and (page["citations"] or l["references"])
             and (has_note_evidence or l["references"])
         ):
-            refs.append((f"reference_{order}", review_question('footnote/reference'), check))
+            refs.append((f"reference_{order}", review_question('footnote_base', kind='reference', name=f'reference_{order}'), check))
     for jobs in (owners, gaps, refs):
         current = base
         if jobs is owners:
@@ -159,18 +153,17 @@ def footnote_review_requests(state):
             ]
             current = dict(local_raw_evidence=raw_roles(state), encoding_note=_ENCODING)
         for packet in review_batches(current, jobs):
-            packet = bound(packet)
             if jobs is refs:
                 yield from _reference_requests(state, packet)
             else:
                 yield p, packet
     definitions = [
-        (f"definition_{i}", review_question('footnote/definition'), dict(definition=c))
+        (f"definition_{i}", review_question('footnote_base', kind='definition', name=f'definition_{i}'), dict(definition=c))
         for i, c in enumerate(page["citations"])
         if c.get("index") is not None
     ]
     for packet in review_batches(base, definitions):
-        yield (p, bound(packet))
+        yield (p, packet)
     starts = []
     seen = set()
     for layout in page["layouts"]:
@@ -188,7 +181,7 @@ def footnote_review_requests(state):
             continue
         order = layout["source_order"]
         name = f"new_note_{order}"
-        spec = review_question('footnote/new_note', name=name)
+        spec = review_question('footnote_base', kind='new_note', name=name)
         starts.append(
             (
                 name,
@@ -203,7 +196,7 @@ def footnote_review_requests(state):
             )
         )
     for packet in review_batches(base, starts):
-        yield (p, bound(packet))
+        yield (p, packet)
 
 
 def _reference_requests(state, packet):
@@ -231,11 +224,10 @@ def _reference_requests(state, packet):
             for d in page["citations"]
             if d["index"] is not None
         ]
-        spec["instructions"] += review_instructions('footnote/reference_location')
         jobs.append((name, spec, check))
         if source["references"] and edits is not None:
             location = f"reference_position_{name.rsplit('_', 1)[1]}"
-            jobs.append((location, question("reference_position", location), check))
+            jobs.append((location, question('reference_position', location, entry='footnote_base'), check))
     base = {k: v for k, v in packet["state"].items() if k != "checks"}
     for current in review_batches(base, jobs):
         yield page["page_index"], current
@@ -276,10 +268,7 @@ def supplementary_footnote_requests(state, scores):
             continue
         for kind in ("section_sequence", "section_member"):
             name = f"{kind}_{order}"
-            spec = question(kind, name)
-            if kind == "section_sequence":
-                spec = question(kind, name)
-                spec["instructions"] += review_instructions('footnote/unmarked_note')
+            spec = question(kind, name, entry='footnote_followup', unmarked_note=kind == 'section_sequence')
             jobs.append(
                 (
                     name,
@@ -307,7 +296,7 @@ def supplementary_footnote_requests(state, scores):
     original = dict(local_raw_evidence=state, checks=checks)
     for packet in review_batches(
         dict(local_raw_evidence=compact(state), encoding_note=_ENCODING),
-        list(_duplicates(original, {})),
+        list(_duplicates(original, {}, entry='footnote_followup')),
     ):
         yield (p, packet)
     for packet in local_review_requests(state):
@@ -315,7 +304,7 @@ def supplementary_footnote_requests(state, scores):
             continue
         for family in (_selected_strips, _image_starts):
             for value in review_batches(
-                packet["state"], list(family(packet["state"], {}))
+                packet["state"], list(family(packet["state"], {}, entry='footnote_followup'))
             ):
                 value["state"] = compact(value["state"])
                 value["state"]["encoding_note"] = _ENCODING
@@ -343,7 +332,7 @@ def _retained_reading_requests(state, scores):
         jobs.append(
             (
                 name,
-                question("retained_reading_position", name),
+                question("retained_reading_position", name, entry='footnote_followup'),
                 dict(source_order=order),
             )
         )
@@ -408,8 +397,7 @@ def _main_section_requests(state):
             continue
         for kind in ("section_sequence", "section_member"):
             name = f"main_{kind}_{item['source_order']}"
-            spec = question(kind, name)
-            spec["instructions"] += review_instructions('footnote/main_section')
+            spec = question(kind, name, entry='footnote_followup', main_section=True)
             jobs.append(
                 (
                     name,

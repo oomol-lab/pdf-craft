@@ -57,12 +57,12 @@ def _overlap(a, b):
     return min(a[2], b[2]) > max(a[0], b[0]) and min(a[3], b[3]) > max(a[1], b[1])
 
 
-def _job(kind, check):
+def _job(entry, kind, check):
     name = f"{kind}_{check['source_order']}"
-    return name, question(kind, name), deepcopy(check)
+    return name, question(kind, name, entry=entry), deepcopy(check)
 
 
-def _duplicates(state, _risks):
+def _duplicates(state, _risks, *, entry='body_followup'):
     retained = [layout for layout in state['local_raw_evidence']['target_page']['layouts']
                 if layout['source_type'] == 'text' and layout['ownership'] == 'paragraph'
                 and layout.get('raw_text', '').strip()]
@@ -81,7 +81,7 @@ def _duplicates(state, _risks):
                 continue
             matches.append(dict(other_source_order=other['source_order'], full_literal_match_start=offset))
         if matches:
-            yield _job('redundancy', dict(check,
+            yield _job(entry, 'redundancy', dict(check,
                 same_page_overlapping_source_orders=[layout['source_order'] for layout in others],
                 complete_literal_containment_candidates=matches))
 
@@ -93,7 +93,7 @@ def _owners(state, risks):
             yield check
 
 
-def _sections(state, risks):
+def _sections(state, risks, *, entry='body_followup'):
     layouts = state['local_raw_evidence']['target_page']['layouts']
     headings = [layout for layout in layouts if layout['source_type'] == 'text'
                 and (layout.get('paragraph_role') == 'heading'
@@ -105,16 +105,16 @@ def _sections(state, risks):
                       for h in headings if h['document_order'] <= target['document_order']]
         if candidates:
             value = dict(check, preceding_or_current_heading_candidates=candidates)
-            yield _job('section_sequence', value)
-            yield _job('section_member', value)
+            yield _job(entry, 'section_sequence', value)
+            yield _job(entry, 'section_member', value)
 
 
-def _attributions(state, risks):
+def _attributions(state, risks, *, entry='body_followup'):
     for check in _owners(state, risks):
-        yield _job('attribution', check)
+        yield _job(entry, 'attribution', check)
 
 
-def _quotes(state, risks, *, threshold=LOCAL_REVIEW_THRESHOLD):
+def _quotes(state, risks, *, threshold=LOCAL_REVIEW_THRESHOLD, entry='body_followup'):
     pairs = {'“': '”', '‘': '’', '"': '"', "'": "'", '「': '」', '『': '』', '«': '»'}
     for key, check in state['checks'].items():
         if (not key.startswith('gap_') or check['present_decision']
@@ -132,11 +132,11 @@ def _quotes(state, risks, *, threshold=LOCAL_REVIEW_THRESHOLD):
         value = dict(check, raw_delimiter_cues=dict(current_has_matching_outer_quote_delimiters=whole,
             preceding_paragraph_hint_is_same_page=same, preceding_hint_ends_sentence_ending_quote=closed))
         if whole or not closed:
-            yield _job('quotation_boundary', value)
+            yield _job(entry, 'quotation_boundary', value)
         elif not contradictory_hint(state, check):
             for part, kind in (('word', 'left_word_complete'), ('syntax', 'left_frame_complete')):
                 if risks.get(key + '_' + part, 0) >= threshold:
-                    yield _job(kind, value)
+                    yield _job(entry, kind, value)
 
 
 def _image_candidates(state):
@@ -164,13 +164,13 @@ def _image_candidates(state):
                    read_only_full_text_occurrences_in_neighbors=matches)
 
 
-def _image_starts(state, _risks):
+def _image_starts(state, _risks, *, entry='body_followup'):
     for check in _image_candidates(state):
-        yield _job('image_caption_role', check)
-        yield _job('caption_starts_here', check)
+        yield _job(entry, 'image_caption_role', check)
+        yield _job(entry, 'caption_starts_here', check)
 
 
-def _selected_strips(state, _risks):
+def _selected_strips(state, _risks, *, entry='body_followup'):
     prior = state['local_raw_evidence'].get('previous_page')
     if not prior:
         return
@@ -188,10 +188,10 @@ def _selected_strips(state, _risks):
         if matches:
             value = dict(check, earlier_whole_text_occurrences_with_following_text=matches)
             for kind in ('detached_image_strip', 'prior_narrative_role', 'selected_whole_passage'):
-                yield _job(kind, value)
+                yield _job(entry, kind, value)
 
 
-def _dialogue(state, _risks):
+def _dialogue(state, _risks, *, entry='body_followup'):
     for key, check in state['checks'].items():
         if not key.startswith('gap_') or not check['present_decision']:
             continue
@@ -201,14 +201,14 @@ def _dialogue(state, _risks):
         if (prior is None or not prior['text_end'].rstrip().endswith(tuple('”」』»"'))
                 or contradictory_hint(state, check)):
             continue
-        yield _job('fresh_spoken_turn', check)
-        yield _job('different_dialogue_speaker', check)
+        yield _job(entry, 'fresh_spoken_turn', check)
+        yield _job(entry, 'different_dialogue_speaker', check)
 
 
-def _word_joins(state, risks):
+def _word_joins(state, risks, *, entry='body_followup'):
     for key, check in state['checks'].items():
         if key.startswith('gap_') and check['present_decision'] and risks.get(key, 0) >= LOCAL_REVIEW_THRESHOLD:
-            yield _job('joined_word_complete', check)
+            yield _job(entry, 'joined_word_complete', check)
 
 
 def supplementary_requests(state, risks) -> Iterator[dict]:

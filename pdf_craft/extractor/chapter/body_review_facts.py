@@ -5,17 +5,11 @@ import re
 from .local_review import LOCAL_REVIEW_THRESHOLD, review_batches
 from .review_evidence import previous_paragraph, supplementary_requests, contradictory_hint
 
-from .review_templates import review_question, review_text
+from .review_templates import review_question
 
 def body_supplementary_requests(state, risks):
     """Keep generic facts intact; specialize only the body review's questions."""
-    for packet in supplementary_requests(state, risks):
-        packet = deepcopy(packet)
-        for key, spec in packet['questions'].items():
-            if key.startswith('left_frame_complete_'):
-                spec['instructions'].append(
-                    review_text('body/closed_quoted_frame'))
-        yield packet
+    yield from supplementary_requests(state, risks)
     yield from review_batches(state, list(_example_setups(state, risks)))
     yield from review_batches(state, list(_numbered_instructions(state)))
     yield from _role_packets(state, _closed_predecessor_frames(state, risks))
@@ -47,11 +41,11 @@ def _closed_predecessor_frames(state, risks):
                 or contradictory_hint(state, check)):
             continue
         label = 'closed_predecessor_frame_' + str(check['source_order'])
-        spec = review_question('body/closed_predecessor_frame', label=label)
+        spec = review_question('body_followup', kind='closed_predecessor_frame', label=label)
         selected = {k: prior[k] for k in ('page_index', 'source_order', 'text_end', 'bbox_normalized')}
         yield label, spec, dict(check, selected_predecessor=selected)
         role = 'closed_predecessor_main_reading_' + str(check['source_order'])
-        prompt = review_question('body/closed_predecessor_main_reading', role=role)
+        prompt = review_question('body_followup', kind='closed_predecessor_main_reading', role=role)
         yield role, prompt, dict(check, selected_predecessor=selected)
 
 
@@ -66,7 +60,7 @@ def _nonreading_traces(state):
             continue
         source = next(x for x in texts if x['source_order'] == check['source_order'])
         key = 'nonreading_page_trace_' + str(check['source_order'])
-        spec = review_question('body/nonreading_page_trace', key=key)
+        spec = review_question('body_followup', kind='nonreading_page_trace', key=key)
         source = {k: source[k] for k in ('source_order', 'source_type', 'raw_text', 'bbox_normalized')}
         yield key, spec, dict(source=source)
 
@@ -83,7 +77,7 @@ def _publisher_apparatus(state):
         if len(source['raw_text']) > 160 or not (box[3] <= .10 or box[1] >= .90):
             continue
         key = 'publisher_apparatus_' + str(check['source_order'])
-        spec = review_question('body/publisher_apparatus', key=key)
+        spec = review_question('body_followup', kind='publisher_apparatus', key=key)
         source = {k: source[k] for k in ('source_order', 'source_type', 'raw_text', 'bbox_normalized')}
         yield key, spec, dict(source=source)
 
@@ -116,7 +110,7 @@ def _example_setups(state, risks):
             continue
         value = dict(check, selected_predecessor=prior)
         key = f"same_example_setup_{check['source_order']}"
-        spec = review_question('body/same_example_setup', key=key)
+        spec = review_question('body_followup', kind='same_example_setup', key=key)
         yield key, spec, value
 
 
@@ -146,7 +140,7 @@ def _numbered_instructions(state):
                      source_order=prior['source_order'], raw_text=source['raw_text']))
         for kind in ('one_numbered_instruction', 'conditional_command_required'):
             key = f"{kind}_{check['source_order']}"
-            prompt = review_question('body/' + kind, key=key)
+            prompt = review_question('body_followup', kind=kind, key=key)
             yield key, prompt, deepcopy(value)
 
 
@@ -191,7 +185,7 @@ def _illustration_joins(state):
 def _illustration_questions(order, value):
     for kind in ('prior_illustration_unit', 'target_leaves_illustration'):
         key = f'{kind}_{order}'
-        prompt = review_question('body/' + kind, key=key)
+        prompt = review_question('body_followup', kind=kind, key=key)
         yield key, prompt, deepcopy(value)
 
 
