@@ -11,7 +11,8 @@ from xml.etree.ElementTree import fromstring
 from pdf_craft.extractor.chapter.assembly import PageAssembly
 from pdf_craft.extractor.chapter.page_repair import _validate_shared_citations, _validate_reading_boundary
 from pdf_craft.extractor.chapter.primary import PrimaryPages
-from pdf_craft.extractor.chapter.page_analysis import project_definition_mark, _restore_fragment
+from pdf_craft.extractor.chapter.page_analysis import _restore_fragment
+from pdf_craft.extractor.chapter.analysis_content import project_definition_mark
 from pdf_craft.pdf import decode
 from tests.test_page_repair import _page_with_reference
 

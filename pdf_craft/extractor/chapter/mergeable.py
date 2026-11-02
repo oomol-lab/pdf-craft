@@ -4,7 +4,7 @@ from ...language import is_latin_letter
 from ...expression import ExpressionKind
 from ...markdown.paragraph import HTMLTag
 from .chapter import BlockMember, InlineExpression
-from .content import first, last
+from .content import LINK_FLAGS, first, last
 
 # 句尾标识符号
 # to see https://github.com/opendatalab/MinerU/blob/fa1149cd4abf9db5e0f13e4e074cdb568be189f4/mineru/utils/span_pre_proc.py#L247
@@ -45,14 +45,6 @@ _LINE_CONTINUE_FLAGS = (
 )
 
 # 连接符号（用于跨行单词拼接）
-LINK_FLAGS = (
-    "‐",
-    "‑",
-    "‒",
-    "–",
-    "—",
-    "―",
-)
 
 # 维度一：编号形式
 _NUMBER_FORMS = (

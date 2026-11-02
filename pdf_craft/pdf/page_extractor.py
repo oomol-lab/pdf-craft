@@ -365,17 +365,20 @@ class PageExtractorNode:
             if det is None:
                 continue
 
-            # 检测短模式重复（如 "1.1.1.1."）
-            if has_repetitive_ngrams(
-                text, min_ngram=2, max_ngram=5, repeat_threshold=16
-            ):
-                continue
+            # Repeated cells and markup are ordinary asset structure, not
+            # evidence of OCR hallucination. Keep the original crop as well.
+            if ref not in ASSET_TAGS:
+                # 检测短模式重复（如 "1.1.1.1."）
+                if has_repetitive_ngrams(
+                    text, min_ngram=2, max_ngram=5, repeat_threshold=16
+                ):
+                    continue
 
-            # 检测长模式重复（保守策略）
-            if has_repetitive_ngrams(
-                text, min_ngram=6, max_ngram=20, repeat_threshold=8
-            ):
-                continue
+                # 检测长模式重复（保守策略）
+                if has_repetitive_ngrams(
+                    text, min_ngram=6, max_ngram=20, repeat_threshold=8
+                ):
+                    continue
 
             if stage_index != 1 and ref in ASSET_TAGS:
                 continue

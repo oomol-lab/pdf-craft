@@ -6,7 +6,10 @@ from contextlib import closing
 from copy import deepcopy
 
 from .chapter import Reference, SourceAsset, StandaloneAsset, DisplayFormula, _encode_flow, _encode_reference
-from .page_analysis import _restore_layouts, _restore_mark, PageStructureError
+from .page_analysis import _restore_layouts
+from .analysis_content import _restore_mark
+from .analysis_types import PageStructureError
+from .asset_text import materialize_asset_text, active_asset_text
 from .stream import _position
 
 
@@ -100,11 +103,12 @@ class PageAssembly:
         # incoming continuation here, at the sole ordered adoption boundary.
         if self.active_note is not None or refined:
             page = deepcopy(page)
+            attached = active_asset_text(page.layouts)
             next_index = max((citation.index or 0 for citation in page.citations), default=0) + 1
             for citation in page.citations:
                 members = sorted((layout for layout in page.layouts
                                   if layout.citation_id == citation.citation_id
-                                  and layout.source_order is not None),
+                                  and layout.source_order is not None and id(layout) not in attached),
                                  key=lambda item: item.document_order)
                 incoming = citation.continues_previous or (members and members[0].continues_from_previous)
                 if citation.index is None and citation.origin_page_index is None and incoming and self.active_note is not None:
@@ -128,6 +132,7 @@ class PageAssembly:
         return page
 
     def _append(self, page):
+        page = materialize_asset_text(page)
         if self.active_note is not None and self.active_note not in {c.citation_id for c in page.citations}:
             self._close_note(self.active_note)
             self.active_note = None

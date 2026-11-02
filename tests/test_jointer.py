@@ -4,12 +4,12 @@ from pdf_craft.markdown.paragraph import HTMLTag
 from pdf_craft.pdf import PageLayout
 from pdf_craft.extractor.chapter.chapter import SourceAsset, TextFlowItem
 from pdf_craft.extractor.chapter.chapter import InlineExpression
-from pdf_craft.extractor.chapter.jointer import (
-    Jointer,
+from pdf_craft.extractor.chapter.jointer import Jointer
+from pdf_craft.extractor.chapter.content import _parse_block_content
+from pdf_craft.extractor.chapter.asset_text import (
     _AssetHolder,
     _normalize_equation,
     _normalize_table,
-    _parse_block_content,
 )
 
 

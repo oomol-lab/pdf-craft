@@ -4,10 +4,11 @@ from dataclasses import replace
 from copy import deepcopy
 
 from .generation import _resolve_jointers
-from .jointer import Jointer, _is_empty_text_layout
+from .jointer import Jointer
 from .page_analysis import analyse_pages
-from .source import capture_sources, excluded_sources
-from .marginal_numbers import reading_notes, reading_body
+from .asset_text import active_asset_text
+from .source import capture_sources, _is_empty_text_layout
+from .marginal_numbers import excluded_sources, reading_notes, reading_body
 
 
 def project_page(page, includes_footnotes):
@@ -50,10 +51,12 @@ class PrimaryPages:
         _canonicalize(target, analyses, self.previous_analysis)
         if not self.includes_footnotes:
             target = _body_candidates(target)
+        attached = active_asset_text(target.layouts)
         if not any(not _is_empty_text_layout(layout) for layout in reading_body(current, includes_footnotes=self.includes_footnotes)):
             self.body_tail = None
         elif any(layout.source_order is not None or getattr(layout.source, 'ref', None) == 'formula'
-                 for layout in target.layouts if layout.ownership == 'paragraph'):
+                 for layout in target.layouts if layout.ownership == 'paragraph'
+                 and id(layout) not in attached):
             self.body_tail = current
         self.previous, self.previous_analysis = current, target
         return target

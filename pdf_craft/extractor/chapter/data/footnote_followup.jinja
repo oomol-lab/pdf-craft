@@ -1,0 +1,168 @@
+{# Footnotes enabled: supplementary facts. Mode-specific questions are inline; only cross-entry questions are included. #}
+
+{% if kind == 'dependency_completion' %}
+# Instructions
+
+For the proposed left source and the immediate target opening, does the target supply an OBLIGATORY missing component of a syntactically unfinished left frame?
+
+Read the actual original left ending and right opening in the full supplied local evidence. A truncated prepositional/determiner/modifier construction, open parenthesis or unfinished conditional can require its continuation. The immediate right text must actually complete that dependency.
+
+This is independent of whether the left source has already ended a dictionary word: a complete word may still be inside a grammatically unfinished construction. Conversely lexical similarity alone is not proof.
+
+Reject mere topic continuity, two complete sentences, a voluntary next action, a different speaker after a completed utterance, captions/signatures, and invented missing words. A colon can introduce an independently presented quote or equation; the colon alone does not prove a mandatory same-paragraph continuation.
+
+Verify only this literal dependency. Another independent question verifies the named source is the correct nearest predecessor. Do not search older sources to find a convenient continuation.
+
+# True
+
+An actual left grammatical dependency is completed by the immediate target opening.
+
+# False
+
+That obligatory completion is not established.
+
+{% elif kind == 'displayed_number' %}
+# Instructions
+
+For the specified numeric-only target, is it an independently typeset numerical display within the surrounding exposition?
+
+The check includes measured original boxes of this source and its immediately adjacent same-page text. Use the full original local evidence to judge the printed function. A numerical result may be displayed independently after an introducing clause without becoming running prose.
+
+Do NOT require that introducing clause to be a complete sentence without its displayed result: this question is ONLY the displayed numeric object function. Do not judge the arithmetic or whether a different author could have printed it inline.
+
+Reject an ordinary page number, note/list label, date, decimal word fragment, or a number embedded in an ordinary prose line. Do not invent centered placement or ignore contradictory original boxes.
+
+# True
+
+This is an independently typeset numerical display, not ordinary running prose.
+
+# False
+
+That printed numerical-display function is not established.
+
+{% elif kind == 'ended_utterance_boundary' %}
+# Instructions
+
+At this proposed NEW paragraph boundary, has the preceding spoken turn ended by trailing off or interruption, with the target beginning outside that turn?
+
+Locate the nearest genuine main-reading predecessor in the supplied raw local evidence. A closing quote after an ellipsis is only a candidate cue. Do not invent missing words, speakers, indentation or a predecessor outside the supplied neighborhood.
+
+A deliberately unfinished utterance can finish a spoken turn: later independent narration about an interruption or a new utterance need not grammatically complete that abandoned utterance. Do not require the words inside a deliberately ended spoken turn to form a complete sentence.
+
+The outside grammatical frame must nevertheless be complete. If an outer conditional or subordinate clause containing the quoted speech still awaits its main clause or obligatory complement from the target, answer FALSE. Also reject if the target continues the same quoted utterance or merely supplies a missing obligatory component rather than begins outside it.
+
+This proves only that this syntax break is permissible under the ended-turn convention, not a word boundary, ownership, other gaps, or OCR correctness. If the actual ended-turn-to-independent-content relationship is not established, answer FALSE.
+
+# True
+
+The spoken turn has ended and the target begins independently outside it; no unfinished outer frame requires this join.
+
+# False
+
+The independent content after an ended turn is not established, or a required outside construction still continues.
+
+{% elif kind == 'math_unit_boundary' %}
+# Instructions
+
+At this specific NEW paragraph boundary, does the target constitute a separately presented mathematical statement, variable assignment, numerical display, or independently numbered exercise item?
+
+Use the supplied full local_raw_evidence, source boxes, and the nearest genuine predecessor. OCR text labels do not preclude a mathematical display, and mathematical notation inside ordinary running prose does not establish one. Do not invent indentation, missing text or a different predecessor.
+
+Successive complete variable assignments may be separately presented even when introduced by one imperative or connected by and. An instruction introducing a list of separately numbered exercises may stand separately from each item. A self-contained mathematical display is a hard paragraph boundary even when introduced by running prose.
+
+Do not certify an ordinary running clause merely because it contains a number or inline formula. Reject a target that supplies the missing word ending, a temperature/unit fragment embedded in an unfinished prose noun phrase, a continued condition whose main clause follows, or another obligatory prose complement without an independent mathematical/list-item function.
+
+Assess the actual independent mathematical/item function, not the truth of the mathematics or whether two related passages could be written together. If this role is not established, answer FALSE. This proof affects only this syntax break; it does not approve ownership, another boundary, or missing OCR.
+
+# True
+
+The target is an independently presented mathematical or numbered exercise unit; a new paragraph is legitimate under this convention.
+
+# False
+
+Such an independent unit is not established, or this is a required running-prose continuation.
+
+{% elif kind == 'reporting_join' %}
+# Instructions
+
+For this EXISTING incoming JOIN only, is the target utterance the direct spoken content introduced by the immediately preceding reporting frame, rather than a fresh independently attributed turn?
+
+Find the nearest genuine main-reading predecessor using the full supplied local raw evidence. A colon and quote delimiters are only selection cues. Establish an actual reporting relation, not merely topical continuity, a list, a quotation of a term, or two independent speakers.
+
+A reporting verb with its speaker can introduce the words spoken by that same speaker in the following quoted block. Joining that introduction and its direct spoken content is legitimate even if printing could also separate the quote. Do not demand a split merely because the target begins with an opening quotation mark.
+
+If the preceding frame already contains the full spoken content or the target introduces another speaker, another independent utterance, a new heading/item, or independent narration, answer FALSE. Do not infer missing speech or depend on following pages.
+
+This proof only permits this specific incoming join; it does not approve source ownership, references, other gaps, missing OCR or final styling. If an unambiguous introduction-to-direct-speech relation is not established, answer FALSE.
+
+# True
+
+This join combines one reporting introduction with its own direct spoken complement, with no independent turn boundary.
+
+# False
+
+That single reporting-frame relation is not established, or this joins independent turns/content.
+
+{% elif kind == 'retained_reading_position' %}
+# Instructions
+
+Assess ONLY state.checks.{{ name }}, identified by source_order in local_raw_evidence.target_page.layouts. Other sources or questions cannot decide this one.
+
+Does the WHOLE source have a positive, identifiable place in the main reading sequence, rather than being page apparatus? Use the original printed arrangement and neighboring reading text. bbox_normalized is [left,top,right,bottom] in page fractions from 0 to 1; near top=0 or bottom=1 is the physical page edge, not the start or end of the story.
+
+Require an actual reading-content role, such as a section/volume opening in the reading columns or an instructional step among the main instructions. Its mentioning a book name, chapter, printing or pages does not turn it into page apparatus. Judge placement and role of the entire source, not just familiar content words.
+
+A marginal folio, running header/footer or publication continuation cue is not main reading, even if it names a chapter. On a blank page, a bottom-margin chapter label does not become a chapter opening just because it is the first or only source. Conversely a genuine section-title leaf can have only its centrally placed title. Do not infer a reading role from the source having been retained by OCR.
+
+Do not judge spelling, paragraph joins or note-reference completeness. Uncertainty about an apparatus role alone is not positive proof of main reading. Require concrete main-reading placement/function; otherwise answer false.
+
+# True
+
+The complete source has a demonstrated main-reading role in this local printed sequence.
+
+# False
+
+Such a complete-source main-reading role is not established; it may be apparatus or uncertain.
+
+{% elif kind == 'seam_predecessor' %}
+# Instructions
+
+For this target, is proposed_left_source the actual nearest preceding main-reading text that the incoming join must use?
+
+Verify the source identity in full local_raw_evidence and preceding_source_index. The supplied candidate is only an algorithm proposal, not a correct answer. Skip genuine ancillary notes, running furniture and page numbers; do not skip an intervening main paragraph, caption, signature or retained quotation to choose an older convenient stem.
+
+This question asks ONLY the predecessor relation. Do not grade the word seam, target completeness, author meaning or other pages. If the proposed source is not the actual nearest main-reading predecessor, or this cannot be established, answer FALSE.
+
+# True
+
+This proposed source is the actual nearest main-reading predecessor, not ancillary material or an arbitrarily older source.
+
+# False
+
+That predecessor relation is not established.
+
+{% elif kind == 'seam_word' %}
+# Instructions
+
+For ONLY the two literal pieces in this check, does the short target prefix supply the missing end of a word begun at the immediate end of the proposed left source?
+
+literal_left_tail and short_current_prefix are unchanged original characters. Inspect the last unfinished stem on the left and the first characters on the right before their first punctuation. Chinese lexical words can span a page without whitespace. A later complete sentence or author comment does not undo this immediate word completion.
+
+This question is only about the literal lexical seam. Another independent question verifies whether the named left source is the correct predecessor; do not weaken this lexical answer because of uncertainty about that separate relationship.
+
+Require a genuinely unfinished word, not merely two complete words that can be written next to each other, a possible invented compound, topical agreement or an incomplete-looking target. Completed punctuation on the left, an unrelated full name, a signature, a new heading/item or a new spoken turn do not establish an unfinished stem. Do not invent missing characters.
+
+If these exact immediate pieces do not establish completion of one actual word, answer FALSE.
+
+# True
+
+The exact immediate seam completes one unfinished lexical word.
+
+# False
+
+Such a literal unfinished-word completion is not established.
+
+{% else %}
+{% include 'shared_followup.jinja' %}
+
+{% endif %}

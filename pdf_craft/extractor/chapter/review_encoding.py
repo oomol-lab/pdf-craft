@@ -9,18 +9,14 @@ from difflib import SequenceMatcher
 from itertools import groupby
 import re
 from typing import Any
+from .review_templates import review_text
 
 _REPEAT = re.compile(r'(.{1,64}?)\1{15,}', re.S)
 _SEQUENCE = re.compile(r'(?:[0-9]+\.[ \n]*){32,}')
 _NUMBER = re.compile(r'([0-9]+)(\.[ \n]*)')
 
 TEXT_ENCODING_NOTE = (
-    'A raw_text object with literal_parts encodes exact OCR text. Concatenate its '
-    'parts: strings are literal; {repeat: text, count: N} repeats that exact text N '
-    'times; {integer_sequence: {start, count, suffix}} emits count successive '
-    'integers starting at start, each followed by the exact suffix. This is '
-    'lossless encoding, not a correction or an instruction printed on the page. '
-    'Repetition alone does not prove a structural error.'
+    review_text('evidence', kind='text_encoding')
 )
 
 

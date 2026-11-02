@@ -10,12 +10,14 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ...pdf import Page
-from .page_analysis import AnalysedLayout, PageAnalysis
+from .analysis_types import AnalysedLayout, PageAnalysis, _AnalysedAssetSource
+from .asset_text import asset_text_packet
 from .paragraph_geometry import text_scale_estimate
 from .local_review import LOCAL_REVIEW_THRESHOLD, local_review_requests
 from .structural_review import NamedBatchEvaluator, review_body_page
 from .footnote_review import (FOOTNOTE_REVIEW_THRESHOLD, footnote_review_requests, review_footnote_page)
 
+from .review_templates import review_text
 
 JEV_REVIEW_THRESHOLD = FOOTNOTE_REVIEW_THRESHOLD
 
@@ -92,7 +94,7 @@ class JevReviewProcessor:
             else:
                 index = state['target_page']['page_index']
                 probability = await review_body_page(
-                    ((index, packet) for packet in local_review_requests(state)), evaluate)
+                    ((index, packet) for packet in local_review_requests(state, concrete_joins=True)), evaluate)
             if probability is not None:
                 cutoff = 1 - self._threshold
                 # Compare on the score's own scale: taking the complement can
@@ -138,7 +140,7 @@ def build_jev_review_requests(
         if includes_footnotes:
             yield from footnote_review_requests(state)
         else:
-            for packet in local_review_requests(state):
+            for packet in local_review_requests(state, concrete_joins=True):
                 yield index, packet
 
 
@@ -168,9 +170,7 @@ def build_jev_review_states(
             state = {
                 "format": "pdf-craft PageReviewPacket v2",
                 "coordinate_note": (
-                    "bbox_normalized is [left, top, right, bottom] in page fractions. "
-                    "text_scale_estimate is a rough OCR-pixel glyph-area scale, not actual font size; "
-                    "compare small-print blocks with their neighbours, never classify by this alone."
+                    review_text('evidence', kind='coordinates')
                 ),
                 "target_page": target,
                 "previous_page": _boundary_context(
@@ -218,7 +218,7 @@ def _page_packet(
             citation_layout_counts[citation_id] = (
                 citation_layout_counts.get(citation_id, 0) + 1
             )
-    return {
+    packet = {
         "page_index": page.index,
         "pixel_size": list(size),
         "ocr_body_layout_count": len(page.body_layouts),
@@ -237,6 +237,10 @@ def _page_packet(
         ],
         "layouts": layouts,
     }
+
+    if any(item.annotations.keep_asset_attachment for item in analysis.layouts):
+        packet['asset_text_note'] = review_text('evidence', kind='asset_text')
+    return packet
 
 
 def _layout_packet(
@@ -262,7 +266,9 @@ def _layout_packet(
         analysed_text = _content_text(source.content)
         source_type = "text"
     else:
-        raw_text = _content_text(source.content)
+        assert isinstance(source, _AnalysedAssetSource)
+        fields = (source.title, source.caption) if source.ref == 'image' else (source.title, source.content, source.caption)
+        raw_text = "\n".join(_content_text(field) for field in fields if field)
         analysed_text = raw_text
         source_type = getattr(source, "ref")
     width, height = size
@@ -306,6 +312,9 @@ def _layout_packet(
             result['number_ink_bbox_normalized'] = [
                 round(value / (width if index % 2 == 0 else height), 3)
                 for index, value in enumerate(observation)]
+    association = asset_text_packet(layout, include_page=True)
+    if association is not None:
+        result['asset_text_association'] = association
     return result
 
 
@@ -318,11 +327,11 @@ def _boundary_context(
         return None
     paragraphs = [
         layout for layout in packet["layouts"]
-        if layout["ownership"] == "paragraph" and layout.get("source_type") not in {"image", "table"}
+        if layout["ownership"] == "paragraph" and not layout.get("asset_text_association", {}).get("retained") and layout.get("source_type") not in {"image", "table"}
     ]
     citations = [
         layout for layout in packet["layouts"]
-        if layout["ownership"] == "citation" and layout.get("source_type") not in {"image", "table"}
+        if layout["ownership"] == "citation" and not layout.get("asset_text_association", {}).get("retained") and layout.get("source_type") not in {"image", "table"}
     ]
     # A misplaced note may occupy the apparent tail: retain the real body too.
     candidates = {} if includes_footnotes else {'excluded_candidates': [
@@ -336,6 +345,10 @@ def _boundary_context(
         "citations": packet["citations"],
         "paragraph_boundary": paragraphs,
         "citation_boundary": citations,
+        "assets": [layout for layout in packet['layouts'] if layout['source_type'] in {'image', 'table'}],
+        **({'asset_text_sources': [layout for layout in packet['layouts']
+               if layout.get('asset_text_association', {}).get('retained')]}
+           if any(layout.get('asset_text_association') for layout in packet['layouts']) else {}),
         **candidates,
     }
 

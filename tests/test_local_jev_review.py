@@ -155,7 +155,8 @@ class LocalReviewRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_local_batch_results_reduce_to_one_unrounded_page_decision(self):
         raw, analysed, sizes = inputs(5)
         async def evaluate(requests):
-            return [(index, {name: .48 if name == 'gap_4_word' else .99
+            return [(index, {name: .01 if name.startswith('publisher_apparatus_') else
+                             .48 if name == 'gap_4_word' else .99
                              for name in request['questions']}) for index, request in requests]
         reviewer = JevReviewProcessor(AsyncMock(), includes_footnotes=False,
                                       question_batch_evaluator=evaluate)

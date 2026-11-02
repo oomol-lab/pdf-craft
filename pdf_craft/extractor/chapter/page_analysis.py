@@ -1,329 +1,87 @@
 """Reversible page-oriented projection of resolved chapter layouts.
 
 This module sits between the traditional paragraph/reference resolution and
-FlowItem assembly.  It deliberately contains no inference: the first version
-only records the decisions already made by the existing algorithms and can
-restore those decisions without changing source text or geometry.
+FlowItem assembly. It records decisions made by the local algorithms, orders
+page observations and restores adopted streams without changing source text or
+geometry. Structured-text conversion and asset association have separate owners.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-import re
-from typing import Iterable, Literal, TypeAlias
+from dataclasses import replace
+from typing import Iterable
 
-from ...expression import ExpressionKind
-from ...markdown.paragraph import HTMLTag, tag_definition
 from .chapter import (
     DisplayFormula,
-    InlineExpression,
     Reference,
     SourceAsset,
     SourceTextFragment,
     StandaloneAsset,
     TextFlowItem,
-    TextSource,
 )
-from .mark import Mark, NumberClass, NumberStyle
-from .jointer import normalize_source_projection
-
-
-LayoutOwnership: TypeAlias = Literal["paragraph", "citation", "ignored"]
-
-
-@dataclass(frozen=True)
-class _ReferencePlaceholder:
-    """Immutable position occupied by a reference in source content."""
-
-    text: str
-    citation_page_index: int
-    citation_index: int
-
-
-@dataclass(frozen=True)
-class _AnalysedInlineExpression:
-    kind: ExpressionKind
-    content: str
-
-
-@dataclass(frozen=True)
-class _AnalysedHTMLTag:
-    name: str
-    attributes: tuple[tuple[str, str], ...]
-    children: tuple[_AnalysedContentPart, ...]
-
-
-_AnalysedContentPart: TypeAlias = (
-    str | _ReferencePlaceholder | _AnalysedInlineExpression | _AnalysedHTMLTag
+from .content import normalize_source_projection
+from .analysis_types import (
+    LayoutOwnership,
+    _ReferencePlaceholder,
+    _AnalysedInlineExpression,
+    _AnalysedHTMLTag,
+    _AnalysedContentPart,
+    _AnalysedContent,
+    AssetTextTarget,
+    _AnalysedTextSource,
+    _AnalysedAssetSource,
+    _AnalysedSource,
+    ReferenceLocation,
+    ReferenceSpan,
+    _AnalysedMark,
+    _CitationMark,
+    AnalysedCitation,
+    UnindexedCitation,
+    LayoutAnnotations,
+    AnalysedLayout,
+    PageAnalysis,
+    RestoredStreams,
+    PageStructureError,
 )
-_AnalysedContent: TypeAlias = tuple[_AnalysedContentPart, ...]
+from .analysis_content import (
+    _project_fragment_content,
+    _restore_content,
+    _analyse_mark,
+    _restore_mark,
+    analyse_text_source,
+)
+from .asset_text import (
+    active_asset_text,
+    materialize_asset_text,
+    analyse_asset_source,
+    expand_asset_sources,
+)
 
 
-@dataclass(frozen=True)
-class _AnalysedTextSource:
-    page_index: int
-    source_order: int
-    bbox: tuple[int, int, int, int]
-    content: _AnalysedContent
-    reading_order: int | None = None
-    citation_prefix: int = 0
-    origin: TextSource | None = None
-    citation_prefix_parts: int = 0
-
-
-@dataclass(frozen=True)
-class _AnalysedAssetSource:
-    page_index: int
-    ref: Literal["image", "table", "formula"]
-    bbox: tuple[int, int, int, int]
-    title: _AnalysedContent
-    content: _AnalysedContent
-    caption: _AnalysedContent
-    asset_hash: str | None
-    reading_order: int | None = None
-    origin: TextSource | None = None
-
-
-_AnalysedSource: TypeAlias = _AnalysedTextSource | _AnalysedAssetSource
-
-
-@dataclass
-class ReferenceLocation:
-    """A reference annotation at a stable path within a text layout."""
-
-    path: tuple[int, ...]
-    citation_page_index: int
-    citation_index: int
-
-
-@dataclass(frozen=True)
-class ReferenceSpan:
-    """A validated visible-text range compiled into a reference placeholder."""
-
-    start: int
-    end: int
-    citation_page_index: int
-    citation_index: int
-    mark_text: str
-
-
-@dataclass(frozen=True)
-class _AnalysedMark:
-    number: int
-    char: str
-    clazz: NumberClass
-    style: NumberStyle
-
-
-_CitationMark: TypeAlias = str | _AnalysedMark
-
-
-@dataclass
-class AnalysedCitation:
-    """One page-local segment of a logical citation."""
-
-    citation_id: str
-    page_index: int
-    index: int | None
-    mark: _CitationMark | None
-    stream_order: int
-    origin_page_index: int | None = None
-    continues_previous: bool = False
-
-    @property
-    def state(self) -> Literal["definition", "continuation", "unresolved"]:
-        if self.index is not None:
-            return "definition"
-        return "continuation" if self.origin_page_index is not None else "unresolved"
-
-
-@dataclass(frozen=True)
-class UnindexedCitation:
-    """Footnote content retained even though the legacy split omitted it."""
-
-    page_index: int
-    flow_items: tuple[SourceAsset | TextFlowItem, ...]
-
-
-@dataclass
-class LayoutAnnotations:
-    """The editable decisions attached to one immutable source layout."""
-
-    ownership: LayoutOwnership
-    continues_from_previous: bool
-    continues_to_next: bool
-    paragraph_role: str | None = None
-    paragraph_level: int | None = None
-    citation_id: str | None = None
-    citation_index: int | None = None
-    references: list[ReferenceLocation] = field(default_factory=list)
-    preserve_as_image: bool = False
-
-
-@dataclass(frozen=True)
-class AnalysedLayout:
-    """An immutable source layout decorated with editable resolution facts."""
-
-    source: _AnalysedSource
-    document_order: int
-    annotations: LayoutAnnotations
-
-    @property
-    def page_index(self) -> int:
-        return self.source.page_index
-
-    @property
-    def source_order(self) -> int | None:
-        if isinstance(self.source, _AnalysedTextSource):
-            return self.source.source_order
-        return None
-
-    @property
-    def bbox(self) -> tuple[int, int, int, int]:
-        return self.source.bbox
-
-    @property
-    def ownership(self) -> LayoutOwnership:
-        return self.annotations.ownership
-
-    @property
-    def continues_from_previous(self) -> bool:
-        return self.annotations.continues_from_previous
-
-    @property
-    def continues_to_next(self) -> bool:
-        return self.annotations.continues_to_next
-
-    @property
-    def paragraph_role(self) -> str | None:
-        return self.annotations.paragraph_role
-
-    @property
-    def paragraph_level(self) -> int | None:
-        return self.annotations.paragraph_level
-
-    @property
-    def citation_id(self) -> str | None:
-        return self.annotations.citation_id
-
-    @property
-    def citation_index(self) -> int | None:
-        return self.annotations.citation_index
-
-    @property
-    def references(self) -> list[ReferenceLocation]:
-        return self.annotations.references
-
-
-@dataclass
-class PageAnalysis:
-    """Internal, in-memory analysis of one OCR page."""
-
-    page_index: int
-    layouts: list[AnalysedLayout] = field(default_factory=list)
-    citations: list[AnalysedCitation] = field(default_factory=list)
-
-
-def layout_reference_text(layout: AnalysedLayout) -> str:
-    """Return the exact visible text surface used to locate paragraph refs."""
-
-    source = layout.source
-    if not isinstance(source, _AnalysedTextSource):
-        raise ValueError("References can only be located in text layouts")
-    return _visible_content_text(source.content)
-
-
-def layout_reference_spans(layout: AnalysedLayout) -> list[ReferenceSpan]:
-    """Return existing ref locations on the same visible-text surface."""
-
-    source = layout.source
-    if not isinstance(source, _AnalysedTextSource):
-        return []
-    spans: list[ReferenceSpan] = []
-    offset = 0
-
-    def visit(parts: _AnalysedContent) -> None:
-        nonlocal offset
-        for part in parts:
-            if isinstance(part, str):
-                offset += len(part)
-            elif isinstance(part, _ReferencePlaceholder):
-                start = offset
-                offset += len(part.text)
-                spans.append(ReferenceSpan(
-                    start=start,
-                    end=offset,
-                    citation_page_index=part.citation_page_index,
-                    citation_index=part.citation_index,
-                    mark_text=part.text,
-                ))
-            elif isinstance(part, _AnalysedInlineExpression):
-                offset += len(part.content)
-            else:
-                visit(part.children)
-
-    visit(source.content)
-    return spans
-
-
-def replace_layout_references(
-    layout: AnalysedLayout,
-    spans: Iterable[ReferenceSpan],
-) -> AnalysedLayout:
-    """Compile validated visible ranges back into immutable content paths."""
-
-    source = layout.source
-    if not isinstance(source, _AnalysedTextSource):
-        raise ValueError("References can only be placed in text layouts")
-
-    materialized = _materialize_reference_text(source.content)
-    visible_text = _visible_content_text(materialized)
-    ordered = sorted(spans, key=lambda span: (span.start, span.end))
-    previous_end = -1
-    for span in ordered:
-        if span.start < 0 or span.end < span.start or span.end > len(visible_text):
-            raise ValueError(
-                f"Reference span is outside layout text: {span.start}..{span.end}"
-            )
-        if span.start < previous_end:
-            raise ValueError("Reference spans cannot overlap")
-        if visible_text[span.start:span.end] != span.mark_text:
-            raise ValueError(
-                "Reference span mark does not match layout text: "
-                f"{visible_text[span.start:span.end]!r} != {span.mark_text!r}"
-            )
-        previous_end = span.end
-
-    leaves = _content_text_leaves(materialized)
-    replacements: dict[tuple[int, ...], list[tuple[int, int, ReferenceSpan]]] = {}
-    for span in ordered:
-        matched = _leaf_for_span(leaves, span.start, span.end)
-        if matched is None:
-            raise ValueError(
-                "Reference span crosses a structured content boundary: "
-                f"{span.start}..{span.end}"
-            )
-        path, leaf_start, _leaf_end = matched
-        replacements.setdefault(path, []).append(
-            (span.start - leaf_start, span.end - leaf_start, span)
-        )
-
-    rebuilt = _replace_content_text_leaves(materialized, replacements)
-    references: list[ReferenceLocation] = []
-    _collect_reference_locations(rebuilt, references)
-    return replace(
-        layout,
-        source=replace(source, content=rebuilt),
-        annotations=replace(layout.annotations, references=references),
-    )
-
-
-@dataclass
-class RestoredStreams:
-    """The two logical streams recovered from page analyses."""
-
-    paragraphs: list[TextFlowItem | SourceAsset]
-    citations: list[Reference]
+# Internal facade: previous imports and local diagnostic pickles resolve here.
+__all__ = [
+    'LayoutOwnership',
+    '_ReferencePlaceholder',
+    '_AnalysedInlineExpression',
+    '_AnalysedHTMLTag',
+    '_AnalysedContentPart',
+    '_AnalysedContent',
+    'AssetTextTarget',
+    '_AnalysedTextSource',
+    '_AnalysedAssetSource',
+    '_AnalysedSource',
+    'ReferenceLocation',
+    'ReferenceSpan',
+    '_AnalysedMark',
+    '_CitationMark',
+    'AnalysedCitation',
+    'UnindexedCitation',
+    'LayoutAnnotations',
+    'AnalysedLayout',
+    'PageAnalysis',
+    'RestoredStreams',
+    'PageStructureError',
+]
 
 
 def analyse_pages(
@@ -465,6 +223,9 @@ def analyse_pages(
             continues_to_next=False,
         ))
 
+    for page in pages.values():
+        page.layouts = expand_asset_sources(page.layouts)
+
     document_order = 0
     for page in pages.values():
         # Reading positions were captured before splitting the OCR streams.
@@ -523,7 +284,7 @@ def _get_citation_segment(
 def restore_streams(pages: Iterable[PageAnalysis]) -> RestoredStreams:
     """Restore paragraph and citation streams from editable page annotations."""
 
-    page_list = list(pages)
+    page_list = [materialize_asset_text(page) for page in pages]
     _validate_pages(page_list)
     citation_annotations = [
         citation for page in page_list for citation in page.citations
@@ -612,31 +373,9 @@ def _analyse_layout(
     citation_index: int | None = None,
 ) -> AnalysedLayout:
     references: list[ReferenceLocation] = []
-    if isinstance(source, SourceTextFragment):
-        analysed_source: _AnalysedSource = _AnalysedTextSource(
-            page_index=source.page_index,
-            source_order=source.source_order,
-            bbox=source.bbox,
-            content=_analyse_content(
-                list(source.source.content)
-                if ownership == "citation" and source.source is not None
-                else source.content, references),
-            reading_order=source.source.reading_order if source.source else None,
-            origin=source.source,
-            citation_prefix=_citation_prefix(source) if ownership == "citation" else 0,
-        )
-    else:
-        analysed_source = _AnalysedAssetSource(
-            page_index=source.page_index,
-            ref=source.ref,
-            bbox=source.bbox,
-            title=_analyse_content(source.title, references, (0,)),
-            content=_analyse_content(source.content, references, (1,)),
-            caption=_analyse_content(source.caption, references, (2,)),
-            asset_hash=source.asset_hash,
-            reading_order=source.reading_order,
-            origin=source.source,
-        )
+    analysed_source = (analyse_text_source(source, ownership, references)
+                       if isinstance(source, SourceTextFragment)
+                       else analyse_asset_source(source, ownership, references))
     return AnalysedLayout(
         source=analysed_source,
         document_order=-1,
@@ -755,191 +494,6 @@ def _validate_pages(pages: list[PageAnalysis]) -> None:
                 )
 
 
-def _analyse_content(
-    content: list,
-    references: list[ReferenceLocation],
-    prefix: tuple[int, ...] = (),
-) -> _AnalysedContent:
-    result: list[_AnalysedContentPart] = []
-    for index, part in enumerate(content):
-        path = (*prefix, index)
-        if isinstance(part, Reference):
-            references.append(
-                ReferenceLocation(
-                    path=path,
-                    citation_page_index=part.page_index,
-                    citation_index=part.order,
-                )
-            )
-            result.append(_ReferencePlaceholder(
-                text=str(getattr(part.mark, "char", part.mark)),
-                citation_page_index=part.page_index,
-                citation_index=part.order,
-            ))
-        elif isinstance(part, InlineExpression):
-            result.append(_AnalysedInlineExpression(part.kind, part.content))
-        elif isinstance(part, HTMLTag):
-            result.append(
-                _AnalysedHTMLTag(
-                    name=part.definition.name,
-                    attributes=tuple(part.attributes),
-                    children=_analyse_content(part.children, references, path),
-                )
-            )
-        elif isinstance(part, str):
-            result.append(part)
-        else:
-            raise TypeError(f"Unsupported source content member: {type(part).__name__}")
-    return tuple(result)
-
-
-def _visible_content_text(content: _AnalysedContent) -> str:
-    parts: list[str] = []
-    for part in content:
-        if isinstance(part, str):
-            parts.append(part)
-        elif isinstance(part, _ReferencePlaceholder):
-            parts.append(part.text)
-        elif isinstance(part, _AnalysedInlineExpression):
-            parts.append(part.content)
-        else:
-            parts.append(_visible_content_text(part.children))
-    return "".join(parts)
-
-
-def _materialize_reference_text(content: _AnalysedContent) -> _AnalysedContent:
-    result: list[_AnalysedContentPart] = []
-    for part in content:
-        if isinstance(part, _ReferencePlaceholder):
-            result.append(part.text)
-        elif isinstance(part, _AnalysedHTMLTag):
-            result.append(replace(
-                part,
-                children=_materialize_reference_text(part.children),
-            ))
-        else:
-            result.append(part)
-    return tuple(result)
-
-
-def _content_text_leaves(
-    content: _AnalysedContent,
-) -> list[tuple[tuple[int, ...], int, int]]:
-    leaves: list[tuple[tuple[int, ...], int, int]] = []
-    offset = 0
-
-    def visit(parts: _AnalysedContent, prefix: tuple[int, ...]) -> None:
-        nonlocal offset
-        for index, part in enumerate(parts):
-            path = (*prefix, index)
-            if isinstance(part, str):
-                leaves.append((path, offset, offset + len(part)))
-                offset += len(part)
-            elif isinstance(part, _ReferencePlaceholder):
-                offset += len(part.text)
-            elif isinstance(part, _AnalysedInlineExpression):
-                leaves.append((path, offset, offset + len(part.content)))
-                offset += len(part.content)
-            else:
-                visit(part.children, path)
-
-    visit(content, ())
-    return leaves
-
-
-def _leaf_for_span(
-    leaves: list[tuple[tuple[int, ...], int, int]],
-    start: int,
-    end: int,
-) -> tuple[tuple[int, ...], int, int] | None:
-    if start != end:
-        return next((leaf for leaf in leaves if leaf[1] <= start and end <= leaf[2]), None)
-    candidates = [leaf for leaf in leaves if leaf[1] <= start <= leaf[2]]
-    if not candidates:
-        return None
-    # At a structured boundary, attach a zero-width ref to the text on its
-    # left. This preserves the natural reading position without crossing tags.
-    return candidates[-1]
-
-
-def _replace_content_text_leaves(
-    content: _AnalysedContent,
-    replacements: dict[tuple[int, ...], list[tuple[int, int, ReferenceSpan]]],
-    prefix: tuple[int, ...] = (),
-) -> _AnalysedContent:
-    result: list[_AnalysedContentPart] = []
-    for index, part in enumerate(content):
-        path = (*prefix, index)
-        if isinstance(part, str) and path in replacements:
-            cursor = 0
-            for start, end, span in sorted(
-                replacements[path], key=lambda item: (item[0], item[1])
-            ):
-                if start > cursor:
-                    result.append(part[cursor:start])
-                result.append(_ReferencePlaceholder(
-                    text=span.mark_text,
-                    citation_page_index=span.citation_page_index,
-                    citation_index=span.citation_index,
-                ))
-                cursor = end
-            if cursor < len(part):
-                result.append(part[cursor:])
-        elif isinstance(part, _AnalysedInlineExpression) and path in replacements:
-            spans = replacements[path]
-            if len(spans) != 1:
-                raise ValueError('Reference must cover the complete atomic OCR expression')
-            start, end, span = spans[0]
-            placeholder = _ReferencePlaceholder(span.mark_text, span.citation_page_index, span.citation_index)
-            if (start, end) == (0, len(part.content)):
-                result.append(placeholder)
-            elif start == end == 0:
-                result.extend((placeholder, part))
-            elif start == end == len(part.content):
-                result.extend((part, placeholder))
-            else:
-                raise ValueError('Reference must cover the complete atomic OCR expression')
-        elif isinstance(part, _AnalysedHTMLTag):
-            result.append(replace(
-                part,
-                children=_replace_content_text_leaves(
-                    part.children, replacements, path
-                ),
-            ))
-        else:
-            result.append(part)
-    return tuple(result)
-
-
-def _collect_reference_locations(
-    content: _AnalysedContent,
-    references: list[ReferenceLocation],
-    prefix: tuple[int, ...] = (),
-) -> None:
-    for index, part in enumerate(content):
-        path = (*prefix, index)
-        if isinstance(part, _ReferencePlaceholder):
-            references.append(ReferenceLocation(
-                path=path,
-                citation_page_index=part.citation_page_index,
-                citation_index=part.citation_index,
-            ))
-        elif isinstance(part, _AnalysedHTMLTag):
-            _collect_reference_locations(part.children, references, path)
-
-
-class PageStructureError(ValueError):
-    """Invalid source relationships with a conservative page recovery target."""
-
-    def __init__(self, message: str, page_index: int, *, bbox: tuple[int, int, int, int] | None = None) -> None:
-        super().__init__(message)
-        self.page_index = page_index
-        self.bbox = bbox
-
-    def __reduce__(self):
-        return type(self), (str(self), self.page_index), {"bbox": self.bbox}
-
-
 def _restore_layouts(
     layouts: list[AnalysedLayout],
     references: dict[tuple[int, int], Reference],
@@ -1014,8 +568,12 @@ def _restore_layouts(
 
 def continuation_sequences(layouts: Iterable[AnalysedLayout]) -> Iterable[list[AnalysedLayout]]:
     """Text predecessors skip image/table anchors; display formulas stop them."""
+    items = list(layouts)
+    attached = active_asset_text(items)
     sequence: list[AnalysedLayout] = []
-    for layout in layouts:
+    for layout in items:
+        if id(layout) in attached:
+            continue
         if isinstance(layout.source, _AnalysedAssetSource):
             if layout.source.ref == "formula":
                 yield sequence
@@ -1041,54 +599,6 @@ def _restore_fragment(
     )
 
 
-def project_definition_mark(layout: AnalysedLayout, mark: str | None) -> AnalysedLayout:
-    """Remove a printed prefix only when projecting a definition, reversibly."""
-    source = layout.source
-    if not isinstance(source, _AnalysedTextSource):
-        return layout
-    prefix = 0
-    parts = 0
-    if mark and source.content and isinstance(source.content[0], _AnalysedInlineExpression) and source.content[0].content.strip() == mark:
-        parts = 1
-    remaining = source.content[parts:]
-    if mark and remaining and isinstance(remaining[0], str):
-        first = remaining[0]
-        start = len(first) - len(first.lstrip())
-        if parts:
-            prefix = start
-        elif first[start:].startswith(mark):
-            end = start + len(mark)
-            prefix = end + len(first[end:]) - len(first[end:].lstrip())
-    return replace(layout, source=replace(source, citation_prefix=prefix, citation_prefix_parts=parts))
-
-
-def _citation_prefix(fragment: SourceTextFragment) -> int:
-    if fragment.source is None:
-        return 0
-    original = fragment.source.content
-    current = fragment.content
-    if original and current and isinstance(original[0], str) and isinstance(current[0], str):
-        if original[0].endswith(current[0]):
-            return len(original[0]) - len(current[0])
-    return 0
-
-
-def _project_fragment_content(source, layout, references) -> list:
-    content = _restore_content(source.content, layout.references, references)
-    if layout.ownership == 'citation' and source.citation_prefix_parts:
-        content = content[source.citation_prefix_parts:]
-    if layout.ownership == "citation" and source.citation_prefix and content:
-        content[0] = content[0][source.citation_prefix:]
-        if not content[0]:
-            content.pop(0)
-    if layout.ownership == 'citation' and content and isinstance(content[0], str):
-        # Publication cues locate printed continuation, not author prose. Once
-        # note identity is restored they must not migrate through translation
-        # into an earlier physical page of the same paragraph.
-        content[0] = re.sub(r'^\s*[（(]\s*(?:接上[页頁]|续上[页頁])\s*[）)]\s*', '', content[0])
-    return content
-
-
 def _restore_asset(
     layout: AnalysedLayout,
     references: dict[tuple[int, int], Reference],
@@ -1107,73 +617,3 @@ def _restore_asset(
         reading_order=source.reading_order,
         source=source.origin,
     )
-
-
-def _restore_content(
-    content: _AnalysedContent,
-    annotations: list[ReferenceLocation],
-    references: dict[tuple[int, int], Reference],
-    prefix: tuple[int, ...] = (),
-) -> list:
-    annotations_by_path: dict[tuple[int, ...], ReferenceLocation] = {}
-    for annotation in annotations:
-        if annotation.path in annotations_by_path:
-            raise ValueError(f"Duplicate reference location: {annotation.path}")
-        annotations_by_path[annotation.path] = annotation
-
-    used_paths: set[tuple[int, ...]] = set()
-
-    def restore_parts(
-        parts: _AnalysedContent, current_prefix: tuple[int, ...]
-    ) -> list:
-        result: list = []
-        for index, part in enumerate(parts):
-            path = (*current_prefix, index)
-            if isinstance(part, _ReferencePlaceholder):
-                annotation = annotations_by_path.get(path)
-                if annotation is None:
-                    raise ValueError(f"Reference placeholder has no annotation: {path}")
-                key = (annotation.citation_page_index, annotation.citation_index)
-                if key not in references:
-                    raise ValueError(f"Reference points to unknown citation: {key}")
-                result.append(references[key])
-                used_paths.add(path)
-            elif isinstance(part, _AnalysedInlineExpression):
-                result.append(InlineExpression(part.kind, part.content))
-            elif isinstance(part, _AnalysedHTMLTag):
-                definition = tag_definition(part.name)
-                if definition is None:
-                    raise ValueError(f"Unknown analysed HTML tag: {part.name}")
-                result.append(
-                    HTMLTag(
-                        definition=definition,
-                        attributes=list(part.attributes),
-                        children=restore_parts(part.children, path),
-                    )
-                )
-            else:
-                result.append(part)
-        return result
-
-    restored = restore_parts(content, prefix)
-    expected_paths = {
-        path for path in annotations_by_path if path[: len(prefix)] == prefix
-    }
-    if used_paths != expected_paths:
-        unused = expected_paths - used_paths
-        raise ValueError(f"Reference annotations have no placeholder: {unused}")
-    return restored
-
-
-def _analyse_mark(mark: str | Mark) -> _CitationMark:
-    if isinstance(mark, str):
-        return mark
-    return _AnalysedMark(mark.number, mark.char, mark.clazz, mark.style)
-
-
-def _restore_mark(mark: _CitationMark | None) -> str | Mark:
-    if mark is None:
-        return ''  # OCR may identify a note's content but miss its printed mark.
-    if isinstance(mark, str):
-        return mark
-    return Mark(mark.number, mark.char, mark.clazz, mark.style)

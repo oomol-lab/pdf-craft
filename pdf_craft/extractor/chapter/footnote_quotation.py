@@ -5,13 +5,6 @@ from .review_questions import question
 from .review_encoding import compact_review_evidence, TEXT_ENCODING_NOTE
 from .structural_review import _decisions
 
-_RECITATION = (
-    "An independently presented spoken utterance, song lyric or recited verse may omit outer quotation marks. "
-    "A reporting or recitation introduction followed by a colon can introduce such a separate paragraph. "
-    "Require actual speech/verse, not a quoted term serving as an unfinished clause component, "
-    "a mathematical expression, or a missing obligatory complement. The colon itself is only a candidate cue, not proof."
-)
-
 
 def quotation_requests(state, scores, threshold):
     """A raw colon admits a question, never establishes a correct boundary."""
@@ -25,7 +18,7 @@ def quotation_requests(state, scores, threshold):
         jobs = []
         for checks in _decisions(packet['state']['checks']):
             local = dict(packet['state'], checks=checks)
-            candidates = [job for job in _quotes(local, risks, threshold=threshold)
+            candidates = [job for job in _quotes(local, risks, threshold=threshold, entry='footnote_followup')
                           if job[0].startswith('quotation_boundary_')]
             for key, check in checks.items():
                 if (not key.startswith('gap_') or check['present_decision']
@@ -37,8 +30,7 @@ def quotation_requests(state, scores, threshold):
                 name = 'quotation_boundary_' + key.rsplit('_', 1)[1]
                 if any(job[0] == name for job in candidates):
                     continue
-                spec = question('quotation_boundary', name)
-                spec['instructions'] += [_RECITATION]
+                spec = question('quotation_boundary', name, entry='footnote_followup', recitation=True)
                 candidates.append((name, spec, dict(check,
                     raw_delimiter_cues=dict(preceding_hint_ends_colon=True))))
             for job in candidates:

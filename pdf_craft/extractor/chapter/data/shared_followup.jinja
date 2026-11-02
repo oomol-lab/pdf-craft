@@ -1,0 +1,253 @@
+{# Shared by both supplementary entries: source-specific facts. Keep entry-specific conditions beside the rule they qualify. #}
+
+{% if kind == 'caption_starts_here' %}
+# Instructions
+
+For the image-associated-text candidate at checks.{{ name }}, is its opening a START of its own caption/excerpt unit rather than a continuation of an earlier caption/excerpt?
+
+This is a distinct boundary question. Determine whether the target opening forms its own image-associated unit from the full local raw evidence. A whole independently printed sentence or quotation accompanying the current illustration can begin its own unit even when it restates part of the preceding main narrative.
+
+Do not require caption text to continue a main prose paragraph merely because its topic or wording also appears in that prose. Conversely a caption can run over pages: an opening which supplies an unfinished word or mandatory construction from an earlier image-associated text is not a new caption unit.
+
+The image positions, current gap decision, ownership hints and immediate_paragraph_hint are fallible locators rather than answers. Do not certify the start from punctuation alone, or guess a missing beginning. Do not grade missing OCR characters, other sources or the ownership choice in this question. If a separate start is not established in the supplied neighborhood, answer FALSE.
+
+# True
+
+The target opening starts its own illustration-associated caption/excerpt unit, rather than continuing an earlier such unit.
+
+# False
+
+A distinct start is not established; this may continue an earlier caption/excerpt or lack the necessary evidence.
+
+{% elif kind == 'detached_image_strip' %}
+# Instructions
+
+Assess only the PAGE ORGANIZATION around the target at checks.{{ name }}: does this whole text form a separate narrow strip at the outer edge of, or overlaid on, a page-dominating illustration?
+
+Use local_raw_evidence.target_page.layouts and normalized image/text boxes. This asks about spatial organization, not whether the words tell a story. A complete narrative sentence can be printed as a strip with an illustration, without quotation marks or a Figure label.
+
+Distinguish a text strip around an illustration occupying the main page area from ordinary running text in a sustained body column with a picture inserted alongside it. The mere presence of an image is insufficient. Do not certify a mixed block containing both a sustained body column and ancillary illustration text.
+
+Only use the supplied boxes and full local raw evidence. Do not invent glyph positions, indentation, borders or a photographer credit absent from the supplied text. This spatial fact alone does not authorize a paragraph split or deleting any text.
+
+# True
+
+The entire target is organized as a separate narrow text strip at the edge of or over a dominant illustration, rather than a sustained running-text column.
+
+# False
+
+That separate strip organization is not established; the text may form ordinary running prose or a mixed block.
+
+{% elif kind == 'image_caption_role' %}
+# Instructions
+
+Classify only the FUNCTION of target source at checks.{{ name }}: is it illustration-associated caption text or a selected excerpt printed with an image, rather than ordinary running narrative?
+
+Use full local_raw_evidence and the image/text positions. A literary excerpt accompanying a photograph can have no Figure label and no quotation marks. A small strip above a nearly full-page image can still be image-associated text. The words may repeat an earlier narrative passage.
+
+Do not decide from image size or text repetition alone. Ordinary body prose can continue across a page with an image. Do not mistake diagram labels, an ordinary chapter heading, a mixed body/caption block or missing text for a whole caption/excerpt. This question asks text role only, not whether a continuation flag is correct.
+
+# True
+
+The whole target text functions as caption/excerpt material associated with the illustration.
+
+# False
+
+That image-associated whole-text function is not established; it may be running prose or another kind of text.
+
+{% elif kind == 'left_frame_complete' %}
+# Instructions
+
+At checks.{{ name }}, is the preceding reporting/sentence frame already syntactically complete OUTSIDE its finished quotation?
+
+Use complete local_raw_evidence and preceding_source_index to locate the nearest genuine SAME-PAGE preceding main-text block. Delimiter cues and immediate_paragraph_hint are fallible locators, not a confirmed predecessor. Exclude ancillary material and do not invent missing text.
+
+This checks a property of the LEFT block. Do not evaluate whether the target opening is well written or complete. Missing OCR characters in a new target do not create an unfinished left word or clause.
+
+A reporting verb can have its complete object supplied by the finished quoted utterance already present in that block. After that complete reporting sentence, subsequent narration need not be its obligatory complement. Do not judge the new target as an object that the left frame is still missing merely because it begins oddly.
+
+A finished quote does NOT automatically finish an outer conditional or subordinate clause. If the surrounding frame still requires its main clause or another obligatory component after the quote, answer FALSE. Distinguish that outside dependency from a fully completed reporting sentence.
+
+Do not require prose to continue in one paragraph for topical coherence, and do not repair author wording or missing OCR. If the actual outside frame cannot be determined from the supplied text, answer FALSE.
+
+
+{% if entry == 'body_followup' %}
+Judge whether the LEFT reporting/quoted frame is complete, not whether the current OCR opening is grammatical. Missing characters at the target opening do not create an unclosed left clause. Preserve any actual outer conditional or obligatory complement in the left text; never invent one to repair an OCR fragment.
+{% endif %}
+
+# True
+
+The outside reporting/grammatical frame is complete; it is not awaiting a mandatory clause or complement supplied by the target.
+
+# False
+
+An outside-quotation grammatical dependency remains, or the complete outside frame is not established.
+
+{% elif kind == 'left_word_complete' %}
+# Instructions
+
+At checks.{{ name }}, does the preceding main-text block already end at a whole-word boundary?
+
+Use complete local_raw_evidence and preceding_source_index to locate the nearest genuine SAME-PAGE preceding main-text block. Delimiter cues and immediate_paragraph_hint are fallible locators, not a confirmed predecessor. Exclude ancillary material and do not invent missing text.
+
+This checks a property of the LEFT block. Do not evaluate whether the target opening is well written or complete. Missing OCR characters in a new target do not create an unfinished left word or clause.
+
+Inspect the end of that preceding block, including the end of its quoted utterance. The missing suffix of an actual lexical stem would mean an incomplete word. A finished word followed by sentence-ending punctuation and a closing quote is not a word prefix waiting for the target.
+
+Do not infer word incompleteness merely because the target starts with a fragment. An unresolved outside-quotation clause is a syntax issue, not a word-internal issue. End-of-line hyphenation or an actually unfinished quoted word must still be treated as incomplete.
+
+# True
+
+The genuine preceding block ends at a whole-word boundary; no left lexical stem awaits a suffix from the target.
+
+# False
+
+That whole-word ending is not established, or an actual unfinished lexical stem remains on the left.
+
+{% elif kind == 'prior_narrative_role' %}
+# Instructions
+
+At checks.{{ name }}, does at least one listed matching PREVIOUS-page source function as ongoing main narrative which already contains the complete target passage and then continues with further narrative?
+
+The listed full literal occurrences and remaining text are read-only string-match facts. Locate those complete sources in local_raw_evidence.previous_page.paragraph_boundary and classify their function, rather than trusting ownership tags. Do not assume the last array item is correct main text.
+
+TRUE requires actual main narrative, not an earlier illustration caption, footnote, header or isolated repeated title. The matching source must continue beyond the copied passage: the target is not simply supplying words missing at its end. Do not infer anything from outside the provided neighboring pages. This asks about the previous source only, not the target caption role.
+
+# True
+
+A matched previous source is ongoing main narrative that already contains the complete target passage and has further narrative after it.
+
+# False
+
+Such a matched ongoing main narrative source is not established; the match may be ancillary or insufficient.
+
+{% elif kind == 'quotation_boundary' %}
+# Instructions
+
+Assess only the proposed NEW paragraph at checks.{{ name }}. Is this boundary permissible as an independently presented quotation, or as a new narration/utterance after a completed quoted utterance?
+
+The check supplies delimiter/nearby-text cues only to locate the question. They are not a verdict or a confirmed predecessor. Use full local_raw_evidence and the genuine nearest main-text predecessor; OCR ownership hints can be wrong. Do not infer nonexistent text, indentation or a fixed predecessor from a hint.
+
+A reporting/speech introduction ending in a colon can be followed by a complete independently presented quoted utterance in a new paragraph. This is a permitted quotation convention, not an obligatory syntax error. Distinguish such an utterance or quotation block from a merely quoted term inside a larger unfinished grammatical construction.
+
+After a completed quoted utterance and its completed surrounding reporting clause, a subsequent narration or new utterance may stand independently. A fragment-looking new opening does not demonstrate that a word or obligatory part was left unfinished on the left. Do not disguise missing OCR characters in a new narrative by appending it to a finished previous quotation.
+
+Do not certify this exception for a word cut within an unfinished quotation, a quoted term that is only one part of an unfinished external clause, or an ancillary note misidentified as main text. Require the actual complete quotation/utterance convention and no compulsory unfinished left construction.
+
+This is only a boundary exception check. It does not approve source ownership, authorize missing-text repair, or pardon another gap. If the legitimate quotation/narration boundary cannot be established, answer FALSE.
+
+
+{% if recitation | default(false) %}
+An independently presented spoken utterance, song lyric or recited verse may omit outer quotation marks. A reporting or recitation introduction followed by a colon can introduce such a separate paragraph. Require actual speech/verse, not a quoted term serving as an unfinished clause component, a mathematical expression, or a missing obligatory complement. The colon itself is only a candidate cue, not proof.
+{% endif %}
+
+# True
+
+The specific new-paragraph boundary is permissible under the complete independent quotation or completed-utterance-to-new-narration convention.
+
+# False
+
+That specific quotation-boundary exception is not established; the existing mandatory word/syntax concern is not resolved by this test.
+
+{% elif kind == 'redundancy' %}
+# Instructions
+
+Audit only the retained whole text source at checks.{{ name }}. Does it contribute its own printed content, rather than being a completely redundant overlapping OCR copy of another retained source?
+
+Full raw text and bounding boxes are in local_raw_evidence.target_page.layouts. Candidate same-page overlapping source orders are listed in this check; overlap alone is NOT a defect.
+
+A redundant copy requires ALL of the target text to be contained as one continuous passage in another retained source, AND both boxes to cover the same printed region. The target can be ignored without losing any unique main text. The larger block with unique content must remain.
+
+Repeated themes, shared phrases, partial duplicate prefixes with unique prose, different printed locations, and actual author quotations are not proof of redundant OCR. Do not grade footnote ownership, paragraph joins, OCR spelling or missing text in this question.
+
+Compare the complete target with the complete other source, including long block endings; a larger source may contain the target at its end. Preserve sources unless whole-source redundancy is established.
+
+complete_literal_containment_candidates records mechanically verified contiguous full-text containment, after collapsing only ASCII whitespace. Equal copies are compared with an earlier retained source so that at least one representative remains. These are literal facts, not duplicate labels: you still need to judge the printed occurrence and preserve unique content.
+
+Different adjacent narrow vertical columns may have boxes that overlap slightly at their x edges. Such edge bleed does not identify the same printed occurrence; repeated OCR words copied into distinct column locations do not establish a redundant copy of ONE printed region. Do not certify deletion from repetition plus an edge contact alone.
+
+Conversely, a horizontal text block may share a passage with a larger overlapping narrative block even when the OCR bbox is imperfect at the last lines. Do not require one bbox center to be inside the other: compare the complete literal passage, the shared horizontal footprint and the actual source organization.
+
+# True
+
+This source is nonredundant, or full harmless removal as an overlapping OCR duplicate is not established.
+
+# False
+
+This entire source is a redundant overlapping OCR copy already wholly represented in another retained source; ignoring it loses no unique content.
+
+{% elif kind == 'section_member' %}
+# Instructions
+
+For checks.{{ name }}, does this entire source belong to the notes/commentary section introduced by a matching supplied heading candidate?
+
+Use the complete target-page raw text, source order and column positions. The source can be that heading itself, or note/commentary entries under it. Entries may continue into the next column. A heading over unrelated main prose does not establish section membership.
+
+This asks only which section contains the target. It does NOT decide whether the section is main text or ancillary footnotes; that is a separate question. Do not certify a mixed block that includes text outside the section. Do not grade paragraph joins, missing OCR words, or note-reference completeness. If the matching heading and whole-source membership cannot be established, answer FALSE.
+
+
+{% if main_section | default(false) %}
+preceding_or_current_heading_candidates are unclassified short RAW text candidates, not established headings. Confirm their actual heading function independently; an OCR text tag or absent heading tag is not proof either way. A short vertical section label can identify a main commentary section without a Markdown heading marker. Do not treat an ordinary sentence, page number or inline note label as a section heading.
+{% endif %}
+
+# True
+
+The whole target is the matching section heading or belongs to the entries of that headed notes/commentary section.
+
+# False
+
+The required whole-source membership is not established.
+
+{% elif kind == 'section_sequence' %}
+# Instructions
+
+Locate the matching notes/commentary heading for checks.{{ name }}. Does it begin a separate section in the MAIN READING SEQUENCE, rather than an ancillary footnote area underneath continuing main prose?
+
+Use the full local_raw_evidence and column geometry. Follow ordinary column reading order: the left column can finish a discussion and the right column can then start its notes section at the top. Main prose and notes sharing a physical page does not make the notes a page-bottom apparatus.
+
+A notes section may start near the end of one column and continue in the next. Its entries can explain and cite the preceding discussion: that relationship is normal for endnotes and does not itself make them ancillary footnotes.
+
+In contrast, a small note area below ongoing main prose, separated from that prose in its own footer stream, is ancillary even if headed Notes. A chapter title, numbering, small type, the word Notes alone, or an assumed unseen separator cannot establish a new main section. Determine the actual location in the column reading sequence.
+
+This asks about the SECTION START only, not the spelling, paragraph joins or correctness of individual notes. If no matching heading and independent section sequence can be established, answer FALSE.
+
+
+{% if unmarked_note | default(false) %}
+The matching section heading may be on the PREVIOUS supplied page. A current page continuing that established section does not need to repeat its heading or start a second section. Judge whether the heading established a main reading section, not whether that section starts on the current page.
+
+An independent bibliography/reference section is also main reading. This applies to vertical Chinese annotations as well as horizontal text: follow the actual column order, not an assumed top-to-bottom prose-plus-footer layout.
+{% endif %}
+
+
+{% if main_section | default(false) %}
+preceding_or_current_heading_candidates are unclassified short RAW text candidates, not established headings. Confirm their actual heading function independently; an OCR text tag or absent heading tag is not proof either way. A short vertical section label can identify a main commentary section without a Markdown heading marker. Do not treat an ordinary sentence, page number or inline note label as a section heading.
+{% endif %}
+
+# True
+
+A matching heading starts a distinct notes/commentary section in the main reading sequence.
+
+# False
+
+That independent main-sequence section start is not established; it may instead be an ancillary note area.
+
+{% elif kind == 'selected_whole_passage' %}
+# Instructions
+
+At checks.{{ name }}, does the target reproduce a COMPLETE readable passage already present inside the listed earlier source, rather than supply a missing word-ending or unfinished expression at that earlier source's end?
+
+The supplied earlier_whole_text_occurrences_with_following_text records exact complete-target string matches after ASCII-whitespace normalization, with text still following the match. Use the complete previous-page source and target raw text to interpret that measured match; it is not a paragraph-boundary verdict.
+
+TRUE requires a whole independently readable sentence or passage being replayed from within earlier text. A single numeral, isolated name or title, diagram label, lexical suffix, shared short phrase or missing OCR text is not sufficient. The target need not have explicit quotation marks or attribution.
+
+This asks whether the target is a complete selected passage, not whether any page has a caption or whether the target should be deleted. Different printed occurrences are not redundant OCR. Do not infer material outside the supplied pages. If a complete replayed passage is not established, answer FALSE.
+
+# True
+
+The target is a complete readable passage replayed from within the earlier text, not its missing final word or obligatory continuation.
+
+# False
+
+Such a complete replayed passage is not established; the match may be only a fragment, label or an actual continuation.
+
+{% endif %}

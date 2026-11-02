@@ -1,0 +1,43 @@
+{# Shared by both base entries: proposed paragraph breaks. Do not call this helper as a review entry. #}
+
+{% if kind == 'gap_word' %}
+# Instructions
+
+Audit ONLY the new-paragraph break at checks.{{ name }}. Full raw neighboring evidence is local_raw_evidence. Find the nearest genuine main-text predecessor among preceding_source_candidates; ancillary notes, headers and page numbers may be misclassified and must not hide it. Do not choose an arbitrary older main-text passage or anything from next_page.
+
+A standalone formula/equation is a hard boundary. Images and tables do not force a break. Do not invent missing OCR text or unprovided indentation.
+
+Does this proposed paragraph break preserve whole words? Check the tail of the real predecessor against the target opening for a word split across the seam, including Chinese multi-character words and words broken by a page transition. Ignore other sentence-level and paragraph-style issues in this question.
+
+# True
+
+Whole words are preserved: this break does not cut one word into pieces.
+
+# False
+
+A single word is cut into two pieces by this break; the target begins with the missing end of that word.
+
+{% elif kind == 'gap_syntax' %}
+# Instructions
+
+Audit ONLY the new-paragraph break at checks.{{ name }}. Full raw neighboring evidence is local_raw_evidence. Find the nearest genuine main-text predecessor among preceding_source_candidates; ancillary notes, headers and page numbers may be misclassified and must not hide it. Do not choose an arbitrary older main-text passage or anything from next_page.
+
+A standalone formula/equation is a hard boundary. Images and tables do not force a break. Do not invent missing OCR text or unprovided indentation.
+
+Does this proposed paragraph break preserve mandatory syntactic units? This is about an unfinished construction, not whether the passages could form one paragraph. A condition still requiring its main clause, a verb or preposition lacking its obligatory complement, or a similarly unfinished construction must not be split.
+
+Complete independent clauses, successive derivation steps, separate variable definitions, separate exercise items and independent quotations can be different paragraphs. A conjunction, shared topic, colon or semicolon alone does not require joining. A mathematical expression inside a text layout does not automatically complete an unfinished surrounding clause. Ignore merely word-internal splitting, which is checked separately.
+
+A failure requires that joining to the nearest true predecessor actually completes ITS unfinished construction. An odd or incomplete-looking target opening alone is not enough: do not join it to a complete unrelated sentence to hide missing OCR words.
+
+Respect ordinary language and literary conventions: Chinese can omit subjects; dialogue replies, stage directions and narration after a quotation can stand alone. An ellipsis, short utterance or implicit subject is not by itself an unfinished mandatory construction. Check a specific left-to-right grammatical dependency, not general coherence or stylistic continuity.
+
+# True
+
+No unfinished mandatory syntactic construction is split; this new paragraph is permissible under this specific test.
+
+# False
+
+The target supplies an obligatory missing part of the preceding unfinished construction; this paragraph break cuts that construction.
+
+{% endif %}

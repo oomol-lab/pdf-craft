@@ -26,7 +26,7 @@ from ..runtime import IO_DOMAIN, worker_iter
 from ..common.stream import DiskStream
 from .chapter.chapter import Chapter, StandaloneAsset, SourceAsset, TextFlowItem, SourceTextFragment, encode
 from .chapter.generation import _generate_chapters
-from .chapter.page_analysis import PageAnalysis
+from .chapter.analysis_types import PageAnalysis
 
 
 def recoverable_structure(error: Exception) -> bool:
@@ -112,7 +112,7 @@ def source_dependencies(path: Path, indexes: list[int], targets: set[int], inclu
     """
     from ..pdf import decode, TITLE_TAGS
     from ..common import ASSET_TAGS
-    from .chapter.jointer import _parse_block_content
+    from .chapter.content import _parse_block_content
     from .chapter.mergeable import check_mergeable
     links = []
     previous_text_page = None

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pdf_craft import RetryPolicy, ErrorPolicy
+from pdf_craft import RetryPolicy
 
 import asyncio
 import json
@@ -11,10 +11,8 @@ from typing import Any
 
 from pdf_craft import ConcurrentExecutor, FixedCapacity, LLM
 from pdf_craft.extractor.chapter.generation import prepare_chapter_analysis
-from pdf_craft.extractor.chapter.page_analysis import (
-    PageAnalysis,
-    layout_reference_spans,
-)
+from pdf_craft.extractor.chapter.analysis_types import PageAnalysis
+from pdf_craft.extractor.chapter.analysis_content import layout_reference_spans
 from pdf_craft.extractor.chapter.page_repair import JevLlmRepairProcessor
 from pdf_craft.extractor.chapter.page_review import JEV_REVIEW_THRESHOLD
 from pdf_craft.extractor.toc import TocInfo

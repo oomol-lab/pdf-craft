@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
 from .local_review import LOCAL_REVIEW_THRESHOLD
-from .review_evidence import supplementary_requests
+from .body_review_facts import body_supplementary_requests, apply_body_facts
 
 NamedScores = dict[str, float]
 NamedBatchEvaluator = Callable[
@@ -72,12 +72,12 @@ async def review_body_page(
     def followups():
         for batch in _decisions(checks):
             local = dict(state, checks=batch)
-            for packet in supplementary_requests(local, risks):
+            for packet in body_supplementary_requests(local, risks):
                 yield page_index, packet
     facts = await _collect(followups(), evaluate)
     if facts is None:
         return None
-    return 1 - max(aggregate_risks(risks, facts).values())
+    return 1 - max(apply_body_facts(aggregate_risks(risks, facts), facts).values())
 
 
 def aggregate_risks(base: NamedScores, facts: NamedScores) -> NamedScores:

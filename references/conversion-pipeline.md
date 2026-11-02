@@ -62,6 +62,18 @@ PageAnalysis 的 continuation 表示文字前驱，跳过同一归属流中的�
 完整来源和前缀范围保留到组装：正文投影保留前缀，定义投影才移除前缀。断词修复延后到 ownership
 组装完成后的语义投影；原始文字记录不被改写，投影为空的 fragment 也保留原身份和 bbox。
 
+`source.py` 仅捕获来源身份和阅读位置，文本解析及断词投影由 `content.py` 承载；
+页边内容排除由 `marginal_numbers.py` 承载，不能反向依赖 `Jointer`。`Jointer` 负责阅读串、
+自然段边界及跨页尾部，资产候选解析委派给 `asset_text.py`。
+`analysis_types.py` 定义来源完整的页记录，`analysis_content.py` 负责结构文本和引用位置的
+可逆投影；`page_analysis.py` 负责页顺序、结构校验与流恢复，不重新判断表题/表注归属。
+
+表题/表注的独立 OCR 来源由 `asset_text.py` 保留原始身份和几何，候选关联
+投影为可单独审核、精修的文本来源。`page_review` 同时暴露资产内生 title/content/caption；
+`page_repair` 仅在存在候选时提供解除关联选项。`materialize_asset_text` 在单页采用后的输出
+边界合并仍有效的同流成员，`PageAssembly` 保存的采用页保持来源完整。该运行时关联不是
+PCEX 字段，不得在持久化编解码器中增加旧字段 fallback。细节见[上游动态修复](../docs/design/upstream-dynamic-repair.md)。
+
 无精修时由 `extractor/chapter/stream.py` 传统增量解析。精修生产链路使用
 `chapter/primary.py` 从固定三页初级证据建立请求局部投影，`extractor/refinement.py` 按邻页就绪调度有界页任务，
 `chapter/assembly.py` 按序校验连接、持久化自然段与定义；`chapter/live.py` 管理输入、背压与通知生命周期。
@@ -295,9 +307,19 @@ local/vendor 首轮渲染严格纯白时保存空页和几何，不请求 OCR；
 
 
 关闭脚注的页审核由 `chapter/local_review.py` 生成基础具名题，
+提示文字位于 `chapter/data/` 的四个英文根模板：`body_base.jinja`、`body_followup.jinja`、
+`footnote_base.jinja`、`footnote_followup.jinja`，按脚注开关与基础/补充两轮划分。仅跨入口
+共用的问题和证据说明提取为共享模板，入口索引为 `chapter/data/README.md`。
+`review_templates.py` 加载根入口；Python 保留字段组织、证据、候选选择和分数聚合，
+不追加提示正文，也不让模板构造 JSON 或宏函数库。
 `review_evidence.py` 按原始局部证据和当前页基础分数筛选独立事实，
 `structural_review.py` 聚合来源特定的风险与容错证明。每请求最多四题，共用现有 JEV
 executor、重试、usage 和请求观察；事实不读取邻页评分，不增加全书屏障。
+关闭脚注的基础入向题显式绑定算法实际选中的前驱，不能跳过其中的误标脚注后审核一个
+假想的修复结果。短页边正文块另查出版附属物角色；几何只用于候选筛选，不直接判错。
+关闭脚注的 `body_review_facts.py` 额外核验既有跨图页连接的具体前驱和当前正文角色，
+两项事实共同成立才增加独立风险；例题设定证明只降低对应连接风险。该模块不供开启脚注路线调用。
+当前/邻页图片证据使用 title/caption 与资产位置，不回退到 image.content，也不等待邻页精修。
 基础或补充批次不完整时按 analysis 错误策略恢复，不生成通过结论。开启脚注使用独立的局部事实协议，
 正文段界与角色事实分离，另查定义起点、引用及脚注续接；两种模式共享 executor 与完整具名分数校验。
 `Refinement` 无公开 threshold，内部按模式固定判定；逐页就绪、stage 和内容流契约不变。

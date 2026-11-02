@@ -1,65 +1,23 @@
-import re
 from dataclasses import dataclass
 from typing import Generator, Iterable, cast
 
-from ...common import ASSET_TAGS, AssetRef
-from ...expression import ExpressionKind, ParsedItem, parse_latex_expressions
-from ...language import is_latin_letter
-from ...markdown.paragraph import parse_raw_markdown
-from ...pdf import TITLE_TAGS, PageLayout
-from .chapter import SourceAsset, SourceTextFragment, TextSource, InlineExpression, TextFlowItem
-from .content import Content, expand_text_in_content, first, last
-from .mergeable import LINK_FLAGS, check_mergeable, has_numbered_prefix, reported_turn_boundary
+from ...pdf import PageLayout
+from .chapter import SourceAsset, SourceTextFragment, TextSource, TextFlowItem
+from .content import first, last, _normalize_paragraph_content
+from .asset_text import AssetLayoutParser
+from .source import _is_empty_text_layout
+from .mergeable import check_mergeable, has_numbered_prefix, reported_turn_boundary
 from .paragraph_geometry import (
     indented_line_boundary, indented_line_starts, printed_separator_boundary, colophon_record_starts,
     completed_equation_rows,
 )
 from .reading_serials import split_reading_serials
 
-_ASSET_CAPTION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
-
-_MARKDOWN_HEAD_PATTERN = re.compile(r"^#+\s+")
-_TABLE_PATTERN = re.compile(r"<table[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
-_TABLE_TITLE_PATTERN = re.compile(
-    r"^\s*(?:table|tab\.?|表|表格)\s*[\d一二三四五六七八九十ivxlcdm]+[\s.:：、-]",
-    re.IGNORECASE,
-)
-_TABLE_CAPTION_PATTERN = re.compile(
-    r"^\s*(?:source|sources|note|notes|资料来源|来源|注|备注)\s*[:：]",
-    re.IGNORECASE,
-)
-_FOOTNOTE_PATTERN = re.compile(
-    r"^\s*(?:\d{1,2}[\).、]|[a-z][\).、]|[①-⑳]|[¹²³⁴⁵⁶⁷⁸⁹⁰]+)\s+",
-    re.IGNORECASE,
-)
-
-_MAX_TABLE_TITLE_CHARS = 180
-_MAX_TABLE_CAPTION_CHARS = 260
-_LATEX_PLACEHOLDER_MARKER = "\uE000PDF_CRAFT_LATEX"
-
 
 @dataclass
 class _LastTail:
     page_para: TextFlowItem
     override: list[SourceAsset]
-
-
-@dataclass
-class _AssetHolder:
-    page_index: int
-    ref: AssetRef
-    det: tuple[int, int, int, int]
-    title: str | None
-    content: str
-    caption: str | None
-    hash: str | None
-    source: TextSource | None = None
-
-
-@dataclass
-class _PendingParagraph:
-    source: PageLayout
-    paragraph: TextFlowItem
 
 
 @dataclass(frozen=True)
@@ -73,17 +31,13 @@ class JoinedPageProgress:
     processed_through: int
 
 
-def _is_empty_text_layout(layout: PageLayout) -> bool:
-    """An empty text observation is evidence, not a paragraph separator."""
-    return layout.ref == "text" and not layout.text.strip()
-
-
 class Jointer:
     def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]],
                  sources: dict[tuple[int, int], tuple[int, TextSource]] | None = None) -> None:
         self._layouts = layouts
         self._sources = sources if sources is not None else {}
         self._reading_positions: dict[tuple[int, tuple[int, int, int, int]], int] = {}
+        self._asset_parser = AssetLayoutParser(self._sources, self._reading_positions)
         self._indented_starts: set[tuple[int, int, int, int]] = set()
         self._current_page: int | None = None
         self._colophon_starts: set[tuple[int, int, int, int]] = set()
@@ -119,7 +73,7 @@ class Jointer:
             # 此处为完成如下业务要求：
             # 1. 当阅读序列跨越 group（跨页、跨分栏、跨因图片而挤变形拆分的段落）时，必须对连接处验证。若它们是被拆分的自然段，则拼起来。
             # 2. 因为插图、表格而拆分的自然段，需将插图存起来接到完整的自然段最后，而不是任其分割自然段。
-            layouts = list(self._embed_assets(self._join_and_handle_asset_layouts(page_index, raw_layouts)))
+            layouts = list(self._embed_assets(self._asset_parser.parse(page_index, raw_layouts)))
             head, body, tail = self._split_layouts(layouts)
 
             if not body:
@@ -231,137 +185,6 @@ class Jointer:
 
         return head, body, tail
 
-    def _join_and_handle_asset_layouts(
-        self, page_index, layouts: list[PageLayout]
-    ) -> Generator[TextFlowItem | SourceAsset, None, None]:
-        # layout 可能被后续处理，必须等待所有 layout 处理完毕
-        for layout in list(
-            self._join_asset_layouts(
-                page_index=page_index,
-                layouts=layouts,
-            )
-        ):
-            if not isinstance(layout, _AssetHolder):
-                yield layout
-                continue
-
-            if layout.ref == "equation":
-                _normalize_equation(layout)
-            if layout.ref == "table":
-                _normalize_table(layout)
-
-            # OCR image-block prose describes the image; write the canonical
-            # caption directly. PCEX version migration belongs at archive input.
-            yield SourceAsset(
-                page_index=page_index,
-                ref="formula" if layout.ref == "equation" else layout.ref,
-                bbox=layout.det,
-                title=_parse_block_content(layout.title),
-                content=[] if layout.ref == "image" else _parse_block_content(layout.content),
-                caption=_parse_block_content(
-                    (layout.caption or layout.content) if layout.ref == "image" else layout.caption
-                ),
-                asset_hash=layout.hash,
-                reading_order=self._reading_positions.get((page_index, layout.det)),
-                source=layout.source,
-            )
-
-    def _join_asset_layouts(self, page_index, layouts: list[PageLayout]):
-        last_asset: _AssetHolder | None = None
-        pending_paragraph: _PendingParagraph | None = None
-
-        def flush_pending_paragraph():
-            nonlocal pending_paragraph
-            if pending_paragraph:
-                pending = pending_paragraph
-                pending_paragraph = None
-                return pending.paragraph
-            return None
-
-        for layout in layouts:
-            if layout.ref in ASSET_TAGS:
-                pending_title: str | None = None
-                if pending_paragraph:
-                    if layout.ref == "table" and _can_join_table_title(
-                        pending_paragraph.source, layout
-                    ):
-                        pending_title = pending_paragraph.source.text
-                        pending_paragraph = None
-                    else:
-                        pending = flush_pending_paragraph()
-                        if pending:
-                            yield pending
-                if last_asset:
-                    yield last_asset
-                last_asset = _AssetHolder(
-                    page_index=page_index,
-                    ref=layout.ref,
-                    det=layout.det,
-                    title=pending_title,
-                    content=layout.text,
-                    caption=None,
-                    hash=layout.hash,
-                    source=(self._sources[(page_index, id(layout))][1]
-                            if (page_index, id(layout)) in self._sources else None),
-                )
-            elif layout.ref in _ASSET_CAPTION_TAGS:
-                pending = flush_pending_paragraph()
-                if pending:
-                    yield pending
-                if last_asset:
-                    if last_asset.caption:
-                        last_asset.caption += "\n" + layout.text
-                    else:
-                        last_asset.caption = layout.text
-            else:
-                if (
-                    last_asset
-                    and last_asset.ref == "table"
-                    and _can_join_table_caption(last_asset, layout)
-                ):
-                    if last_asset.caption:
-                        last_asset.caption += "\n" + layout.text
-                    else:
-                        last_asset.caption = layout.text
-                    continue
-
-                if last_asset:
-                    yield last_asset
-                    last_asset = None
-
-                pending = flush_pending_paragraph()
-                if pending:
-                    yield pending
-
-                if layout.ref in TITLE_TAGS:
-                    # 将 Markdown 标题前的 `##` 之类的符号删除，DeepSeek OCR 总会生成这种符号
-                    layout.text = _MARKDOWN_HEAD_PATTERN.sub("", layout.text)
-
-                paragraph = TextFlowItem(
-                    role="heading" if layout.ref in TITLE_TAGS else "body",
-                    level=-1,
-                    children=[
-                        SourceTextFragment(
-                            page_index=page_index,
-                            source_order=self._sources.get((page_index, id(layout)), (layout.order, None))[0],
-                            bbox=layout.det,
-                            content=_parse_block_content(layout.text),
-                            source=self._sources.get((page_index, id(layout)), (0, None))[1],
-                        )
-                    ],
-                )
-                if _can_wait_for_table_title(layout):
-                    pending_paragraph = _PendingParagraph(
-                        source=layout,
-                        paragraph=paragraph,
-                    )
-                else:
-                    yield paragraph
-        if last_asset:
-            yield last_asset
-        pending = flush_pending_paragraph()
-        if pending:
-            yield pending
 
     def _embed_assets(self, layouts):
         """Decide same-serial asset seams here, using the page's raw geometry.
@@ -447,292 +270,4 @@ class Jointer:
                                continued_page=block1.page_index != block2.page_index)
 
 
-def _normalize_equation(layout: _AssetHolder):
-    if layout.ref != "equation" or not layout.content:
-        return
-
-    found_first_expression: bool = False
-    expression_content: str = ""
-    prefix_texts: list[str] = []
-    tail_items: list[ParsedItem] = []
-
-    for item in parse_latex_expressions(layout.content):
-        if not found_first_expression and item.kind != ExpressionKind.TEXT:
-            expression_content = item.content
-            found_first_expression = True
-        elif found_first_expression:
-            tail_items.append(item)
-        else:
-            prefix_texts.append(item.content)
-
-    if not found_first_expression:
-        return
-
-    if layout.title is not None:
-        prefix_texts.insert(0, layout.title)
-
-    if layout.caption is not None:
-        tail_items.append(ParsedItem(kind=ExpressionKind.TEXT, content=layout.caption))
-
-    if prefix_texts:
-        layout.title = "".join(prefix_texts)
-
-    layout.content = expression_content
-
-    if tail_items:
-        layout.caption = "".join(item.reverse() for item in tail_items)
-
-
-def _normalize_table(layout: _AssetHolder):
-    found_table_content: str | None = None
-    head_buffer: list[str] = []
-    tail_buffer: list[str] = []
-
-    for part in (layout.title, "\n", layout.content, "\n", layout.caption):
-        if not part:
-            continue
-
-        table_match = _TABLE_PATTERN.search(part)
-        if not table_match:
-            if found_table_content is None:
-                head_buffer.append(part)
-            else:
-                tail_buffer.append(part)
-            continue
-
-        table_start = table_match.start()
-        table_end = table_match.end()
-
-        table_content = part[table_start:table_end]
-        before = part[:table_start].rstrip()
-        after = part[table_end:].lstrip()
-
-        if before.strip():
-            head_buffer.append(before)
-        if after.strip():
-            tail_buffer.append(after)
-
-        found_table_content = table_content
-
-    if not found_table_content:
-        return
-
-    head = "".join(head_buffer).strip()
-    tail = "".join(tail_buffer).strip()
-
-    layout.title = head if head else None
-    layout.caption = tail if tail else None
-    layout.content = found_table_content
-
-
-def _can_wait_for_table_title(layout: PageLayout) -> bool:
-    if layout.ref in TITLE_TAGS:
-        return False
-    return _is_table_title_text(layout.text)
-
-
-def _can_join_table_title(text_layout: PageLayout, table_layout: PageLayout) -> bool:
-    if not _is_table_title_text(text_layout.text):
-        return False
-    if not _is_block_above(text_layout.det, table_layout.det):
-        return False
-    if not _is_close_to_table(text_layout.det, table_layout.det):
-        return False
-    return _is_horizontally_related(text_layout.det, table_layout.det)
-
-
-def _can_join_table_caption(asset: _AssetHolder, text_layout: PageLayout) -> bool:
-    if not _is_table_caption_text(text_layout.text):
-        return False
-    if not _is_block_below(asset.det, text_layout.det):
-        return False
-    if not _is_close_to_table(asset.det, text_layout.det):
-        return False
-    return _is_horizontally_related(text_layout.det, asset.det)
-
-
-def _is_table_title_text(text: str) -> bool:
-    normalized = _normalize_table_adjacent_text(text)
-    if not normalized or len(normalized) > _MAX_TABLE_TITLE_CHARS:
-        return False
-    if "\n\n" in normalized:
-        return False
-    return bool(_TABLE_TITLE_PATTERN.search(normalized)) or normalized.endswith((":", "："))
-
-
-def _is_table_caption_text(text: str) -> bool:
-    normalized = _normalize_table_adjacent_text(text)
-    if not normalized or len(normalized) > _MAX_TABLE_CAPTION_CHARS:
-        return False
-    if "\n\n" in normalized:
-        return False
-    return bool(
-        _TABLE_CAPTION_PATTERN.search(normalized)
-        or _FOOTNOTE_PATTERN.search(normalized)
-        or normalized.lower() == "category not applicable."
-    )
-
-
-def _normalize_table_adjacent_text(text: str) -> str:
-    return " ".join(text.strip().split())
-
-
-def _is_block_above(block_det, table_det) -> bool:
-    return block_det[3] <= table_det[1]
-
-
-def _is_block_below(table_det, block_det) -> bool:
-    return table_det[3] <= block_det[1]
-
-
-def _is_close_to_table(det1, det2) -> bool:
-    vertical_gap = max(det1[1], det2[1]) - min(det1[3], det2[3])
-    if vertical_gap < 0:
-        return False
-
-    table_height = max(_height(det1), _height(det2))
-    return vertical_gap <= max(30, int(table_height * 0.12))
-
-
-def _is_horizontally_related(text_det, table_det) -> bool:
-    text_width = _width(text_det)
-    table_width = _width(table_det)
-    if text_width <= 0 or table_width <= 0:
-        return False
-
-    overlap = max(0, min(text_det[2], table_det[2]) - max(text_det[0], table_det[0]))
-    overlap_ratio = overlap / min(text_width, table_width)
-    width_ratio = min(text_width, table_width) / max(text_width, table_width)
-    center_distance = abs(
-        (text_det[0] + text_det[2]) / 2 - (table_det[0] + table_det[2]) / 2
-    )
-
-    return overlap_ratio >= 0.6 or (
-        width_ratio >= 0.75 and center_distance <= table_width * 0.2
-    )
-
-
-def _width(det) -> int:
-    return max(0, det[2] - det[0])
-
-
-def _height(det) -> int:
-    return max(0, det[3] - det[1])
-
-
 # 将单词的连接符 `-` 删去，并将后半节单词移到前面一段拼接
-def _normalize_paragraph_content(paragraph: TextFlowItem, *, preserve_fragments: bool = False):
-    # Defer normalization until after editable source ownership is compiled.
-    # Legacy joiner callers without source records retain their old behavior.
-    if not preserve_fragments and any(
-        isinstance(child, SourceTextFragment) and child.source is not None for child in paragraph.children
-    ):
-        return
-    if len(paragraph.children) < 2:
-        return
-
-    fragments = [child for child in paragraph.children if isinstance(child, SourceTextFragment)]
-    for block1, block2 in zip(fragments, fragments[1:]):
-
-        text1 = last(block1.content)
-        text2 = first(block2.content)
-        if not isinstance(text1, str) or not isinstance(text2, str):
-            continue
-
-        text1 = text1.rstrip()
-        text2 = text2.lstrip()
-        if not _is_splitted_word(text1, text2):
-            continue
-
-        tail_end = 0
-        for j in range(len(text2)):
-            if is_latin_letter(text2[j]):
-                tail_end = j + 1
-            else:
-                break
-
-        block1.content[-1] = text1[:-1] + text2[:tail_end]
-        block2.content[0] = text2[tail_end:].lstrip()
-        if not block2.content[0]:
-            del block2.content[0]
-
-    # 极端情况下 block2 会因为单词被移走而被清空。此时要将其整个删去。
-    if not preserve_fragments:
-        paragraph.children = [
-            child for child in paragraph.children
-            if not isinstance(child, SourceTextFragment) or child.content
-        ]
-
-
-def normalize_source_projection(paragraph: TextFlowItem) -> None:
-    """Dehyphenate assembled semantic text without erasing source identities.
-
-    Content is already a detached projection here; TextSource keeps the exact
-    OCR text. An empty projected fragment still owns its original PDF region.
-    """
-    if any(isinstance(child, SourceTextFragment) and child.source is not None
-           for child in paragraph.children):
-        _normalize_paragraph_content(paragraph, preserve_fragments=True)
-
-
-def _parse_block_content(text: str | None) -> Content:
-    if not text:
-        return []
-
-    protected_text, expressions, placeholder_pattern = _protect_latex_expressions(text)
-    root_content: Content = parse_raw_markdown(protected_text)
-
-    def expand_text(text: str):
-        pos = 0
-        for match in placeholder_pattern.finditer(text):
-            if match.start() > pos:
-                yield text[pos : match.start()]
-            expression = expressions[int(match.group(1))]
-            yield InlineExpression(
-                kind=expression.kind,
-                content=expression.content,
-            )
-            pos = match.end()
-        if pos < len(text):
-            yield text[pos:]
-
-    expand_text_in_content(
-        content=root_content,
-        expand=expand_text,
-    )
-    return root_content
-
-
-def _protect_latex_expressions(text: str) -> tuple[str, list[ParsedItem], re.Pattern]:
-    expressions: list[ParsedItem] = []
-    parts: list[str] = []
-    placeholder_prefix = _create_latex_placeholder_prefix(text)
-
-    for item in parse_latex_expressions(text):
-        if item.kind == ExpressionKind.TEXT:
-            parts.append(item.content)
-            continue
-
-        parts.append(f"{placeholder_prefix}{len(expressions)}\uE001")
-        expressions.append(item)
-
-    placeholder_pattern = re.compile(f"{re.escape(placeholder_prefix)}(\\d+)\uE001")
-    return "".join(parts), expressions, placeholder_pattern
-
-
-def _create_latex_placeholder_prefix(text: str) -> str:
-    index = 0
-    while True:
-        prefix = f"{_LATEX_PLACEHOLDER_MARKER}_{index}_"
-        if prefix not in text:
-            return prefix
-        index += 1
-
-
-def _is_splitted_word(text1: str, text2: str) -> bool:
-    return (
-        len(text1) >= 2
-        and text1[-1] in LINK_FLAGS
-        and is_latin_letter(text1[-2])
-        and is_latin_letter(text2[0])
-    )

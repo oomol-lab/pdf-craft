@@ -1,0 +1,84 @@
+{# Footnotes disabled: base review. Read ownership and concrete joins here; proposed breaks use the shared base questions. #}
+
+{% if kind == 'ownership' %}
+# Instructions
+
+{% if retained %}
+Audit only the current operation on source_order={{ order }} in target_page: retain it as paragraph in the main reading stream, identified by checks.{{ key }}. Judge only this source ownership, not other sources or natural-paragraph incoming edges.
+{% else %}
+Audit only the current operation on source_order={{ order }} in target_page: exclude it as ignored, identified by checks.{{ key }}. Judge only this source ownership, not other sources or natural-paragraph incoming edges.
+{% endif %}
+
+Footnote extraction is disabled. Do not require citation records, footnote-number matching or body ref objects. The original OCR class and algorithmic ownership are not authoritative answers.
+
+paragraph is the main reading stream, including body text, headings and quotations. Page numbers, running headers and decorations do not belong in it.
+
+Disabling footnotes means that the final output excludes footnotes, not that the original OCR classes are necessarily correct. Do not build a citation or reference system.
+
+An original footnote candidate defaults to ignored. If clear evidence establishes main text or a cross-page main-text continuation, require correction to restore paragraph ownership.
+
+A whole original body block that clearly belongs to a footnote must be ignored; retaining it requires correction. Bottom-of-page position, small print or a numeric opening alone does not establish a footnote.
+
+A source containing both main text and footnote material must not be ignored wholesale. When evidence is uncertain, retain the preliminary ownership; do not require deleting main text or reconstructing missing words.
+
+Inspect the entire footnote region source by source, including unnumbered explanations, diagrams and cross-page continuations. Excluding only numbered openings while retaining unnumbered continuation blocks is still wrong. Neighboring preliminary pages may also be misclassified and do not automatically justify acceptance.
+
+Printing-only continued-page directions and isolated page numbers are not main text. A main-text continuation must pass over these publisher directions and footnotes rather than join them to genuine main text.
+
+Full-page or chapter-end commentary is main reading and belongs to paragraph. A note at the page bottom ancillary to a body reference is a footnote. Numbering or explanatory genre alone does not justify excluding a whole commentary section.
+
+With footnotes disabled, original reference characters such as circled numbers, superscript digits or stars may remain in the main text. Missing citation or ref objects is also valid. These reference-representation details alone are not ownership errors; the source's actual printed role must still satisfy the ownership rules above.
+
+The complete three-page evidence is in local_raw_evidence. Use original text, existing marks and geometry together; do not invent unprovided image separators or words. Do not assign another source's error to this one. Only a clear, structurally repairable ownership error warrants FAIL; author wording, OCR typos or mere uncertainty do not.
+
+# True
+
+{% if retained %}
+This source is main text, a heading, a quotation or autonomous commentary; retaining it is valid.
+{% else %}
+This source should be excluded, or there is insufficient evidence to restore it to main reading; the existing exclusion is acceptable.
+{% endif %}
+
+# False
+
+{% if retained %}
+This source clearly belongs to an excluded footnote, running header, page number or similar apparatus, but has been kept in the main reading stream.
+{% else %}
+This source clearly belongs to main text, a heading, a quotation or autonomous commentary, but has been wrongly excluded.
+{% endif %}
+
+{% elif kind == 'concrete_join' %}
+# Instructions
+
+Audit only the actual incoming edge at checks.{{ key }}: the current block has already been grouped into one natural paragraph with the exact source identified by selected_predecessor. Audit the source actually joined, not the main text that would ideally remain after cleaning the neighboring page.
+
+Locate the original selected_predecessor in local_raw_evidence by its unique page_index and source_order. ownership_hint is not evidence of correctness, but identifies the source the algorithm actually selected. If that source is a footnote, figure caption or publisher apparatus, do not pretend to skip it and approve the actual join against an older main-text passage.
+
+Distinguish an independent ownership error on a neighboring page from an error in the current incoming edge. The former does not automatically invalidate the current page; the latter incorrectly combines different printed reading units into one natural paragraph. Two genuinely continuous footnote or quotation fragments may join. Related content or coincidental wording does not justify joining different units.
+
+Use only the supplied local raw text to decide whether the two blocks form one natural paragraph. Do not audit the whole page or the fields of neighboring pages.
+
+Join blocks that split one word or mandatory grammatical construction. Start a new paragraph for a clearly independent utterance, heading or numbered item. Shared topic, question-and-answer wording or a period does not mechanically decide the boundary.
+
+Do not proofread text, supply missing OCR characters or assume distant content. Even when the current block is long, inspect its opening and the direct seam with the preceding ending.
+
+When present_decision=false, reject the break only if the current block directly completes an unfinished word or mandatory syntactic component of the predecessor. Two already complete expressions may be separate paragraphs. A conjunction, consequence, contrast or shared topic does not require joining.
+
+A paragraph introducing a quotation and the following independent quotation may be separate paragraphs. An attribution or source after a quotation may also stand alone. A colon or an attribution relationship is not evidence that joining is mandatory.
+
+Judge only whether the existing incoming decision has a definite structural error. Do not infer unprovided first-line indentation from the overall box or impose your own paragraph-layout preference.
+
+The current decision is a JOIN. First combine one or two characters at the predecessor ending and target opening to check for a complete word. If the two parts of a word are split across pages, keeping this join is correct; do not be distracted by other complete sentences later in the current block.
+
+# True
+
+The current block genuinely continues the natural paragraph of the preceding block; this join is valid.
+
+# False
+
+The current block must start a new natural paragraph; the existing join incorrectly combines two independent paragraphs.
+
+{% else %}
+{% include 'shared_base.jinja' %}
+
+{% endif %}

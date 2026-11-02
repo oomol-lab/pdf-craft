@@ -147,14 +147,21 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
                 for packet in packets:
                     state = packet['state']['local_raw_evidence']
                     target = state['target_page']
-                    self.assertEqual(target['ocr_footnote_layout_count'], 1)
-                    self.assertTrue(any(item['ocr_stream'] == 'footnote' and item['ownership'] == 'ignored'
-                                        for item in target['layouts']))
-                    self.assertEqual(target['citations'], [])
-                    for name in ('previous_page', 'next_page'):
-                        neighbor = state[name]
-                        if neighbor is not None:
-                            self.assertEqual(neighbor['citation_boundary'], [])
+                    if any(name.startswith(('publisher_apparatus_', 'closed_predecessor_'))
+                           for name in packet['questions']):
+                        self.assertTrue(any('Note.' in item['raw_text'] for item in target['layouts']))
+                        self.assertTrue(all('ownership' not in item and 'ocr_stream' not in item
+                                            for item in target['layouts']))
+                        self.assertNotIn('citations', target)
+                    else:
+                        self.assertEqual(target['ocr_footnote_layout_count'], 1)
+                        self.assertTrue(any(item['ocr_stream'] == 'footnote' and item['ownership'] == 'ignored'
+                                            for item in target['layouts']))
+                        self.assertEqual(target['citations'], [])
+                        for name in ('previous_page', 'next_page'):
+                            neighbor = state[name]
+                            if neighbor is not None:
+                                self.assertEqual(neighbor['citation_boundary'], [])
                     for question in packet['questions'].values():
                         self.assertIsInstance(question['instructions'], list)
                         self.assertNotIn('citation_standard', question)
