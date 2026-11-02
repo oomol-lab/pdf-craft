@@ -16,6 +16,7 @@ from .local_review import LOCAL_REVIEW_THRESHOLD, local_review_requests
 from .structural_review import NamedBatchEvaluator, review_body_page
 from .footnote_review import (FOOTNOTE_REVIEW_THRESHOLD, footnote_review_requests, review_footnote_page)
 
+from .review_templates import review_template
 
 JEV_REVIEW_THRESHOLD = FOOTNOTE_REVIEW_THRESHOLD
 
@@ -168,9 +169,7 @@ def build_jev_review_states(
             state = {
                 "format": "pdf-craft PageReviewPacket v2",
                 "coordinate_note": (
-                    "bbox_normalized is [left, top, right, bottom] in page fractions. "
-                    "text_scale_estimate is a rough OCR-pixel glyph-area scale, not actual font size; "
-                    "compare small-print blocks with their neighbours, never classify by this alone."
+                    review_template('shared_review', 'coordinate_note')
                 ),
                 "target_page": target,
                 "previous_page": _boundary_context(

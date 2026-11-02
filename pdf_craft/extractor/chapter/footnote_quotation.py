@@ -4,12 +4,10 @@ from .review_evidence import _quotes, previous_paragraph
 from .review_questions import question
 from .review_encoding import compact_review_evidence, TEXT_ENCODING_NOTE
 from .structural_review import _decisions
+from .review_templates import review_template
 
 _RECITATION = (
-    "An independently presented spoken utterance, song lyric or recited verse may omit outer quotation marks. "
-    "A reporting or recitation introduction followed by a colon can introduce such a separate paragraph. "
-    "Require actual speech/verse, not a quoted term serving as an unfinished clause component, "
-    "a mathematical expression, or a missing obligatory complement. The colon itself is only a candidate cue, not proof."
+    review_template('footnote_review', 'recitation_rule')
 )
 
 

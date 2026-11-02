@@ -5,31 +5,15 @@ from copy import deepcopy
 from typing import Any
 
 from .review_questions import question
+from .review_templates import review_template
 
 LOCAL_REVIEW_THRESHOLD = 0.52
 _QUESTIONS_PER_REQUEST = 4
 
-_JOIN_RULES: dict[str, Any] = {'instructions': ['只用提供的局部原始文字判断两个块是否构成同一自然段。不是审核整页，不评价邻页自己的字段。',
-                  '一个词语或语法结构被分到两个块时应连接。明确新的独立发言、标题或编号条目应另起。不因为主题相同、问答或句号机械决定。',
-                  '不校对文字，不补足未提供的OCR缺字，不假设远处内容。当前块很长时不要忽略其开头与前块末尾的直接接缝。',
-                  '当present_decision=false时，必须找到前块未完成的词语或不可独立的句法成分由当前块直接补足，才判该字段错误；两个已经完整的表达分成两段是合法的。并且、因此、转折和相同话题均不强迫合段。',
-                  '引出引文的段落与后面的独立引文可以分段；引文后的作者署名、出处也可以独立成段。冒号和出处依附关系不是必须合段的证据。',
-                  '只判现有入向决定是否有确定的结构错误。不能从整框位置猜测没有提供的首行缩进，也不以自己的排版喜好强制拆段或合段。'],
- 'conditional': '当前字段为续接：先组合前块末尾和当前开头的一两个字检查完整词语。词语的前后两部分恰好被跨页分开，保持续接就是正确的，不能被当前块后续的其他完整句误导。',
- 'criteria': {'true': '当前块确为前块所属自然段的续文，本次续接是合法的。', 'false': '当前块必须另起自然段，现有续接把两个独立段落错误合并。'}}
+_JOIN_RULES: dict[str, Any] = review_template('body_review', 'join_rules')
 
 
-_OWNERSHIP_STANDARD: list[str] = [
-    "paragraph 是正文、标题、引文等主阅读流；页码、running header 和装饰物不应进入此流。",
-    "关闭脚注指最终不输出脚注，不代表 OCR 原分类必然正确；不建立 citation 或引用体系。",
-    "原 footnote 来源候选默认 ignored；若有明确证据属于正文或跨页正文续文，应判为需要修正以恢复 paragraph。",
-    "原 body 中有明确证据属于脚注的完整块应 ignored，否则需要修正；不能仅凭页底、小字号或数字开头判为脚注。",
-    "同时包含正文与脚注的块不能整块忽略；不确定时保留初级归属，不要求删除正文或重建缺失文字。",
-    "必须逐块检查全部脚注范围，包括不带编号的后续解释、图式及跨页续文；只排除编号开头而保留无编号续段仍是错误。相邻初级页也可能误分类，不应据此放行。",
-    "转下页/接上页及独立页码不是正文。正文跨页连接应跳过这些出版提示和脚注，不能把它们接到真实正文。",
-    "成页或章末校释是主阅读内容，属于paragraph；页底附属于正文引用的注释才属于脚注。不能仅因编号或释义体裁就排除成页校释。",
-    "关闭脚注时，正文中遗留①、上标数字、星号等原始引用字符完全合法；没有相应citation/ref也合法。只有实际把注释解释文字混入正文才是归属错误。"
-]
+_OWNERSHIP_STANDARD: list[str] = review_template('body_review', 'ownership_standard')
 
 def local_review_requests(state: dict[str, Any], *, concrete_joins: bool = False) -> Iterator[dict[str, Any]]:
     """Yield bounded questions; body-only review binds concrete incoming sources.
@@ -77,21 +61,11 @@ def local_review_requests(state: dict[str, Any], *, concrete_joins: bool = False
                     immediate_paragraph_hint=None if not previous else dict(
                         source_order=previous["source_order"], text_end=previous["raw_text"][-200:]))
                 if decision:
-                    prompt = dict(type="noul", instructions=[
-                        f"此题只审核checks.{key}的现有操作：将当前块续接到前面的正文，作为同一自然段。完整三页证据在local_raw_evidence。",
-                        "先在preceding_source_candidates对应的preceding_source_index中寻找真实正文前驱，再审核当前入向。ownership_hint和immediate_paragraph_hint不是事实，原OCR/算法可能把脚注排成paragraph；不能只拿数组最后一项与当前块比较。",
-                        "若最近一项是注释、页码或页眉，应跳过它，核对前面的真实正文候选。只判断当前页的入向，不因邻页自己的归属错误单独否决本题。不得使用三页以外的内容，也不得把next_page作为入向前驱。",
-                        "真实正文前驱必须是排除附属物后距离当前最近的正文。不能跳过中间一块真实正文去挑更早、看起来能接的语句；候选不是可任意拼接的语料库。若最近正文已经完整结束，当前块独立另起是合法的，即使叙述同一事件。",
-                        *_JOIN_RULES["instructions"],
-                        _JOIN_RULES["conditional"]], criteria=_JOIN_RULES["criteria"])
+                    prompt = review_template('body_review', 'incoming_join', key=key, _JOIN_RULES=_JOIN_RULES)
                     if concrete_joins:
                         check['selected_predecessor'] = next((index[key] for key in reversed(available)
                             if index[key]['ownership_hint'] == 'paragraph'), None)
-                        prompt['instructions'] = [
-                            f'只审核 checks.{key} 这个实际入向：当前块已经与 selected_predecessor 指定的具体来源归为同一自然段。必须审核实际被拼接的来源，不是清理邻页后理想上应该拼接的正文。',
-                            'selected_predecessor 的原文在 local_raw_evidence 中，page_index 和 source_order 唯一定位。ownership_hint 不是正确性证据，但明确表示本次算法实际选择了它。若它实际是脚注、图片题注或出版附属物，不可假装跳过它再选择更早的正文来批准这个实际入向。',
-                            '仍需区分：邻页本身的独立归属错误不必否决当前页；但当前入向把两个不同的印刷阅读单元确实拼成同一自然段，是当前入向自身的错误。两个本来连续的脚注/引文片段可以相接。只因内容相近或词语巧合而连接不同单元不合法。',
-                            *_JOIN_RULES['instructions'], _JOIN_RULES['conditional']]
+                        prompt['instructions'] = review_template('body_review', 'concrete_join_instructions', key=key, _JOIN_RULES=_JOIN_RULES)
                     jobs[key] = [(key, prompt, check)]
                 else:
                     jobs[key] = []
@@ -102,18 +76,12 @@ def local_review_requests(state: dict[str, Any], *, concrete_joins: bool = False
             owner = layout["ownership"]
             check = dict(source_order=order, ownership=owner, current_start=layout["raw_text"][:240])
             if owner == "paragraph":
-                meaning = "保留为主阅读流paragraph"
-                criteria = {"true": "当前块属于正文、标题、引文或独立校释等主阅读内容，保留是合法的。",
-                            "false": "当前块明确属于应排除的脚注、页眉页码等，却被保留在主阅读流。"}
+                meaning = review_template('body_review', 'kept_reading_meaning')
+                criteria = review_template('body_review', 'kept_reading_criteria')
             else:
-                meaning = "排除为ignored"
-                criteria = {"true": "当前块应被排除，或没有充分证据恢复为主阅读内容；现有排除可接受。",
-                            "false": "当前块明确属于正文、标题、引文或独立校释，却被错误排除。"}
-            prompt = dict(type="noul", instructions=[
-                f"此题只审核target_page中source_order={order}的现有操作：{meaning}，位置索引为checks.{key}。只审这一块归属，不审其他块或自然段入向。",
-                "本次关闭脚注提取，不要求建立citation、脚注编号匹配或正文ref。原OCR分类、算法ownership都不是正确答案。",
-                *_OWNERSHIP_STANDARD,
-                "完整三页证据在local_raw_evidence。依据原文、已有标记和几何联合定位，不假设未提供的图像分隔线或文字。不要把别块的错误判给此块。清楚可修复的归属错误才FAIL，作者措辞、OCR错字或单纯不确定不是归属错误。"], criteria=criteria)
+                meaning = review_template('body_review', 'excluded_reading_meaning')
+                criteria = review_template('body_review', 'excluded_reading_criteria')
+            prompt = review_template('body_review', 'ownership', order=order, meaning=meaning, key=key, _OWNERSHIP_STANDARD=_OWNERSHIP_STANDARD, criteria=criteria)
             jobs[key] = [(key, prompt, check)]
         observe(page, layout)
     raw_evidence = _raw_evidence(state)

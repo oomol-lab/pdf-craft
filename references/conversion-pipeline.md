@@ -295,6 +295,8 @@ local/vendor 首轮渲染严格纯白时保存空页和几何，不请求 OCR；
 
 
 关闭脚注的页审核由 `chapter/local_review.py` 生成基础具名题，
+提示文字统一位于 `chapter/data/{body_review,footnote_review,shared_review}.jinja`，
+由 `review_templates.py` 加载；Python 保留证据、候选选择和分数聚合，不内嵌提示正文。
 `review_evidence.py` 按原始局部证据和当前页基础分数筛选独立事实，
 `structural_review.py` 聚合来源特定的风险与容错证明。每请求最多四题，共用现有 JEV
 executor、重试、usage 和请求观察；事实不读取邻页评分，不增加全书屏障。

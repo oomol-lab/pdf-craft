@@ -34,6 +34,18 @@ JEV 评分不进入当前请求，避免并发时序改变审核输入，也不�
 证据不足不等于确定错误。审核应定位可由现有结构编辑修复的具体决定，不要求模型
 补足未提供的文字、推测远处章节或遵守额外的排版偏好。
 
+## 提示模板
+
+JEV 的两条路线由多个具名问题组成，提示文字统一维护在 Jinja 文件中：
+
+- [body_review.jinja](../../pdf_craft/extractor/chapter/data/body_review.jinja)：关闭脚注的归属、续接与补充事实。
+- [footnote_review.jinja](../../pdf_craft/extractor/chapter/data/footnote_review.jinja)：开启脚注的角色、定义、引用与补充限定。
+- [shared_review.jinja](../../pdf_craft/extractor/chapter/data/shared_review.jinja)：共享的词界、句法、局部事实及输入编码说明。
+
+模板宏返回问题或规则的 JSON 值。Python 负责选择问题、准备证据、组织请求和聚合分数，
+不内嵌提示正文。模板随包发布；单纯移动模板时应核对完整请求内容和判定保持一致，
+修改提示语义时则需要重新验证其审核效果。
+
 ## 关闭脚注时的局部协议
 
 基础审核逐一判断归属和已有续接。对于另起自然段，词内硬切和必须相连的句法结构

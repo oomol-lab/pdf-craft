@@ -17,89 +17,34 @@ from .review_encoding import (
     literal_reference_edits,
 )
 from .structural_review import _collect, aggregate_risks
+from .review_templates import review_template
 
 FOOTNOTE_REVIEW_THRESHOLD = 0.45
 
-_COMMON = "只审核checks指明的target当前决定。相邻页是只读上下文，不因邻页自身出错否决target。不校对错字、公式计算、作者观点，不补不存在的文字，不审核最终标题层级。只有能具体定位、可改变归属/续接/现有引用关系修复的错误才FAIL。模糊怀疑不算错误。"
-_DEF = [
-    _COMMON,
-    "本页新开始的脚注定义应有从1连续的页内index和相应印刷mark。实际mark可以是数字、圈号、字母、星号，不是内部ID。新mark不可作为前条无索引延续。",
-    "跨页或无法确定起点的注释允许index=null；不要猜测缺失起点或强制匹配。一个注释可以有多个自然段/layout，无须给每段新index。不同的新注释不能仅因相邻而合成同一无索引定义。",
-    "只评价给定注释定义及成员，不把正文错字或邻页误归属作为本页定义错误。页码误入citation归ownership问题，不借此制造虚假的注释索引。",
-]
-_REF = [
-    _COMMON,
-    "只检查本块已有引用的字面对应，不检查段落续接、原文是否完整、注释是否解释得通。raw_text是原文，analysed_text中的每个⟦REF⟧是替换掉的印刷引用符号。按出现顺序对应references，path是内部XML路径，不是字数位置或脚注序号。",
-    "逐个对比被替换位置的原始符号与references目标definition.mark。definition.index是内部编号，与印刷mark可以不同。Markdown反斜杠转义和行内数学包装不是印刷符号的一部分。原文的其他语句、公式和普通数字不是引用对应错误。",
-    "本块没有⟦REF⟧且references为空不代表出错，不要求所有正文块都引用脚注。仅当本块原文明显有与同页定义mark一致的真实脚注引用，却没有建立对应，才判漏引用。作者年份、书目引用、章末注释、与现有mark不对应的数字不强行匹配，缺失定义不凭空补。",
-    "只在有具体字面证据的错目标、错替换位置、漏映射时判错；不能因为当前块末尾未完、邻块出错、定义没有正文引用、同一定义被多次引用或解释文字不匹配主题而否决。",
-]
+_COMMON = review_template('footnote_review', 'common_scope')
+_DEF = review_template('footnote_review', 'definition_rules', _COMMON=_COMMON)
+_REF = review_template('footnote_review', 'reference_rules', _COMMON=_COMMON)
 
 
 def prompt(instructions):
-    return dict(
-        type="noul",
-        instructions=instructions,
-        criteria=dict(
-            true="指定的现有结构决定合法或证据不足以要求修正。",
-            false="指定决定有明确、可定位、可修复的结构错误。",
-        ),
-    )
+    return review_template('footnote_review', 'decision', instructions=instructions)
 
 
 def role_fact(kind, *, from_citation=False):
-    scope = "Decide ONLY the source identified by this check, using its complete original text and the supplied three-page context. Current OCR stream and ownership are hypotheses, not evidence of correctness. Do not judge adjacent pages, author accuracy, missing OCR or final heading levels."
-    meanings = {
-        "footnote_role": (
-            "Does the local printed structure establish that this ENTIRE source belongs to a separate ancillary footnote flow supporting another main passage?",
-            "Look for an actual local reference/definition or a clear continuation of note prose. A low position, small print, a numbered item or the word Note alone is insufficient. Chapter-end or full-page commentary and classroom instructions belong to the main reading flow. A mixed body/note source must not be removed wholesale.",
-        ),
-        "main_reading": (
-            "Is this source unmistakably part of the main reading sequence, rather than an ancillary footnote?",
-            "Section explanations, continuing narrative, instructions and chapter-end commentary are main reading. Geometric headings above this source are supplied independently of the possibly wrong document_order; determine whether this is their main explanatory passage, not just text on the same topic. Follow the actual prose and nearby headings, including across columns. Do not decide from its original footnote stream or current citation label. Real unnumbered footnote continuations are not main reading merely because their prose is grammatical.",
-        ),
-        "furniture": (
-            "Is this entire source unmistakably recurring page furniture, or a standalone continued-page printing direction, rather than reading content?",
-            "Require an isolated current-page number, a running book/chapter label or language footer in the page apparatus, or a printing-only continued-page direction. Ordinary section/exercise headings, in-body navigation/link lists, captions, attributions and See-page cross-references are reading content, not running page furniture. A note beginning with a number is not a page number. Merely mentioning a page or section does not satisfy this question.",
-        ),
-    }
+    scope = review_template('footnote_review', 'role_scope')
+    meanings = review_template('footnote_review', 'role_meanings')
     ask, rule = meanings[kind]
     if kind == "main_reading" and from_citation:
-        ask, rule = (
-            "Is this WHOLE source retained reading content outside the ancillary footnote stream?",
-            "Reading content includes narrative, section explanations, instructions, chapter-end commentary and separately placed figure captions or labels. A full-page image with its own adjacent description does not establish a footnote apparatus. Page numbers, running headers and publishing directions are not reading content. Follow the supplied original text and printed column organization, not the current citation label. In vertical writing, a narrow fragment continuing or repeating a main-text column can still be main reading: cropping, an incomplete sentence or a second OCR pass does not make it a footnote. Require a concrete relationship to the main passage or figure, not merely similar subject matter. Genuine detached footnotes and their unmarked continuations remain footnotes even when they are grammatical explanations, quotations or short text. Read the supplied neighboring pages before reclassifying a long continuation: a detached note can fill a column or page, and a printing-only continued-page direction is not a new section heading. A continuation of an established marked note does not become autonomous main commentary merely because it is long, and it need not repeat its note marker on every block.",
-        )
+        ask, rule = review_template('footnote_review', 'caption_reading_role')
     extra = []
     if kind == "footnote_role":
-        extra = [
-            "Judge the printed role of the WHOLE source, not whether its sentences explain, correct or comment on something. Parentheses, editorial remarks, quotations, definitions and scholarly citations are also ordinary main reading.",
-            "An inline parenthesis stays with its surrounding narrative paragraph. A source mixing main narrative with an author aside is not wholly a footnote.",
-            "An autonomous commentary or endnote section is main reading even when it consists of short numbered annotations and continues without repeating a heading. Conversely, a genuine detached note can have multiple paragraphs or fill a page: positive local evidence of its note origin or continuation still establishes that role.",
-            "Follow the printed reading sequence across columns. A later-column continuation or long quotation inside an autonomous commentary section remains part of that main section; its words being a quotation do not establish a detached footnote flow.",
-            "Within an actually detached note area, the target need not repeat its own marker: a source between a genuine note opening and the next opening can continue that note across natural-paragraph breaks. Grammatical, independent-looking prose can still be a note continuation. First establish the ancillary stream; numbered entries alone do not establish it.",
-        ]
-    return dict(
-        type="noul",
-        instructions=[
-            scope,
-            ask,
-            rule,
-            *extra,
-            "Insufficient or ambiguous evidence means false. Pure punctuation/empty OCR noise is outside this judgement.",
-        ],
-        criteria=dict(
-            true="There is concrete positive evidence for the stated role of this specific source.",
-            false="That role is not established; do not infer it from neighbouring sources or a vague suspicion.",
-        ),
-    )
+        extra = review_template('footnote_review', 'footnote_role_rules')
+    return review_template('footnote_review', 'role_fact', scope=scope, ask=ask, rule=rule, extra=extra)
 
 
 def bound(packet):
     for name, spec in packet["questions"].items():
-        spec["instructions"] = [
-            f"本题唯一审核对象是 state.checks.{name}。按该记录的source_order在local_raw_evidence.target_page.layouts定位；若是definition则按该记录的definition定位。其他checks是并行问题，不得用它们的错误否决本题。",
-            *spec["instructions"],
-        ]
+        spec["instructions"] = review_template('footnote_review', 'bound_instructions', name=name, spec=spec)
     return packet
 
 
@@ -208,11 +153,7 @@ def footnote_review_requests(state):
                 (
                     f"note_gap_{order}",
                     prompt(
-                        [
-                            _COMMON,
-                            "审核当前脚注文字块的continues_from_previous。它表示是否与真实脚注前驱属于同一个自然段。正文和脚注是独立流；页码、正文或出版提示不能作脚注前驱。",
-                            "同一脚注可包含多个自然段，所以同一citation ID不强迫连接。两个不同的新注释应断开。一个词或未完成句法被前后块切开应连接；独立新段落应断开。独立公式是硬边界，image/table本身不强制断段。",
-                        ]
+                        review_template('footnote_review', 'note_gap_instructions', _COMMON=_COMMON)
                     ),
                     dict(
                         check,
@@ -265,19 +206,7 @@ def footnote_review_requests(state):
             continue
         order = layout["source_order"]
         name = f"new_note_{order}"
-        spec = dict(
-            type="noul",
-            instructions=[
-                f"Inspect only the current source in checks.{name}. Does its ORIGINAL text clearly start a distinct new footnote here, rather than continue an earlier note?",
-                "A genuine opening has an actual printed note marker (number, circled character, letter or star) followed by the note explanation. Markdown/LaTeX escaping around a literal marker does not erase that marker. A corresponding body mark may be absent from the OCR; do not require it to recognise an explicitly marked new definition.",
-                "Do not trust existing index=null or mark=null as evidence of continuation: these are the algorithm claims being checked. Equally do not invent a missing printed marker or start from the meaning of the prose alone. A footer page number, list item in main commentary, unmarked continuation or pure noise is not a new footnote opening.",
-                "A footnote may have multiple natural paragraphs without a new definition. Inspect the actual mark and its role, not merely a sentence beginning or indentation.",
-            ],
-            criteria=dict(
-                true="This source clearly opens a new real footnote with an explicit note marker.",
-                false="A distinct new marked footnote start is not established.",
-            ),
-        )
+        spec = review_template('footnote_review', 'new_note', name=name)
         starts.append(
             (
                 name,
@@ -320,9 +249,7 @@ def _reference_requests(state, packet):
             for d in page["citations"]
             if d["index"] is not None
         ]
-        spec["instructions"] += [
-            "literal_edits列出原文到分析文字的字面差异：original是删除文字，analysed是插入文字，before/after保留原位置上下文。references按⟦REF⟧出现顺序列出其目标；target_definitions给出同页定义的印刷mark。此清单只是待审核的原始事实，不是正确性结论。只审核本块引用的身份与原位置是否保留，空白、转义或数学包装不影响同一个印刷标记。"
-        ]
+        spec["instructions"] += review_template('footnote_review', 'reference_location_rules')
         jobs.append((name, spec, check))
         if source["references"] and edits is not None:
             location = f"reference_position_{name.rsplit('_', 1)[1]}"
@@ -370,10 +297,7 @@ def supplementary_footnote_requests(state, scores):
             spec = question(kind, name)
             if kind == "section_sequence":
                 spec = question(kind, name)
-                spec["instructions"] += [
-                    "The matching section heading may be on the PREVIOUS supplied page. A current page continuing that established section does not need to repeat its heading or start a second section. Judge whether the heading established a main reading section, not whether that section starts on the current page.",
-                    "An independent bibliography/reference section is also main reading. This applies to vertical Chinese annotations as well as horizontal text: follow the actual column order, not an assumed top-to-bottom prose-plus-footer layout.",
-                ]
+                spec["instructions"] += review_template('footnote_review', 'unmarked_note_rules')
             jobs.append(
                 (
                     name,
@@ -503,9 +427,7 @@ def _main_section_requests(state):
         for kind in ("section_sequence", "section_member"):
             name = f"main_{kind}_{item['source_order']}"
             spec = question(kind, name)
-            spec["instructions"] += [
-                "preceding_or_current_heading_candidates are unclassified short RAW text candidates, not established headings. Confirm their actual heading function independently; an OCR text tag or absent heading tag is not proof either way. A short vertical section label can identify a main commentary section without a Markdown heading marker. Do not treat an ordinary sentence, page number or inline note label as a section heading."
-            ]
+            spec["instructions"] += review_template('footnote_review', 'main_section_rules')
             jobs.append(
                 (
                     name,
