@@ -30,6 +30,35 @@ Do not split a question into another file just because it is long. Keep entry-sp
 wording inline; use ordinary conditions for genuine selection. Avoid macros, generated
 JSON and Python-side concatenation of prompt instructions.
 
+## Selection and score polarity
+
+`True` means the proposition under `# True` holds. It does **not** always mean
+that the page passes. Keep the named question's meaning and its aggregation rule
+together when changing a prompt.
+
+| Entry | Question selection | Score aggregation |
+| --- | --- | --- |
+| Body base | [local_review.py](../local_review.py) | `review_body_page` in [structural_review.py](../structural_review.py) |
+| Body follow-up | [review_evidence.py](../review_evidence.py), [body_review_facts.py](../body_review_facts.py) | `aggregate_risks` in [structural_review.py](../structural_review.py), `apply_body_facts` in [body_review_facts.py](../body_review_facts.py) |
+| Footnote base | `footnote_review_requests` in [footnote_review.py](../footnote_review.py) | `footnote_pass_scores` in the same module |
+| Footnote follow-up | `supplementary_footnote_requests` in [footnote_review.py](../footnote_review.py), [footnote_quotation.py](../footnote_quotation.py), [footnote_completion.py](../footnote_completion.py) | `footnote_pass_scores` and its source-specific proof handlers |
+
+Examples of the different polarities:
+
+| Question family | Meaning of a high True score |
+| --- | --- |
+| Body base ownership and paragraph edges | Supports the existing decision; base risk is `1 - score`. |
+| Footnote base definitions, references and paragraph edges | Supports the audited existing decision. |
+| Footnote base `furniture`, `main_reading`, `footnote_role`, `new_note` | Establishes a role or note opening that conflicts with the existing decision; increases risk. |
+| `redundancy` | Establishes that the source is not redundant; risk is `1 - score`. |
+| `publisher_apparatus`, `nonreading_page_trace` | Establishes an independently checked fault; adds risk. |
+| Paired image, dialogue, numbered-instruction or illustration facts | Adds risk only when the corresponding required facts jointly hold. |
+| Source-specific completion, attribution or section proofs | Can lower the corresponding suspicion, or establish a conflicting role, as defined by the named handler; never grants a page-wide exemption. |
+
+The tables are a reading guide. The named aggregation functions define how paired
+facts, thresholds and source identities combine; do not replace them with a global
+interpretation of True or False.
+
 ## Rendering contract
 
 Python selects the entry, `kind`, source identifiers and applicable conditions, prepares
