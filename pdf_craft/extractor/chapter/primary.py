@@ -6,7 +6,8 @@ from copy import deepcopy
 from .generation import _resolve_jointers
 from .jointer import Jointer, _is_empty_text_layout
 from .page_analysis import analyse_pages
-from .source import capture_sources, empty_sources
+from .source import capture_sources, excluded_sources
+from .marginal_numbers import reading_notes, reading_body
 
 
 def project_page(page, includes_footnotes):
@@ -34,9 +35,9 @@ class PrimaryPages:
         pages = deepcopy({page.index: page for page in (self.body_tail, self.previous, current)
                           if page is not None})
         sources = capture_sources(list(pages.values()))
-        body = Jointer(((page.index, pages[page.index].body_layouts)
+        body = Jointer(((page.index, reading_body(pages[page.index], includes_footnotes=self.includes_footnotes))
                         for page in (self.body_tail, current) if page is not None), sources)
-        notes = Jointer(((page.index, pages[page.index].footnotes_layouts)
+        notes = Jointer(((page.index, reading_notes(pages[page.index]))
                          for page in (self.previous, current) if page is not None and self.includes_footnotes), sources)
         paragraphs, citations = _resolve_jointers(body, notes)
         if not self.includes_footnotes:
@@ -44,12 +45,12 @@ class PrimaryPages:
             # definitions. Do not parse note indices or match body references.
             paragraphs.extend(Jointer(((current.index, pages[current.index].footnotes_layouts),), sources).execute())
         analyses = analyse_pages(pages, paragraphs, citations,
-                                 ignored_sources=empty_sources(pages.values(), sources))
+                                 ignored_sources=excluded_sources(pages.values(), sources, includes_footnotes=self.includes_footnotes))
         target = next(page for page in analyses if page.page_index == current.index)
         _canonicalize(target, analyses, self.previous_analysis)
         if not self.includes_footnotes:
             target = _body_candidates(target)
-        if not any(not _is_empty_text_layout(layout) for layout in current.body_layouts):
+        if not any(not _is_empty_text_layout(layout) for layout in reading_body(current, includes_footnotes=self.includes_footnotes)):
             self.body_tail = None
         elif any(layout.source_order is not None or getattr(layout.source, 'ref', None) == 'formula'
                  for layout in target.layouts if layout.ownership == 'paragraph'):
@@ -67,18 +68,21 @@ def project_window(pages, includes_footnotes=True):
     """
     raw = deepcopy({page.index: page for page in pages if page is not None})
     sources = capture_sources(list(raw.values()))
-    body = Jointer(((page.index, page.body_layouts) for page in raw.values()), sources)
-    notes = Jointer(((page.index, page.footnotes_layouts) for page in raw.values()
+    body = Jointer(((page.index, reading_body(page, includes_footnotes=includes_footnotes)) for page in raw.values()), sources)
+    notes = Jointer(((page.index, reading_notes(page)) for page in raw.values()
                      if includes_footnotes), sources)
     paragraphs, citations = _resolve_jointers(body, notes)
     if not includes_footnotes:
         for page in raw.values():
             paragraphs.extend(Jointer(((page.index, page.footnotes_layouts),), sources).execute())
     analyses = analyse_pages(raw, paragraphs, citations,
-                             ignored_sources=empty_sources(raw.values(), sources))
+                             ignored_sources=excluded_sources(raw.values(), sources, includes_footnotes=includes_footnotes))
+    # Alias lookup must read the original local identities. Canonicalizing an
+    # earlier page in place otherwise erases the keys needed by its continuation.
+    initial = deepcopy(analyses) if includes_footnotes else analyses
     previous = None
     for analysis in analyses:
-        _canonicalize(analysis, analyses, previous)
+        _canonicalize(analysis, initial, previous)
         previous = analysis
     projected = {page.page_index: page if includes_footnotes else _body_candidates(page)
                  for page in analyses}

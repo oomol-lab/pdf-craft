@@ -111,7 +111,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
                          ('footnote', 0, 'text', '① E.'))
         # JEV consumes the source record, never indexes OCR by persisted identity.
         packet = list(build_jev_review_requests([raw], [repaired], {1: (240, 150)}))[0][1]
-        self.assertEqual(packet['state']['target_page']['layouts'][3]['raw_text'], '① E.')
+        self.assertEqual(packet['state']['local_raw_evidence']['target_page']['layouts'][3]['raw_text'], '① E.')
 
     def test_full_width_reclassification_splits_column_reading_bands(self):
         page = decode(fromstring(

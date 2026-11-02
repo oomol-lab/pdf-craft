@@ -120,7 +120,7 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
             return 0.1
         async def evaluate_questions(_runtime, index, packet, **kwargs):
             value = await evaluate(_runtime, index, packet, **kwargs)
-            return {name: value if name.startswith(('gap_', 'owner_', 'redundancy_')) else .01
+            return {name: value if name.startswith(('gap_', 'owner_', 'redundancy_', 'reference_', 'definition_', 'note_gap_')) else .01
                     for name in packet['questions']}
         class Runtime:
             async def request(self, messages, **_kwargs):

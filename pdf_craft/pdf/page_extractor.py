@@ -19,7 +19,7 @@ from ..ocr_config import (
 )
 from .ngrams import has_repetitive_ngrams
 from .types import DeepSeekOCRSize, Page, PageLayout
-from .line_geometry import first_line_inset, has_vertical_columns
+from .line_geometry import first_line_inset, has_vertical_columns, number_ink_bbox
 
 _LAYOUT_KIND_TO_REF = {
     "text": "text",
@@ -293,10 +293,14 @@ class PageExtractorNode:
 
         body_layouts: list[PageLayout] = []
         footnotes_layouts: list[PageLayout] = []
+        number_image = None
         for step_index, (image, page_result) in enumerate(results, start=1):
+            if step_index == 1:
+                number_image = image
             for page_layout, is_footnote in self._iter_page_layouts(
                 image=image,
                 structured=page_result.structured,
+                number_image=number_image,
                 asset_hub=asset_hub,
                 stage_index=step_index,
                 includes_footnotes=includes_footnotes,
@@ -336,6 +340,7 @@ class PageExtractorNode:
         asset_hub: AssetHub,
         stage_index: int,
         includes_footnotes: bool,
+        number_image: Image | None = None,
     ):
         if structured is None:
             return
@@ -388,6 +393,9 @@ class PageExtractorNode:
                 first_line_inset=(first_line_inset(image, det, obstructions)
                                   if stage_index == 1 and ref == "text" and not is_footnote
                                   and "<" not in text else None),
+                number_ink_bbox=(number_ink_bbox(number_image, det, text)
+                                 if ref == "text" and number_image is not None
+                                 and number_image.size == image.size else None),
                 vertical_columns=(has_vertical_columns(image, det)
                                   if stage_index == 1 and ref == "text" and not is_footnote
                                   and "<" not in text and "\\" not in text else False),

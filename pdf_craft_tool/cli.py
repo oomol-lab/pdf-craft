@@ -525,8 +525,8 @@ async def _review_jev_async(args: argparse.Namespace) -> None:
         reviewer = JevReviewProcessor(
             _recording_jev_evaluator(runtime.evaluate, raw_path),
             threshold=args.threshold,
-            batch_evaluator=_recording_jev_batch_evaluator(
-                runtime.evaluate_many, raw_path,
+            question_batch_evaluator=_recording_jev_batch_evaluator(
+                runtime.evaluate_questions_many, raw_path,
             ),
         )
         await reviewer(
@@ -655,9 +655,9 @@ async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
             request,
             threshold=args.threshold,
             retry_policy=RetryPolicy(analysis=args.analysis_retries),
-            batch_evaluator=(
+            question_batch_evaluator=(
                 _recording_jev_batch_evaluator(
-                    jev_runtime.evaluate_many,
+                    jev_runtime.evaluate_questions_many,
                     args.output / "jev-raw",
                 )
                 if jev_runtime is not None else None
@@ -747,23 +747,19 @@ def _recording_jev_evaluator(evaluator, output_path: Path):
 def _recording_jev_batch_evaluator(evaluator, output_path: Path):
     output_path.mkdir(parents=True, exist_ok=True)
 
+    def record(page_index, kind, value):
+        # One page may have several base and supplementary batches. Keep every
+        # observation instead of replacing its predecessor's evidence.
+        with (output_path / f"page_{page_index:03d}-{kind}.jsonl").open("a", encoding="utf-8") as file:
+            file.write(json.dumps(value, ensure_ascii=False) + "\n")
+
     async def evaluate(requests):
         request_list = list(requests)
         for page_index, request in request_list:
-            (output_path / f"page_{page_index:03d}-request.json").write_text(
-                json.dumps(request, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
+            record(page_index, "requests", request)
         results = await evaluator(request_list)
-        for page_index, probability in results:
-            (output_path / f"page_{page_index:03d}-response.json").write_text(
-                json.dumps(
-                    {"pass_probability": probability},
-                    ensure_ascii=False,
-                    indent=2,
-                ) + "\n",
-                encoding="utf-8",
-            )
+        for page_index, scores in results:
+            record(page_index, "responses", {"scores": scores})
         return results
 
     return evaluate

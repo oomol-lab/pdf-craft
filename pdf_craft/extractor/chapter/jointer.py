@@ -9,8 +9,11 @@ from ...markdown.paragraph import parse_raw_markdown
 from ...pdf import TITLE_TAGS, PageLayout
 from .chapter import SourceAsset, SourceTextFragment, TextSource, InlineExpression, TextFlowItem
 from .content import Content, expand_text_in_content, first, last
-from .mergeable import LINK_FLAGS, check_mergeable, has_numbered_prefix
-from .paragraph_geometry import indented_line_boundary, indented_line_starts
+from .mergeable import LINK_FLAGS, check_mergeable, has_numbered_prefix, reported_turn_boundary
+from .paragraph_geometry import (
+    indented_line_boundary, indented_line_starts, printed_separator_boundary, colophon_record_starts,
+    completed_equation_rows,
+)
 from .reading_serials import split_reading_serials
 
 _ASSET_CAPTION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
@@ -83,6 +86,8 @@ class Jointer:
         self._reading_positions: dict[tuple[int, tuple[int, int, int, int]], int] = {}
         self._indented_starts: set[tuple[int, int, int, int]] = set()
         self._current_page: int | None = None
+        self._colophon_starts: set[tuple[int, int, int, int]] = set()
+        self._equation_rows: dict[tuple[int, int, int, int], int] = {}
 
     def execute(self) -> Generator[TextFlowItem | SourceAsset, None, None]:
         for item in self.execute_with_progress():
@@ -114,7 +119,7 @@ class Jointer:
             # 此处为完成如下业务要求：
             # 1. 当阅读序列跨越 group（跨页、跨分栏、跨因图片而挤变形拆分的段落）时，必须对连接处验证。若它们是被拆分的自然段，则拼起来。
             # 2. 因为插图、表格而拆分的自然段，需将插图存起来接到完整的自然段最后，而不是任其分割自然段。
-            layouts = list(self._join_and_handle_asset_layouts(page_index, raw_layouts))
+            layouts = list(self._embed_assets(self._join_and_handle_asset_layouts(page_index, raw_layouts)))
             head, body, tail = self._split_layouts(layouts)
 
             if not body:
@@ -137,7 +142,7 @@ class Jointer:
                 last_tail = None
             if last_tail and self._can_merge_paragraphs(
                 last_tail.page_para, first_layout,
-                across_assets=bool(last_tail.override or head),
+                across_assets=[*last_tail.override, *head],
             ):
                 # ``blocks`` is a compatibility projection.  Extend the real
                 # ordered v3 children so cross-page source fragments survive.
@@ -187,6 +192,8 @@ class Jointer:
             self._reading_positions.clear()
             self._current_page = page_index
             self._indented_starts = indented_line_starts(raw_layouts)
+            self._colophon_starts = colophon_record_starts(raw_layouts)
+            self._equation_rows = completed_equation_rows(raw_layouts)
             for layout in raw_layouts:
                 record = self._sources.get((page_index, id(layout)))
                 if record is not None:
@@ -356,8 +363,36 @@ class Jointer:
         if pending:
             yield pending
 
+    def _embed_assets(self, layouts):
+        """Decide same-serial asset seams here, using the page's raw geometry.
+
+        Flow packaging must not perform a second, weaker paragraph inference.
+        Keep only the current author paragraph and its intervening assets.
+        """
+        current = None
+        pending = []
+        for layout in layouts:
+            if isinstance(layout, SourceAsset):
+                pending.append(layout)
+                continue
+            if (current is not None and pending
+                    and not any(asset.ref == "formula" for asset in pending)
+                    and self._can_merge_paragraphs(current, layout, across_assets=pending)):
+                current.children.extend(pending)
+                current.children.extend(layout.children)
+                pending = []
+                continue
+            if current is not None:
+                yield current
+            yield from pending
+            pending = []
+            current = layout
+        if current is not None:
+            yield current
+        yield from pending
+
     def _can_merge_paragraphs(
-        self, para1: TextFlowItem, para2: TextFlowItem, *, across_assets: bool = False,
+        self, para1: TextFlowItem, para2: TextFlowItem, *, across_assets: Iterable[SourceAsset] = (),
     ) -> bool:
         if para1.role != "body":
             return False
@@ -369,22 +404,47 @@ class Jointer:
         if not isinstance(block1, SourceTextFragment) or not isinstance(block2, SourceTextFragment):
             return False
 
+        if (block1.page_index == block2.page_index == self._current_page
+                and block2.bbox in self._colophon_starts):
+            return False
+        assets = tuple(across_assets)
+        if not assets and block1.page_index == block2.page_index == self._current_page:
+            row_end = self._equation_rows.get(block1.bbox)
+            indent = block2.bbox in self._indented_starts or (
+                block2.source is not None and block2.source.first_line_inset is not None
+                and block2.source.first_line_inset >= .75)
+            if (row_end is not None and indent
+                    and block2.bbox[1] >= row_end + .5 * (block1.bbox[3] - block1.bbox[1])):
+                return False
+        if not assets and printed_separator_boundary(para1, para2):
+            return False
+
         # OCR sometimes uses quotation brackets for numbered commentary entries.
         # Do not treat a quoted numeral in ordinary prose as an entry: establish
         # the numbered context from the paragraph head, even across line seams.
         origin = para1.children[0]
+        if (not assets and isinstance(origin, SourceTextFragment)
+                and reported_turn_boundary(first(origin.content), last(block1.content), first(block2.content))):
+            return False
         if (isinstance(origin, SourceTextFragment)
                 and has_numbered_prefix(origin.content, include_quoted=True)
                 and has_numbered_prefix(block2.content, include_quoted=True)):
             return False
 
-        if not across_assets and indented_line_boundary(
+        # A figure alongside text may distort the column. A block fully between
+        # two text boxes cannot cause the following line's observed inset.
+        isolated = (assets and block1.page_index == block2.page_index and all(
+            asset.page_index == block2.page_index
+            and block1.bbox[3] <= asset.bbox[1] and asset.bbox[3] <= block2.bbox[1]
+            for asset in assets))
+        if (not assets or isolated) and indented_line_boundary(
             para1, para2, column_indented=(block2.page_index == self._current_page
                                           and block2.bbox in self._indented_starts),
         ):
             return False
 
-        return check_mergeable(block1.content, block2.content)
+        return check_mergeable(block1.content, block2.content,
+                               continued_page=block1.page_index != block2.page_index)
 
 
 def _normalize_equation(layout: _AssetHolder):

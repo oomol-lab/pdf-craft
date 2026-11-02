@@ -1,25 +1,29 @@
 import re
+from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Generator, Iterable, Mapping
 
 from ...common import XMLReader, save_xml
+from ...markdown.paragraph import HTMLTag
 from ...pdf import Page, decode
 from ..toc import Toc, TocInfo, iter_toc
 from .analyse_level import analyse_chapter_internal_levels
 from .chapter import (
-    Chapter, DisplayFormula, FlowItem, Reference, SourceAsset,
+    Chapter, DisplayFormula, FlowItem, Reference, SourceAsset, InlineExpression,
     SourceTextFragment, StandaloneAsset, TextFlowItem, encode, search_references_in_chapter,
 )
 from .content import expand_text_in_content, join_texts_in_content
 from .jointer import Jointer
 from .mark import Mark, search_marks
-from .mergeable import check_mergeable
 from .page_analysis import PageAnalysis, UnindexedCitation, analyse_pages, restore_streams
 from .page_review import load_page_pixel_sizes
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References, extract_head_mark
-from .source import capture_sources, empty_sources
+from .numeric_marks import (explicit_numbers, html_number, SUPERSCRIPT_NUMBERS, superscript_number,
+                            flattened_numbers, flattened_spans, prose_containers)
+from .source import capture_sources, excluded_sources
+from .marginal_numbers import reading_notes, reading_body
 
 
 @dataclass(frozen=True)
@@ -246,7 +250,7 @@ def _analyse_chapter_pages(
         page_indexes=(page.index for page in source_pages),
         paragraphs=paragraphs,
         citations=citations,
-        ignored_sources=empty_sources(source_pages, sources),
+        ignored_sources=excluded_sources(source_pages, sources, includes_footnotes=True),
     )
     return source_pages, analysed_pages
 
@@ -264,17 +268,36 @@ def _resolve_pages(
     page_list = list(pages)
     sources = capture_sources(page_list) if sources is None else sources
     body_jointer = Jointer(
-        ((page.index, page.body_layouts) for page in page_list), sources
+        ((page.index, reading_body(page)) for page in page_list), sources
     )
     footnotes_jointer = Jointer(
-        ((page.index, page.footnotes_layouts) for page in page_list), sources
+        ((page.index, reading_notes(page)) for page in page_list), sources
     )
     return _resolve_jointers(body_jointer, footnotes_jointer)
 
 
 def _resolve_jointers(body_jointer: Jointer, footnotes_jointer: Jointer):
     """Share paragraph/reference rules with bounded initial-page projection."""
-    page_references = list(_extract_page_references(footnotes_jointer))
+    paragraphs = list(body_jointer.execute())
+    numeric_marks: dict[int, set[str]] = {}
+    flattened: dict[int, Counter[str]] = {}
+    seen = set()
+    for item in paragraphs:
+        if isinstance(item, TextFlowItem):
+            for fragment in item.children:
+                if isinstance(fragment, SourceTextFragment):
+                    key = fragment.page_index, fragment.source_order
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    content = fragment.source.content if fragment.source is not None else fragment.content
+                    numeric_marks.setdefault(fragment.page_index, set()).update(explicit_numbers(content))
+                    flattened.setdefault(fragment.page_index, Counter()).update(flattened_numbers(content))
+    flat_marks = {page: {mark for mark, count in counts.items() if count == 1} - numeric_marks[page]
+                  for page, counts in flattened.items()}
+    for page, marks in flat_marks.items():
+        numeric_marks[page].update(marks)
+    page_references = list(_extract_page_references(footnotes_jointer, numeric_marks, flat_marks))
     references_generator = iter(page_references)
     current_references: References | None = next(references_generator, None)
 
@@ -292,8 +315,7 @@ def _resolve_jointers(body_jointer: Jointer, footnotes_jointer: Jointer):
             return current_references
         return None
 
-    paragraphs: list[TextFlowItem | SourceAsset] = []
-    for layout in body_jointer.execute():
+    for layout in paragraphs:
         if isinstance(layout, TextFlowItem):
             for fragment in layout.children:
                 if not isinstance(fragment, SourceTextFragment):
@@ -302,8 +324,6 @@ def _resolve_jointers(body_jointer: Jointer, footnotes_jointer: Jointer):
                 if references:
                     _replace_mark_with_reference(references, fragment)
                 join_texts_in_content(fragment.content)
-
-        paragraphs.append(layout)
 
     citations: list[Reference | UnindexedCitation] = []
     for references in page_references:
@@ -321,65 +341,33 @@ def _resolve_jointers(body_jointer: Jointer, footnotes_jointer: Jointer):
 def _assemble_flow_items(
     layouts: Iterable[TextFlowItem | SourceAsset],
 ) -> Generator[FlowItem, None, None]:
-    """Turn the joiner's conservative flat OCR sequence into v3 flow.
+    """Package already-decided author paragraphs without rejoining them.
 
-    The joiner has already decided whether neighbouring OCR text regions form
-    one author paragraph.  Here we preserve a figure/table found between two
-    mergeable text runs as a child of that paragraph.  Equations are never
-    candidates: they are hard reading-flow boundaries.
+    Jointer owns raw paragraph/asset connections. Restored analysis owns its
+    explicit connections. Neither can be overruled by this format adapter.
     """
-    current: TextFlowItem | None = None
-    pending: list[SourceAsset] = []
-
-    def flush() -> Generator[FlowItem, None, None]:
-        nonlocal current, pending
-        if current is not None:
-            yield current
-            current = None
-        for asset in pending:
-            yield DisplayFormula(asset) if asset.ref == "formula" else StandaloneAsset(asset)
-        pending = []
-
     for layout in layouts:
         if isinstance(layout, SourceAsset):
-            pending.append(layout)
-            continue
-        text = layout
-        if current is None:
-            # Leading assets are standalone and must remain before the text.
-            yield from flush()
-            current = text
-            continue
-        can_embed = (
-            pending
-            and not any(asset.ref == "formula" for asset in pending)
-            and current.role == text.role == "body"
-            and current.children and text.children
-            and isinstance(current.children[-1], SourceTextFragment)
-            and isinstance(text.children[0], SourceTextFragment)
-            and check_mergeable(current.children[-1].content, text.children[0].content)
-        )
-        if can_embed:
-            current.children.extend(pending)
-            current.children.extend(text.children)
-            pending = []
-            continue
-        yield from flush()
-        current = text
-    yield from flush()
+            yield DisplayFormula(layout) if layout.ref == "formula" else StandaloneAsset(layout)
+        else:
+            yield layout
 
 
-def _extract_page_references(jointer: Jointer) -> Generator[References, None, None]:
+def _extract_page_references(jointer: Jointer, numeric_marks=None, flat_marks=None) -> Generator[References, None, None]:
+    numeric_marks = numeric_marks or {}
+    flat_marks = flat_marks or {}
     last_page_index: int = -1
     layout_buffer: list[SourceAsset | TextFlowItem] = []
 
     for layout in jointer.execute():
-        for page_index, page_layout in _split_reference_origins(layout):
+        for page_index, page_layout in _split_reference_origins(layout, numeric_marks):
             if page_index != last_page_index:
                 if layout_buffer:
                     yield References(
                         page_index=last_page_index,
                         items=layout_buffer,
+                        numeric_marks=numeric_marks.get(last_page_index, ()),
+                        flat_marks=flat_marks.get(last_page_index, ()),
                     )
                 last_page_index = page_index
                 layout_buffer = []
@@ -389,11 +377,14 @@ def _extract_page_references(jointer: Jointer) -> Generator[References, None, No
         yield References(
             page_index=last_page_index,
             items=layout_buffer,
+            numeric_marks=numeric_marks.get(last_page_index, ()),
+            flat_marks=flat_marks.get(last_page_index, ()),
         )
 
 
 def _split_reference_origins(
     layout: SourceAsset | TextFlowItem,
+    numeric_marks=None,
 ) -> Generator[tuple[int, SourceAsset | TextFlowItem], None, None]:
     if isinstance(layout, SourceAsset):
         yield layout.page_index, layout
@@ -405,7 +396,8 @@ def _split_reference_origins(
         if isinstance(child, SourceAsset):
             children.append(child)
             continue
-        mark, _ = extract_head_mark(child.content)
+        mark, _ = extract_head_mark(child.content,
+            numeric_marks=(numeric_marks or {}).get(child.page_index, ()))
         if (
             mark is not None
             and origin_page_index is not None
@@ -430,16 +422,51 @@ def _split_reference_origins(
         children=children,
     )
 def _replace_mark_with_reference(references: References, block: SourceTextFragment):
+    # Explicit references take precedence. Flattened digits are considered only
+    # at the unique paired prose location collected from immutable source text.
+    for container in prose_containers(block.content):
+        index = 0
+        while index < len(container):
+            part = container[index]
+            if not isinstance(part, str):
+                index += 1
+                continue
+            replacement = []
+            end = 0
+            for match in flattened_spans(part):
+                reference = references.flattened_reference(match['number'])
+                if reference is not None:
+                    start, stop = match.span('number')
+                    replacement.extend((part[end:start], reference))
+                    end = stop
+            if end:
+                replacement.append(part[end:])
+                container[index:index+1] = replacement
+                index += len(replacement)
+            else:
+                index += 1
+
     def expand(text: str):
         # Asterisks form a marker domain too; match maximal runs so ** is
-        # never consumed as two occurrences of *.
-        for part in re.split(r"(?<!\*)(\*{1,6})(?!\*)", text):
-            if re.fullmatch(r"\*{1,6}", part):
-                yield references.get(part) or part
-            else:
-                yield from expand_numbered(part)
+        # never consumed as two occurrences of *. Markdown's escape belongs
+        # to the printed marker, not to the prose left beside a reference.
+        end = 0
+        for match in re.finditer(r"(?<!\*)(?:\\?\*){1,6}(?!\*)", text):
+            yield from expand_numbered(text[end:match.start()])
+            yield references.get(match[0].replace("\\", "")) or match[0]
+            end = match.end()
+        yield from expand_numbered(text[end:])
 
     def expand_numbered(text: str):
+        end = 0
+        for match in SUPERSCRIPT_NUMBERS.finditer(text):
+            yield from expand_symbols(text[end:match.start()])
+            numeric = superscript_number(match[0])
+            yield (references.get(numeric) if numeric is not None else None) or match[0]
+            end = match.end()
+        yield from expand_symbols(text[end:])
+
+    def expand_symbols(text: str):
         for item in search_marks(text):
             reference: Reference | None = None
             if isinstance(item, Mark):
@@ -449,6 +476,22 @@ def _replace_mark_with_reference(references: References, block: SourceTextFragme
             else:
                 yield str(item)
 
+    def inline_references(content):
+        for index, part in enumerate(content):
+            if isinstance(part, HTMLTag):
+                numeric = html_number(part)
+                reference = references.get(numeric) if numeric is not None else None
+                if reference is not None:
+                    content[index] = reference
+                else:
+                    inline_references(part.children)
+            elif isinstance(part, InlineExpression):
+                mark, _ = extract_head_mark([part])
+                reference = references.get(mark) if mark is not None else None
+                if reference is not None:
+                    content[index] = reference
+
+    inline_references(block.content)
     expand_text_in_content(
         content=block.content,
         expand=expand,

@@ -90,7 +90,7 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
 
         async def evaluate_questions(_runtime, _index, packet, **_kwargs):
             value = await evaluate(_runtime, _index, packet, **_kwargs)
-            return {name: value if name.startswith(('gap_', 'owner_', 'redundancy_')) else .01
+            return {name: value if name.startswith(('gap_', 'owner_', 'redundancy_', 'reference_', 'definition_', 'note_gap_')) else .01
                     for name in packet['questions']}
 
         class Runtime:

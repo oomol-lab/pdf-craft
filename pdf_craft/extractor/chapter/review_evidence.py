@@ -114,11 +114,11 @@ def _attributions(state, risks):
         yield _job('attribution', check)
 
 
-def _quotes(state, risks):
+def _quotes(state, risks, *, threshold=LOCAL_REVIEW_THRESHOLD):
     pairs = {'“': '”', '‘': '’', '"': '"', "'": "'", '「': '」', '『': '』', '«': '»'}
     for key, check in state['checks'].items():
         if (not key.startswith('gap_') or check['present_decision']
-                or max(risks.get(key + '_' + part, 0) for part in ('word', 'syntax')) < LOCAL_REVIEW_THRESHOLD):
+                or max(risks.get(key + '_' + part, 0) for part in ('word', 'syntax')) < threshold):
             continue
         text = target_layout(state, check)['raw_text'].strip()
         whole = bool(text and text[0] in pairs and text.endswith(pairs[text[0]]))
@@ -135,7 +135,7 @@ def _quotes(state, risks):
             yield _job('quotation_boundary', value)
         elif not contradictory_hint(state, check):
             for part, kind in (('word', 'left_word_complete'), ('syntax', 'left_frame_complete')):
-                if risks.get(key + '_' + part, 0) >= LOCAL_REVIEW_THRESHOLD:
+                if risks.get(key + '_' + part, 0) >= threshold:
                     yield _job(kind, value)
 
 

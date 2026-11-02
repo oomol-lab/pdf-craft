@@ -2,6 +2,7 @@
 
 from collections.abc import Iterable
 from statistics import median
+import re
 
 from PIL.Image import Image
 
@@ -97,3 +98,33 @@ def has_vertical_columns(image: Image, bbox: tuple[int, int, int, int]) -> bool:
     return (column_gap >= max(2, 0.15 * column_width)
             and max(end - start for start, end in y_bands) >= 3 * column_width
             and column_gap / column_width >= 3 * row_gap / row_height)
+
+
+def number_ink_bbox(image: Image, bbox: tuple[int, int, int, int], text: str):
+    """Observe one compact numeral cluster in an overwhelmingly blank OCR box.
+
+    This neither recognizes digits nor replaces the vendor rectangle. All dark
+    ink must fit one line-shaped cluster; border noise and separate lines leave
+    the observation unknown. Allocation uses the same bounded crop as line data.
+    """
+    if not re.fullmatch('[0-9]{1,3}', text):
+        return None
+    left, top, right, bottom = bbox
+    width, height = right - left, bottom - top
+    if (image.mode not in ('L', 'RGB') or not 0 <= left < right <= image.width
+            or not 0 <= top < bottom <= image.height or width * height > _MAX_CROP_PIXELS):
+        return None
+    with image.crop(bbox) as region, region.convert('L') as gray, gray.point(_DARK_PIXELS, mode='1') as ink:
+        bounds = ink.getbbox()
+        if bounds is None:
+            return None
+        x1, y1, x2, y2 = bounds
+        ink_width, ink_height = x2 - x1, y2 - y1
+        if (ink_height < 6 or not .15 * len(text) * ink_height <= ink_width <= 1.25 * len(text) * ink_height
+                or width * height < 16 * ink_width * ink_height):
+            return None
+        rows = ink.getprojection()[1]
+        active = [index for index in range(y1, y2) if rows[index]]
+        if max((b - a - 1 for a, b in zip(active, active[1:])), default=0) > max(3, .35 * ink_height):
+            return None
+        return left + x1, top + y1, left + x2, top + y2

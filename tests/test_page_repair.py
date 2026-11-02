@@ -242,7 +242,8 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             return json.dumps(response)
 
         async def evaluate(page_index, _request):
-            return probabilities[page_index]
+            name = next(iter(_request["questions"]))
+            return 1 - probabilities[page_index] if name.startswith(("footnote_role_", "furniture_")) else .99
 
         processor = JevLlmRepairProcessor(evaluate, request)
         repaired = await processor(
@@ -254,7 +255,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(llm_payloads), 1)
         payload = llm_payloads[0]
         self.assertEqual(payload["target_page"]["page_index"], 2)
-        self.assertEqual(payload["target_page"]["jev_p_pass"], probabilities[2])
+        self.assertAlmostEqual(payload["target_page"]["jev_p_pass"], probabilities[2])
         self.assertNotIn("jev_p_pass", payload["previous_page"])
         self.assertNotIn("jev_p_pass", payload["next_page"])
         self.assertEqual([page.page_index for page in repaired], [1, 2, 3])

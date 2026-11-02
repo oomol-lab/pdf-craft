@@ -470,6 +470,215 @@ _TEMPLATES: dict[str, dict[str, Any]] = {'gap_word': {'type': 'noul',
                                                 'insufficient.'}}}
 
 
+_TEMPLATES["reference_position"] = {'type': 'noul',
+ 'instructions': ['For state.checks.{name} ONLY: find this source by its source_order; do not evaluate any '
+                  'other source in this packet.',
+                  'Assess ONLY the physical text position of reference replacements in this source, not note '
+                  'meaning, targets, paragraph joins or missing OCR.',
+                  'literal_edits describes edits from the original raw_text to analysed_text. Each original '
+                  'field was removed and each analysed field inserted at that location. A REF replacement '
+                  'must occupy the original printed marker position. An insertion of REF where the original '
+                  'contained no marker, combined with removing a marker elsewhere, does NOT preserve its '
+                  'position.',
+                  'Check the literal edit operations and their original_before/original_after context. '
+                  'Inline math or Markdown escaping around the SAME marker can change; whitespace changes do '
+                  'not relocate a marker. If position is preserved, accept. If it demonstrably moved, '
+                  'reject. Insufficient evidence is not a demonstrable error.'],
+ 'criteria': {'true': 'The replacements preserve original marker positions, or no displacement is '
+                      'established.',
+              'false': 'A reference token demonstrably occupies a different position from its original '
+                       'marker.'}}
+
+
+_TEMPLATES["retained_reading_position"] = {'type': 'noul',
+ 'instructions': ['Assess ONLY state.checks.{name}, identified by source_order in '
+                  'local_raw_evidence.target_page.layouts. Other sources or questions cannot decide this '
+                  'one.',
+                  'Does the WHOLE source have a positive, identifiable place in the main reading sequence, '
+                  'rather than being page apparatus? Use the original printed arrangement and neighboring '
+                  'reading text. bbox_normalized is [left,top,right,bottom] in page fractions from 0 to 1; '
+                  'near top=0 or bottom=1 is the physical page edge, not the start or end of the story.',
+                  'Require an actual reading-content role, such as a section/volume opening in the reading '
+                  'columns or an instructional step among the main instructions. Its mentioning a book name, '
+                  'chapter, printing or pages does not turn it into page apparatus. Judge placement and role '
+                  'of the entire source, not just familiar content words.',
+                  'A marginal folio, running header/footer or publication continuation cue is not main '
+                  'reading, even if it names a chapter. On a blank page, a bottom-margin chapter label does '
+                  'not become a chapter opening just because it is the first or only source. Conversely a '
+                  'genuine section-title leaf can have only its centrally placed title. Do not infer a '
+                  'reading role from the source having been retained by OCR.',
+                  'Do not judge spelling, paragraph joins or note-reference completeness. Uncertainty about '
+                  'an apparatus role alone is not positive proof of main reading. Require concrete '
+                  'main-reading placement/function; otherwise answer false.'],
+ 'criteria': {'true': 'The complete source has a demonstrated main-reading role in this local printed '
+                      'sequence.',
+              'false': 'Such a complete-source main-reading role is not established; it may be apparatus or '
+                       'uncertain.'}}
+
+
+_TEMPLATES['ended_utterance_boundary'] = {'type': 'noul',
+ 'instructions': ['At this proposed NEW paragraph boundary, has the preceding spoken turn ended by '
+                  'trailing off or interruption, with the target beginning outside that turn?',
+                  'Locate the nearest genuine main-reading predecessor in the supplied raw local '
+                  'evidence. A closing quote after an ellipsis is only a candidate cue. Do not '
+                  'invent missing words, speakers, indentation or a predecessor outside the '
+                  'supplied neighborhood.',
+                  'A deliberately unfinished utterance can finish a spoken turn: later independent '
+                  'narration about an interruption or a new utterance need not grammatically '
+                  'complete that abandoned utterance. Do not require the words inside a '
+                  'deliberately ended spoken turn to form a complete sentence.',
+                  'The outside grammatical frame must nevertheless be complete. If an outer '
+                  'conditional or subordinate clause containing the quoted speech still awaits its '
+                  'main clause or obligatory complement from the target, answer FALSE. Also reject '
+                  'if the target continues the same quoted utterance or merely supplies a missing '
+                  'obligatory component rather than begins outside it.',
+                  'This proves only that this syntax break is permissible under the ended-turn '
+                  'convention, not a word boundary, ownership, other gaps, or OCR correctness. If '
+                  'the actual ended-turn-to-independent-content relationship is not established, '
+                  'answer FALSE.'],
+ 'criteria': {'true': 'The spoken turn has ended and the target begins independently outside it; '
+                      'no unfinished outer frame requires this join.',
+              'false': 'The independent content after an ended turn is not established, or a '
+                       'required outside construction still continues.'}}
+
+_TEMPLATES['math_unit_boundary'] = {'type': 'noul',
+ 'instructions': ['At this specific NEW paragraph boundary, does the target constitute a '
+                  'separately presented mathematical statement, variable assignment, numerical '
+                  'display, or independently numbered exercise item?',
+                  'Use the supplied full local_raw_evidence, source boxes, and the nearest genuine '
+                  'predecessor. OCR text labels do not preclude a mathematical display, and '
+                  'mathematical notation inside ordinary running prose does not establish one. Do '
+                  'not invent indentation, missing text or a different predecessor.',
+                  'Successive complete variable assignments may be separately presented even when '
+                  'introduced by one imperative or connected by and. An instruction introducing a '
+                  'list of separately numbered exercises may stand separately from each item. A '
+                  'self-contained mathematical display is a hard paragraph boundary even when '
+                  'introduced by running prose.',
+                  'Do not certify an ordinary running clause merely because it contains a number '
+                  'or inline formula. Reject a target that supplies the missing word ending, a '
+                  'temperature/unit fragment embedded in an unfinished prose noun phrase, a '
+                  'continued condition whose main clause follows, or another obligatory prose '
+                  'complement without an independent mathematical/list-item function.',
+                  'Assess the actual independent mathematical/item function, not the truth of the '
+                  'mathematics or whether two related passages could be written together. If this '
+                  'role is not established, answer FALSE. This proof affects only this syntax '
+                  'break; it does not approve ownership, another boundary, or missing OCR.'],
+ 'criteria': {'true': 'The target is an independently presented mathematical or numbered exercise '
+                      'unit; a new paragraph is legitimate under this convention.',
+              'false': 'Such an independent unit is not established, or this is a required '
+                       'running-prose continuation.'}}
+
+
+_TEMPLATES['reporting_join'] = {'type': 'noul',
+ 'instructions': ['For this EXISTING incoming JOIN only, is the target utterance the direct spoken '
+                  'content introduced by the immediately preceding reporting frame, rather than a '
+                  'fresh independently attributed turn?',
+                  'Find the nearest genuine main-reading predecessor using the full supplied local '
+                  'raw evidence. A colon and quote delimiters are only selection cues. Establish '
+                  'an actual reporting relation, not merely topical continuity, a list, a '
+                  'quotation of a term, or two independent speakers.',
+                  'A reporting verb with its speaker can introduce the words spoken by that same '
+                  'speaker in the following quoted block. Joining that introduction and its direct '
+                  'spoken content is legitimate even if printing could also separate the quote. Do '
+                  'not demand a split merely because the target begins with an opening quotation '
+                  'mark.',
+                  'If the preceding frame already contains the full spoken content or the target '
+                  'introduces another speaker, another independent utterance, a new heading/item, '
+                  'or independent narration, answer FALSE. Do not infer missing speech or depend '
+                  'on following pages.',
+                  'This proof only permits this specific incoming join; it does not approve source '
+                  'ownership, references, other gaps, missing OCR or final styling. If an '
+                  'unambiguous introduction-to-direct-speech relation is not established, answer '
+                  'FALSE.'],
+ 'criteria': {'true': 'This join combines one reporting introduction with its own direct spoken '
+                      'complement, with no independent turn boundary.',
+              'false': 'That single reporting-frame relation is not established, or this joins '
+                       'independent turns/content.'}}
+
+
+_TEMPLATES['seam_predecessor'] = {'type': 'noul',
+ 'instructions': ['For this target, is proposed_left_source the actual nearest preceding '
+                  'main-reading text that the incoming join must use?',
+                  'Verify the source identity in full local_raw_evidence and '
+                  'preceding_source_index. The supplied candidate is only an algorithm proposal, '
+                  'not a correct answer. Skip genuine ancillary notes, running furniture and page '
+                  'numbers; do not skip an intervening main paragraph, caption, signature or '
+                  'retained quotation to choose an older convenient stem.',
+                  'This question asks ONLY the predecessor relation. Do not grade the word seam, '
+                  'target completeness, author meaning or other pages. If the proposed source is '
+                  'not the actual nearest main-reading predecessor, or this cannot be established, '
+                  'answer FALSE.'],
+ 'criteria': {'true': 'This proposed source is the actual nearest main-reading predecessor, not '
+                      'ancillary material or an arbitrarily older source.',
+              'false': 'That predecessor relation is not established.'}}
+
+_TEMPLATES['seam_word'] = {'type': 'noul',
+ 'instructions': ['For ONLY the two literal pieces in this check, does the short target prefix '
+                  'supply the missing end of a word begun at the immediate end of the proposed '
+                  'left source?',
+                  'literal_left_tail and short_current_prefix are unchanged original characters. '
+                  'Inspect the last unfinished stem on the left and the first characters on the '
+                  'right before their first punctuation. Chinese lexical words can span a page '
+                  'without whitespace. A later complete sentence or author comment does not undo '
+                  'this immediate word completion.',
+                  'This question is only about the literal lexical seam. Another independent '
+                  'question verifies whether the named left source is the correct predecessor; do '
+                  'not weaken this lexical answer because of uncertainty about that separate '
+                  'relationship.',
+                  'Require a genuinely unfinished word, not merely two complete words that can be '
+                  'written next to each other, a possible invented compound, topical agreement or '
+                  'an incomplete-looking target. Completed punctuation on the left, an unrelated '
+                  'full name, a signature, a new heading/item or a new spoken turn do not '
+                  'establish an unfinished stem. Do not invent missing characters.',
+                  'If these exact immediate pieces do not establish completion of one actual word, '
+                  'answer FALSE.'],
+ 'criteria': {'true': 'The exact immediate seam completes one unfinished lexical word.',
+              'false': 'Such a literal unfinished-word completion is not established.'}}
+
+
+_TEMPLATES['dependency_completion'] = {'type': 'noul',
+ 'instructions': ['For the proposed left source and the immediate target opening, does the target '
+                  'supply an OBLIGATORY missing component of a syntactically unfinished left '
+                  'frame?',
+                  'Read the actual original left ending and right opening in the full supplied '
+                  'local evidence. A truncated prepositional/determiner/modifier construction, '
+                  'open parenthesis or unfinished conditional can require its continuation. The '
+                  'immediate right text must actually complete that dependency.',
+                  'This is independent of whether the left source has already ended a dictionary '
+                  'word: a complete word may still be inside a grammatically unfinished '
+                  'construction. Conversely lexical similarity alone is not proof.',
+                  'Reject mere topic continuity, two complete sentences, a voluntary next action, '
+                  'a different speaker after a completed utterance, captions/signatures, and '
+                  'invented missing words. A colon can introduce an independently presented quote '
+                  'or equation; the colon alone does not prove a mandatory same-paragraph '
+                  'continuation.',
+                  'Verify only this literal dependency. Another independent question verifies the '
+                  'named source is the correct nearest predecessor. Do not search older sources to '
+                  'find a convenient continuation.'],
+ 'criteria': {'true': 'An actual left grammatical dependency is completed by the immediate target '
+                      'opening.',
+              'false': 'That obligatory completion is not established.'}}
+
+
+_TEMPLATES['displayed_number'] = {'type': 'noul',
+ 'instructions': ['For the specified numeric-only target, is it an independently typeset numerical '
+                  'display within the surrounding exposition?',
+                  'The check includes measured original boxes of this source and its immediately '
+                  'adjacent same-page text. Use the full original local evidence to judge the '
+                  'printed function. A numerical result may be displayed independently after an '
+                  'introducing clause without becoming running prose.',
+                  'Do NOT require that introducing clause to be a complete sentence without its '
+                  'displayed result: this question is ONLY the displayed numeric object function. '
+                  'Do not judge the arithmetic or whether a different author could have printed it '
+                  'inline.',
+                  'Reject an ordinary page number, note/list label, date, decimal word fragment, '
+                  'or a number embedded in an ordinary prose line. Do not invent centered '
+                  'placement or ignore contradictory original boxes.'],
+ 'criteria': {'true': 'This is an independently typeset numerical display, not ordinary running '
+                      'prose.',
+              'false': 'That printed numerical-display function is not established.'}}
+
+
 def question(kind: str, name: str) -> dict[str, Any]:
     """Create an isolated question for one named source decision."""
     value = deepcopy(_TEMPLATES[kind])

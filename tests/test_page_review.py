@@ -1,7 +1,9 @@
 import json
+from math import nextafter, inf
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from xml.etree.ElementTree import fromstring
 
 from pdf_craft.extractor.chapter.generation import (
@@ -10,10 +12,11 @@ from pdf_craft.extractor.chapter.generation import (
 )
 from pdf_craft.extractor.chapter.page_analysis import analyse_pages
 from pdf_craft.extractor.chapter.page_review import (
-    JEV_QUESTION_NAME,
     JEV_REVIEW_THRESHOLD,
     JevReviewProcessor,
     build_jev_review_requests,
+    build_jev_review_states,
+    review_threshold,
 )
 from pdf_craft.extractor.toc import TocInfo
 from pdf_craft.pdf import decode
@@ -22,6 +25,32 @@ from pdf_craft_tool.jev import PinnedJevEvaluator
 
 
 class PageReviewTests(unittest.IsolatedAsyncioTestCase):
+    async def test_exact_cutoff_and_adjacent_float_probabilities_route_distinctly(self):
+        pages = [decode(fromstring("<page index='1'><body>"
+            "<layout ref='text' det='1,1,9,9'>Body.</layout></body></page>"))]
+        paragraphs, citations = _resolve_pages(pages)
+        analyses = analyse_pages([1], paragraphs, citations)
+        async def unused(_index, _packet):
+            raise AssertionError('Use the supplied complete review probability')
+        async def unused_many(_requests):
+            raise AssertionError('Use the supplied complete review probability')
+        for footnotes in (False, True):
+            threshold = review_threshold(footnotes)
+            cutoff = 1 - threshold
+            function = 'review_footnote_page' if footnotes else 'review_body_page'
+            for probability, expected in ((nextafter(cutoff, inf), False),
+                                          (cutoff, True), (nextafter(cutoff, -inf), True)):
+                with self.subTest(footnotes=footnotes, probability=probability), patch(
+                        'pdf_craft.extractor.chapter.page_review.' + function,
+                        return_value=probability):
+                    reviewer = JevReviewProcessor(unused, includes_footnotes=footnotes,
+                                                 question_batch_evaluator=unused_many)
+                    await reviewer(pages, analyses, {1: (10, 10)})
+                    result = reviewer.results[0]
+                    self.assertEqual(result.requires_review, expected)
+                    if probability == cutoff:
+                        self.assertEqual(result.risk, threshold)
+
     def test_cli_exposes_opt_in_official_jev_review(self):
         args = _parser().parse_args([
             "analysis", "review-jev", "analysis/ocr",
@@ -81,11 +110,11 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
             [page], analyses, {1: (100, 100)},
         ))
 
-        self.assertEqual(len(requests), 1)
-        page_index, request = requests[0]
+        self.assertGreater(len(requests), 1)
+        page_index, _ = requests[0]
         self.assertEqual(page_index, 1)
-        self.assertIn(JEV_QUESTION_NAME, request["questions"])
-        target = request["state"]["target_page"]
+        self.assertTrue(all(len(p["questions"]) <= 4 for _, p in requests))
+        target = next(iter(build_jev_review_states([page], analyses, {1: (100, 100)})))[1]["target_page"]
         self.assertEqual(target["pixel_size"], [100, 100])
         self.assertEqual(target["layouts"][0]["raw_text"], "Body①")
         self.assertEqual(target["layouts"][0]["analysed_text"], "Body⟦REF⟧")
@@ -100,7 +129,7 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         paragraphs, citations = _resolve_pages(pages)
         analyses = analyse_pages([1], paragraphs, citations)
         async def evaluate(_page, _request):
-            return 0.29
+            return 0.71
 
         reviewer = JevReviewProcessor(evaluate)
 
@@ -110,7 +139,7 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(reviewer.results[0].risk, 0.71)
         self.assertTrue(reviewer.results[0].requires_review)
 
-    async def test_review_uses_unrounded_risk(self):
+    async def test_review_uses_unrounded_probability_and_includes_the_cutoff(self):
         pages = [decode(fromstring(
             f"<page index='{index}'><body>"
             "<layout ref='text' det='1,1,9,9'>A paragraph.</layout>"
@@ -120,12 +149,12 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         analyses = analyse_pages([1, 2, 3], paragraphs, citations)
 
         async def evaluate(index, _request):
-            return {1: 0.56, 2: 0.55, 3: 0.54}[index]
+            return (1 - {1: 0.56, 2: 0.55, 3: 0.54}[index]) if next(iter(_request["questions"])).startswith(("footnote_role_", "furniture_")) else .99
 
         reviewer = JevReviewProcessor(evaluate)
         await reviewer(pages, analyses, {index: (10, 10) for index in (1, 2, 3)})
-        self.assertEqual([result.requires_review for result in reviewer.results], [False, False, True])
-        self.assertEqual(reviewer.results[1].risk, 1 - 0.55)
+        self.assertEqual([result.requires_review for result in reviewer.results], [False, True, True])
+        self.assertEqual(reviewer.results[1].risk, JEV_REVIEW_THRESHOLD)
 
     def test_chapter_analysis_exposes_projection_before_restoration(self):
         with tempfile.TemporaryDirectory() as directory:

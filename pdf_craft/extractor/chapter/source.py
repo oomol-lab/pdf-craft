@@ -5,6 +5,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from ...pdf import Page
 from .chapter import TextSource, SourceTextFragment
 from .jointer import _parse_block_content, _is_empty_text_layout
+from .marginal_numbers import marginal_layouts
 
 
 def capture_sources(pages: list[Page]) -> dict[tuple[int, int], tuple[int, TextSource]]:
@@ -69,13 +70,15 @@ def capture_sources(pages: list[Page]) -> dict[tuple[int, int], tuple[int, TextS
     return sources
 
 
-def empty_sources(
+def excluded_sources(
     pages: Iterable[Page],
     sources: Mapping[tuple[int, int], tuple[int, TextSource]],
+    *, includes_footnotes=False,
 ) -> Iterator[SourceTextFragment]:
-    """Retain blank OCR identities and geometry without semantic paragraphs."""
+    """Retain blank and excluded observations without semantic paragraphs."""
     for page in pages:
+        ignored = {id(item) for item in marginal_layouts(page)} if includes_footnotes else set()
         for layout in [*page.body_layouts, *page.footnotes_layouts]:
-            if _is_empty_text_layout(layout):
+            if _is_empty_text_layout(layout) or id(layout) in ignored:
                 order, origin = sources[(page.index, id(layout))]
-                yield SourceTextFragment(page.index, order, layout.det, [], origin)
+                yield SourceTextFragment(page.index, order, layout.det, list(deepcopy(origin.content)), origin)

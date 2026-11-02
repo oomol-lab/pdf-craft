@@ -2,9 +2,10 @@
 
 import unittest
 
-from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem
+from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem, SourceAsset
 from pdf_craft.extractor.chapter.jointer import Jointer
 from pdf_craft.extractor.chapter.primary import project_window
+from pdf_craft.extractor.chapter.paragraph_geometry import indented_line_starts
 from pdf_craft.pdf import Page, PageLayout
 
 
@@ -17,10 +18,57 @@ def _can_join(layouts, *, across_assets=False):
         SourceTextFragment(page_index=1, source_order=x.order, bbox=x.det,
                            content=[x.text])]) for x in layouts]
     return Jointer([])._can_merge_paragraphs(  # pylint: disable=protected-access
-        paragraphs[0], paragraphs[1], across_assets=across_assets)
+        paragraphs[0], paragraphs[1], across_assets=(
+            [SourceAsset(1, "image", (0, layouts[1].det[1], 40, layouts[1].det[3]))]
+            if across_assets else ()))
 
 
 class HorizontalParagraphTests(unittest.TestCase):
+    def test_left_indented_line_may_reach_the_right_column_edge(self):
+        layouts = [
+            _layout(0, (0, 0, 1000, 200), "前面的背景描述已經完整結束。"),
+            _layout(1, (40, 230, 450, 270), '“下一步應該怎麼辦？”'),
+            _layout(2, (40, 290, 1000, 330), "有人又輕輕地說：這件事情早已經安排妥當了。"),
+        ]
+        result = list(Jointer([(1, layouts)]).execute())
+        self.assertEqual(len(result), 3)
+
+    def test_sentence_ending_before_terminal_dash_keeps_measured_indent(self):
+        for ending, joined in (('他說：“這件事已經做完了！——”', False),
+                               ('他只說出了這個詞的前半inter', True)):
+            with self.subTest(ending=ending):
+                layouts = [
+                    _layout(0, (0, 0, 1000, 200), ending),
+                    _layout(1, (80, 230, 620, 270), "另一個完整的回答就在這裏。"),
+                ]
+                self.assertEqual(_can_join(layouts), joined)
+
+    def test_math_single_line_uses_consistent_neighboring_line_heights(self):
+        for second_height, math_height, expected in ((40, 45, False), (70, 45, True),
+                                                     (40, 90, True)):
+            with self.subTest(reference=second_height, target=math_height):
+                layouts = [
+                    _layout(0, (0, 0, 1000, 160), "A complete background paragraph ends here."),
+                    _layout(1, (0, 190, 400, 230), "Definitions."),
+                    _layout(2, (0, 250, 700, 250 + second_height), "Take a simple example:"),
+                    _layout(3, (80, 350, 600, 350 + math_height), r"Let \(u = t^2 + c\)."),
+                ]
+                for footnotes in (False, True):
+                    page = project_window([None, Page(1, None, layouts, [], 0, 0), None], footnotes)[1]
+                    assert page is not None
+                    self.assertEqual(page.layouts[3].continues_from_previous, expected)
+
+    def test_one_nearby_math_line_reference_has_stricter_distance_and_pixel_guards(self):
+        for top, inset, expected in ((270, None, False), (500, None, True), (270, 0.0, True)):
+            with self.subTest(top=top, known_inset=inset):
+                layouts = [
+                    _layout(0, (0, 0, 1000, 160), "A complete background paragraph ends here."),
+                    _layout(1, (0, 190, 400, 230), "For example:"),
+                    _layout(2, (80, top, 600, top + 45), r"Let \(u = t^2 + c\)."),
+                ]
+                layouts[2].first_line_inset = inset
+                self.assertEqual(layouts[2].det in indented_line_starts(layouts), not expected)
+
     def test_column_wrap_within_one_histogram_group_is_joined(self):
         # A page-wide image bridges the gutter in the projection histogram.
         layouts = [
@@ -177,17 +225,15 @@ class HorizontalParagraphTests(unittest.TestCase):
         ]
         self.assertTrue(_can_join(layouts))
 
-    def test_image_interposition_keeps_existing_paragraph_join(self):
+    def test_isolated_image_does_not_erase_a_following_indented_paragraph(self):
         layouts = [
             _layout(0, (0, 0, 1000, 200), "這段敘述引出了人物接下來要說的話："),
             _layout(1, (0, 210, 1000, 400), "", "image"),
             _layout(2, (60, 430, 300, 450), "“這是下一句。”"),
         ]
         paragraphs = list(Jointer([(1, layouts)]).execute())
-        self.assertEqual(len(paragraphs), 1)
-        paragraph = paragraphs[0]
-        assert isinstance(paragraph, TextFlowItem)
-        self.assertEqual(len(paragraph.children), 3)
+        self.assertEqual([type(item) for item in paragraphs],
+                         [TextFlowItem, SourceAsset, TextFlowItem])
 
     def test_multiline_bbox_does_not_prove_indentation(self):
         layouts = [
@@ -196,7 +242,7 @@ class HorizontalParagraphTests(unittest.TestCase):
         ]
         self.assertTrue(_can_join(layouts))
 
-    def test_layout_boundary_is_bypassed_across_intervening_asset(self):
+    def test_side_image_can_shape_the_apparent_margin(self):
         layouts = [
             _layout(0, (0, 0, 1000, 200), "這段敘述引出了人物接下來要說的話："),
             _layout(1, (60, 230, 300, 250), "“這是下一段。”"),

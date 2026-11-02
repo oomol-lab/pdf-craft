@@ -1,8 +1,9 @@
 import re
 
 from ...language import is_latin_letter
+from ...expression import ExpressionKind
 from ...markdown.paragraph import HTMLTag
-from .chapter import BlockMember
+from .chapter import BlockMember, InlineExpression
 from .content import first, last
 
 # 句尾标识符号
@@ -104,10 +105,19 @@ def has_numbered_prefix(content: list[str | BlockMember | HTMLTag[BlockMember]],
 def check_mergeable(
     content1: list[str | BlockMember | HTMLTag[BlockMember]],
     content2: list[str | BlockMember | HTMLTag[BlockMember]],
+    *, continued_page: bool = False,
 ) -> bool:
     # 从 content 中提取文本
     text1 = last(content1)
     text2 = first(content2)
+    if (continued_page and isinstance(text2, InlineExpression)
+            and text2.kind in (ExpressionKind.INLINE_PAREN, ExpressionKind.INLINE_DOLLAR)
+            and text2.content.strip()
+            and not re.fullmatch(r'\s*[({\[]?\s*[0-9]+\s*[)}\]]?\s*', text2.content)):
+        # Inline math can be the next token of an unfinished page-tail clause.
+        # Do not infer same-page paragraphs or reinterpret numeric item labels.
+        # This local sentinel is never written into source text or output.
+        text2 = '\ufffc'
 
     # 必须都是字符串才能判断
     if not isinstance(text1, str) or not isinstance(text2, str):
@@ -150,3 +160,30 @@ def check_mergeable(
 
 
     return True
+
+
+_REPORTED_OPENING = re.compile(
+    r'^[\u4e00-\u9fff]{1,16}(?:说|說|问|問|喊|答|回答|回了[\u4e00-\u9fff]{0,3}句)[：:,，\s]*[“「『"]')
+_OUTER_DEPENDENCY = re.compile(
+    r'(?:如果|若是|倘若|假如|假使|要是|即使|即便|虽然|雖然|尽管|儘管|除非|只要|'
+    r'每当|每當|当|當|若|因为|因為|既然|无论|無論|一旦|纵使|縱使|只有|直到|哪怕|即令|不管|不论|不論|不但|不仅|不僅)')
+
+
+def reported_turn_boundary(origin, ending, opening):
+    """Do not attach a new reporting turn to a visibly completed utterance.
+
+    A quote can still be inside an unfinished outer conditional. Preserve that
+    origin even when the quote spans fragments. This is a narrow textual cue,
+    not a general speaker classifier or a rule for postpositive attribution.
+    """
+    if not all(isinstance(value, str) for value in (origin, ending, opening)):
+        return False
+    tail = ending.rstrip()
+    closed = tail.endswith(('…', '...')) or any(
+        tail.endswith(stop + quote) for stop in '.!?。！？' for quote in '\"”」』')
+    if not closed:
+        return False
+    if not _REPORTED_OPENING.match(opening.lstrip()):
+        return False
+    outside = re.split('[“「『"]', origin, maxsplit=1)[0]
+    return bool(outside) and _OUTER_DEPENDENCY.search(outside) is None

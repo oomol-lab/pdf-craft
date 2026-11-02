@@ -4,7 +4,7 @@ from xml.etree.ElementTree import fromstring
 
 from pdf_craft.pdf import decode
 from pdf_craft.extractor.refinement import _project_window
-from pdf_craft.extractor.chapter.page_review import build_jev_review_requests, _review_questions
+from pdf_craft.extractor.chapter.page_review import build_jev_review_requests
 
 
 def page(index, text):
@@ -13,11 +13,15 @@ def page(index, text):
 
 class JEVWindowEvidenceTests(unittest.TestCase):
     def test_footnote_review_gets_its_own_rubric_copy(self):
-        with_notes = _review_questions()
-        name = "page_passes_strict_standard"
-        self.assertIn("citation_standard", with_notes[name]["instructions"])
-        with_notes[name]["instructions"]["citation_standard"].clear()
-        self.assertTrue(_review_questions()[name]["instructions"]["citation_standard"])
+        source = page(1, 'A reading passage.')
+        target = _project_window([None, source, None], True)[1]
+        assert target is not None
+        def packets():
+            return list(build_jev_review_requests([source], [target], {1: (100, 100)}))
+        with_notes = packets()
+        name = next(iter(with_notes[0][1]['questions']))
+        with_notes[0][1]['questions'][name]['instructions'].clear()
+        self.assertTrue(packets()[0][1]['questions'][name]['instructions'])
 
     def test_target_outgoing_edge_uses_available_raw_next_page(self):
         pages = [page(1, 'An earlier paragraph.'), page(2, 'This sentence continues'), page(3, 'on the next page.')]

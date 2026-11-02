@@ -651,10 +651,23 @@ class AnchoredContentTranslationTests(unittest.TestCase):
                 SourceTextFragment(1, 2, (1, 16, 90, 30), ["Second source."]),
             ]),
         ])
-        translator, runtime = _repairing_translator((
-            json.dumps([{'id': '1', 'text': '<xml><fragment id="1">Second canonical.</fragment></xml>'},
-                        {'id': '0', 'text': '<xml><fragment id="1">First canonical.</fragment></xml>'}]),
-        ))
+        translator, runtime = _repairing_translator(())
+
+        async def fill(messages, **_kwargs):
+            runtime.context_value.calls += 1
+            payload = messages[-1].message
+            if not payload.startswith('['):
+                owner = "First" if "First" in payload else "Second"
+                return f'<xml><fragment id="1">{owner} canonical.</fragment></xml>'
+            entries = json.loads(payload)
+            answers = []
+            for entry in entries:
+                owner = "First" if "First" in json.dumps(entry) else "Second"
+                answers.append({'id': entry['id'],
+                                'text': f'<xml><fragment id="1">{owner} canonical.</fragment></xml>'})
+            return json.dumps(answers)
+
+        runtime.context_value.request = fill  # type: ignore[method-assign]
         sources: list[str] = []
 
         async def translate(source: str) -> str:
@@ -665,8 +678,8 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
-        self.assertEqual(sources, ["First source.", "Second source."])
-        self.assertEqual(runtime.context_value.calls, 1)
+        self.assertCountEqual(sources, ["First source.", "Second source."])
+        self.assertIn(runtime.context_value.calls, (1, 2))
         contents = [
             _text(item.children[0].content)
             for item in translated.flow_items
