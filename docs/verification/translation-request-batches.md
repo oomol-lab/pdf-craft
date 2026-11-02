@@ -44,7 +44,8 @@ EPUB 共用 XMLTranslator 的两个请求入口：首阶段翻译和 fill。
 测试只替换 LLMRuntime 的 HTTP transport，保留真正的 tokenizer、executor、请求分发、
 canonical fill、公式还原和结果提交。`TRANSLATION_BATCH_COUNTS` 输出按真正 transport
 调用统计的 JSON，包含首阶段和 fill，既不计逻辑任务，也不计缓存命中。
-固定 6 个短段落的结果为：
+固定 6 个短段落的请求数对照使用可控的输入就绪门，等六个单元实际入队再发出，
+避免把机器 IO 速度误当作组包能力；真实 10ms 截止线另由输入暂停交付测试验证。结果为：
 
 | 布局 | 首阶段请求 | fill 请求 | 采用段落 |
 | --- | ---: | ---: | ---: |
@@ -54,7 +55,8 @@ canonical fill、公式还原和结果提交。`TRANSLATION_BATCH_COUNTS` 输出
 重构前两种 PCEX 布局均为 6 + 6 次。此表是离线协议实验，不能代表真实模型翻译质量或
 整书节省比例。实际组包受 token 大小、输入到达时间、调度窗口与修复次数影响。
 `PCEX_SCHEDULE_BATCH_COUNTS` 另外统计完整 PCEX 调度及译文层导出的实际请求（包括
-元数据）；它不是上表的直接 Narrative 对照，计数会随输入 IO/10ms 就绪截止线变化。
+元数据）；该固定夹具没有可翻译元数据，也使用同样的可控就绪门。真实运行的计数
+仍会随输入 IO/10ms 就绪截止线变化。
 该测试同时检查 6 条正文 coverage 均为 translated，不用文件存在冒充成功。
 
 同一测试模块还覆盖异步跨根 EPUB、真实 PCEX 译文层导出、局部 fill 错误/耗尽证据、

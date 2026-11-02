@@ -54,11 +54,33 @@ class EchoModel:
         return template[1] if template else user
 
 
-def translator_fixture():
+class ReadyBatcher(RequestBatcher):
+    """Flush the fixed experiment only after all six inputs are actually ready.
+
+    The real 10ms deadline is tested separately. Source IO speed must not
+    decide the expected physical request count in a packing experiment.
+    """
+    def __init__(self, units):
+        super().__init__(10000)
+        self.units = units
+
+    def _launch(self, key):
+        batch = self.pending.get(key)
+        if batch is None:
+            return
+        if len(batch.calls) >= self.units:
+            super()._launch(key)
+        else:
+            self.timers[key] = asyncio.get_running_loop().call_later(0.001, self._launch, key)
+
+
+def translator_fixture(*, ready_units=None):
     model = EchoModel()
     config = LLM('test', 'https://example.invalid', 'offline', 'cl100k_base', retry_times=0)
     translator = XMLTranslator(config, config, 'English', None, 10000, 10000,
                                executor=ConcurrentExecutor(FixedCapacity(2)))
+    if ready_units is not None:
+        translator._requests = ReadyBatcher(ready_units)
     translator._translation_runtime.__dict__['_invoke'] = model.invoke
     translator._fill_runtime.__dict__['_invoke'] = model.invoke
     return translator, model
@@ -72,11 +94,11 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
     async def test_pcex_layout_does_not_multiply_physical_requests(self):
         reports = []
         for fragmented in (False, True):
-            translator, model = translator_fixture()
+            translator, model = translator_fixture(ready_units=6)
             chapters = ([Chapter(i, 1, [paragraph(i)]) for i in range(6)] if fragmented else
                         [Chapter(0, 1, [paragraph(i) for i in range(6)])])
-            results = await NarrativeXMLTransformer(translator, window=2).transform_many(
-                [(chapter, str(index)) for index, chapter in enumerate(chapters)])
+            results = await asyncio.wait_for(NarrativeXMLTransformer(translator, window=2).transform_many(
+                [(chapter, str(index)) for index, chapter in enumerate(chapters)]), 30)
             actual = [fragment.content for chapter in results for flow in chapter.flow_items if isinstance(flow, TextFlowItem)
                       for fragment in flow.children if isinstance(fragment, SourceTextFragment)]
             self.assertEqual(actual, [[f'Paragraph {i}.'] for i in range(6)])
@@ -87,21 +109,22 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
             self.assertLessEqual(model.peak, 2)
             reports.append(counts)
         print('TRANSLATION_BATCH_COUNTS', json.dumps({
-            'scope': 'offline HTTP substitute; real runtime and canonical fill',
+            'scope': 'offline HTTP substitute; controlled input readiness; real runtime and canonical fill',
             'one_chapter': reports[0], 'six_chapters': reports[1], 'paragraphs': 6}))
         self.assertEqual(reports[0], reports[1])
 
     @policy_operation
     async def test_async_epub_roots_keep_own_payload_and_node_mapping(self):
-        translator, model = translator_fixture()
+        translator, model = translator_fixture(ready_units=6)
         async def roots():
             for index in range(6):
+                await asyncio.sleep(0.02)  # Deliberately slower than the production flush deadline.
                 yield TranslationTask(fromstring(f'<html><body><p>Paragraph {index}.</p></body></html>'),
                                       SubmitKind.REPLACE, index)
         delivered = []
         protocol = StructuredTranslation()
-        results = await translator._translate_elements(roots(), **protocol.arguments(), window=8,
-                                                        on_result=lambda value: delivered.append(value[1]))
+        results = await asyncio.wait_for(translator._translate_elements(roots(), **protocol.arguments(), window=8,
+                                                        on_result=lambda value: delivered.append(value[1])), 30)
         self.assertEqual(delivered, list(range(6)))
         self.assertEqual([(index, root.findtext('body/p')) for root, index in results],
                          [(index, f'Paragraph {index}.') for index in range(6)])
@@ -116,10 +139,10 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
             for index in range(6):
                 save_xml(encode(Chapter(index + 1, 1, [paragraph(index + 1)])),
                          root / f'source/chapters/chapter_{index + 1}.xml')
-            translator, model = translator_fixture()
-            result = await AsyncPDFCraft().translate_extraction(
+            translator, model = translator_fixture(ready_units=6)
+            result = await asyncio.wait_for(AsyncPDFCraft().translate_extraction(
                 source, root / 'translated.pcex', translator,
-                target_language='English', window=8, with_anchored=False)
+                target_language='English', window=8, with_anchored=False), 30)
             with result._materialize() as paths:
                 assert paths.translations is not None
                 index = json.loads((paths.translations / 'index.json').read_text())
@@ -129,9 +152,9 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
                 entries = fromstring(coverage_files[0].read_text()).findall('./narrative/paragraph')
                 self.assertEqual(len(entries), 6)
                 self.assertTrue(all(entry.get('state') == 'translated' for entry in entries))
-            self.assertLess(len(model.calls), 12)
+            self.assertEqual(len(model.calls), 2)
             print('PCEX_SCHEDULE_BATCH_COUNTS', json.dumps({
-                'physical_requests': len(model.calls), 'paragraphs': 6, 'scope': 'offline transport',
+                'physical_requests': len(model.calls), 'paragraphs': 6, 'scope': 'offline transport; controlled input readiness',
                 'translation': sum('XML template:' not in batch[0][1]['content'] for batch in model.calls),
                 'fill': sum('XML template:' in batch[0][1]['content'] for batch in model.calls)}))
 
