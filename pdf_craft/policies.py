@@ -21,8 +21,8 @@ class RetryScope(str, Enum):
 class RetryPolicy:
     """Additional business attempts after the first; transport is separate.
 
-    Translation currently has no semantic quality repair loop. Its budget is
-    reserved, rather than inventing an unreliable translation-quality test.
+    Translation uses its budget only for unbound batch-envelope responses,
+    never for an unreliable semantic translation-quality repair loop.
     """
 
     translation: int = 3

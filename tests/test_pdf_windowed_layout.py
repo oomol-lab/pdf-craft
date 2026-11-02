@@ -264,6 +264,34 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
             reflowed.line_tops[0] + reflowed.line_heights[0], original.forbidden_bottom,
         )
 
+    def test_body_single_line_cannot_grow_beyond_visible_page(self):
+        # Paid pdf-size page 1, footnote 41: the OCR box itself is in bounds.
+        style = PatchTextStyle(min_font_size=4, max_font_size=16)
+        text = 'Kavka (1986), p. 31. This discussion also applies to glory seekers.'
+        original = RegionTextPlacement(
+            1, PageRectangle(235 * 441 / 1838, 2078 * 666 / 2775,
+                             1215 * 441 / 1838, 50 * 666 / 2775), text,
+            (56.38,), (290,), (499,), (8,), 6, style, assigned_text=text,
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(styles={'text': style}))
+        unconstrained = filler.fit_isolated_single_line(original, 16)
+        self.assertGreater(unconstrained.line_text_lefts[0] + unconstrained.line_text_widths[0], 441)
+        result = filler.fit_isolated_single_line(original, 16, page_width=441)
+        self.assertLess(result.font_size, 16)
+        self.assertEqual(result.assigned_text, text)
+        self.assertEqual(len(result.line_tops), 1)
+        self.assertLessEqual(result.line_text_lefts[0] + result.line_text_widths[0], 441 + 1e-6)
+
+    def test_unfittable_body_normalization_retains_first_pass(self):
+        style = PatchTextStyle(min_font_size=8, max_font_size=16)
+        original = RegionTextPlacement(
+            1, PageRectangle(190, 10, 10, 12), 'Long translated note',
+            (190,), (10,), (10,), (12,), 8, style,
+            assigned_text='Long translated note',
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(styles={'text': style}))
+        self.assertIs(filler.fit_isolated_single_line(original, 16, page_width=200), original)
+
     def test_isolated_single_line_rerenders_vector_formula_at_external_size(self):
         """Formula atoms retain ActualText source while using the level size."""
         style = PatchTextStyle(max_font_size=16, min_font_size=4)

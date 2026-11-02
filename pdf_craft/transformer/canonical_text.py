@@ -44,7 +44,8 @@ def _source_owners(fields, position):
 def restore_canonical_whitespace(roots: list[Element], canonical: str,
                                  sources: list[Element] | None = None,
                                  modes: list[WhiteSpace] | None = None, *,
-                                 replaced_tags: frozenset[str] = frozenset()) -> bool:
+                                 replaced_tags: frozenset[str] = frozenset(),
+                                 join_roots: bool = False) -> bool:
     """Align unchanged characters, then reconstruct legal gaps transactionally.
 
     Text, punctuation, NBSP and other Unicode separators remain immutable.
@@ -88,7 +89,10 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
 
     if sources is not None and len(sources) != len(roots):
         return False
+    root_boundaries = {}
     for index, root in enumerate(roots):
+        if index and fields:
+            root_boundaries[offset] = len(fields) - 1
         if not walk(root, sources[index] if sources is not None else None,
                     modes[index] if modes is not None else WhiteSpace.NORMAL, [root]):
             return False
@@ -114,6 +118,8 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
         boundary_offsets = {old.start: new.start for old, new in zip(fields, decomposed)}
         boundary_offsets.update({old.end: new.end for old, new in zip(fields, decomposed)})
         replacement_boundaries = {boundary_offsets[index] for index in replacement_boundaries}
+        root_boundaries = {boundary_offsets[index]: field_index
+                           for index, field_index in root_boundaries.items()}
         fields = decomposed
         offset = cursor
         actual = ''.join(item.text for item in fields)
@@ -137,6 +143,15 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
         # over model placement in either direction across a preservation boundary.
         relevant = interior or owners or surviving or candidates
         target = relevant[0] if len(relevant) == 1 else None
+        if (target is None and join_roots and position in root_boundaries
+                and position not in replacement_boundaries and not owners and not surviving):
+            # These roots are slots of ONE adapter-defined text unit, not
+            # independent paragraphs. A new cosmetic boundary gap belongs to
+            # the preceding slot's final surviving field, never a block tail
+            # that the submitter would drop.
+            candidate = root_boundaries[position]
+            if all(collapses_breaks(fields[i].mode) for i in candidates):
+                target = candidate
         protected_modes = {fields[i].mode for i in relevant if not collapses_breaks(fields[i].mode)}
         mode = next(iter(protected_modes)) if len(protected_modes) == 1 else WhiteSpace.PRE
         protected = bool(protected_modes)

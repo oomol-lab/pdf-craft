@@ -1593,19 +1593,34 @@ class QTextParagraphFiller:
         placement: RegionTextPlacement,
         target_font_size: float,
         minimum_font_size: float | None = None,
+        *, page_width: float | None = None,
     ) -> RegionTextPlacement:
-        """Draw one isolated source line at its page-level typographic size.
+        """Use the page scale beyond a tight OCR crop, within the visible page.
 
-        An OCR paragraph with exactly one source rectangle and one first-pass
-        line has no reliable local container: its tight height is ink bounds
-        and its right edge only reflects where the source happened to end.
-        The second pass therefore uses the externally derived level size
-        directly, anchors at the rectangle's left/vertical centre, and lets
-        Qt keep the translated text on one natural-width line.
+        Headline overflow uses its separate explicit business rule. Ordinary
+        body/footnote normalization must not turn a valid first pass into text
+        clipped by the page edge. Measure actual Qt runs, including formulas.
         """
-        return self._fit_natural_width_single_line(
-            placement, target_font_size, minimum_font_size,
-        )
+        result = self._fit_natural_width_single_line(placement, target_font_size, minimum_font_size)
+        def inside(candidate):
+            assert page_width is not None
+            return all(left >= 0 and left + width <= page_width + 1e-6
+                       for left, width in zip(candidate.line_text_lefts, candidate.line_text_widths))
+        if page_width is None or inside(result):
+            return result
+        lower = max(placement.style.min_font_size, minimum_font_size or placement.style.min_font_size)
+        best = self._fit_natural_width_single_line(placement, lower, minimum_font_size)
+        if not inside(best):
+            return placement  # Preserve the proven first-pass flow if its minimum cannot fit.
+        upper = result.font_size
+        for _ in range(16):
+            middle = (lower + upper) / 2
+            candidate = self._fit_natural_width_single_line(placement, middle, minimum_font_size)
+            if inside(candidate):
+                lower, best = middle, candidate
+            else:
+                upper = middle
+        return best
 
     def _fit_natural_width_single_line(
         self,
@@ -2524,6 +2539,7 @@ class WindowedParagraphPlanner:
                     return placement
                 return self._filler.fit_isolated_single_line(
                     placement, target, (minimum_font_sizes or {}).get(paragraph_index),
+                    page_width=self._page_sizes[placement.page_index][0],
                 )
             target = targets.get(key)
             if target is None:

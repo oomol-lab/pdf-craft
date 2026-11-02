@@ -114,7 +114,7 @@ class _Submitter:
 
     def _submit_by_text(self, node: _Node) -> Element | None:
         replaced_root: Element | None = None
-        child_nodes = dict((id(node), node) for _, node in node.items)
+        child_nodes = {id(child.raw_element): child for _, child in node.items}
         last_tail_element: Element | None = None
         tail_elements: dict[int, Element] = {}
 
