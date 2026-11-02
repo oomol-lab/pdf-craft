@@ -29,6 +29,7 @@ class PageLayout:
     hash: str | None
     first_line_inset: float | None = None
     vertical_columns: bool = False
+    number_ink_bbox: tuple[int, int, int, int] | None = None
 
 
 @dataclass
@@ -111,6 +112,14 @@ def _decode_layout(element: Element, order: int) -> PageLayout:
     text = element.text.strip() if element.text else ""
     hash_value = element.get("hash")
     inset = element.get("first_line_inset")
+    observation = element.get("number_ink_bbox")
+    number_box = None
+    if observation is not None:
+        values = list(map(int, observation.split(',')))
+        if (len(values) != 4 or not det[0] <= values[0] < values[2] <= det[2]
+                or not det[1] <= values[1] < values[3] <= det[3]):
+            raise ValueError("number_ink_bbox must be inside its original OCR rectangle")
+        number_box = (values[0], values[1], values[2], values[3])
     return PageLayout(
         ref=ref,
         det=det,
@@ -119,6 +128,7 @@ def _decode_layout(element: Element, order: int) -> PageLayout:
         hash=hash_value,
         first_line_inset=float(inset) if inset is not None else None,
         vertical_columns=element.get("vertical_columns") == "true",
+        number_ink_bbox=number_box,
     )
 
 
@@ -132,5 +142,7 @@ def _encode_layout(layout: PageLayout) -> Element:
         layout_element.set("first_line_inset", str(layout.first_line_inset))
     if layout.vertical_columns:
         layout_element.set("vertical_columns", "true")
+    if layout.number_ink_bbox is not None:
+        layout_element.set("number_ink_bbox", ",".join(map(str, layout.number_ink_bbox)))
     layout_element.text = layout.text
     return layout_element

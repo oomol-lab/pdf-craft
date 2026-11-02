@@ -267,7 +267,7 @@ def _layout_packet(
         source_type = getattr(source, "ref")
     width, height = size
     bbox = source.bbox
-    return {
+    result = {
         "document_order": layout.document_order,
         "source_order": source_order,
         "source_type": source_type,
@@ -296,6 +296,17 @@ def _layout_packet(
             for reference in annotations.references
         ],
     }
+
+    origin = getattr(source, "origin", None)
+    if origin is not None:
+        raw_sources = page.body_layouts if origin.stream == 'body' else page.footnotes_layouts
+        observation = next((item.number_ink_bbox for item in raw_sources
+                            if item.order == origin.stream_order), None)
+        if observation is not None:
+            result['number_ink_bbox_normalized'] = [
+                round(value / (width if index % 2 == 0 else height), 3)
+                for index, value in enumerate(observation)]
+    return result
 
 
 def _boundary_context(

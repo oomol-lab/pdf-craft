@@ -48,7 +48,9 @@ def marginal_numbers(page):
         chinese = not item.text.isascii()
         if chinese and not vertical_writing:
             continue
-        x1, y1, x2, y2 = item.det
+        x1, y1, x2, y2 = item.number_ink_bbox or item.det
+        if not (item.det[0] <= x1 < x2 <= item.det[2] and item.det[1] <= y1 < y2 <= item.det[3]):
+            continue
         width, height = x2 - x1, y2 - y1
         centered = (not chinese and height > 0
                     and abs((x1 + x2) - (left + right)) <= 0.12 * (right - left)
