@@ -1,6 +1,7 @@
 """Local footnote review using bounded questions and immutable OCR evidence."""
 
 from copy import deepcopy
+from .footnote_quotation import quotation_requests, apply_quotation_proofs
 from .reference import extract_head_mark
 from .jointer import _parse_block_content
 from .local_review import local_review_requests, review_batches
@@ -410,6 +411,7 @@ def supplementary_footnote_requests(state, scores):
 
     yield from _main_section_requests(state)
     yield from _retained_reading_requests(state, scores)
+    yield from quotation_requests(state, scores, FOOTNOTE_REVIEW_THRESHOLD)
 
 
 def _retained_reading_requests(state, scores):
@@ -514,6 +516,8 @@ def _main_section_requests(state):
 
 
 def footnote_pass_scores(scores):
+    quotation_proofs = {k: v for k, v in scores.items() if k.startswith("quotation_boundary_")}
+    scores = {k: v for k, v in scores.items() if k not in quotation_proofs}
     reading_proofs = {
         k: v for k, v in scores.items() if k.startswith("retained_reading_position_")
     }
@@ -565,6 +569,7 @@ def footnote_pass_scores(scores):
         key = f"furniture_{name.rsplit('_', 1)[1]}"
         if key in values:
             values[key] = max(values[key], proof)
+    apply_quotation_proofs(values, quotation_proofs, FOOTNOTE_REVIEW_THRESHOLD)
     return values
 
 
