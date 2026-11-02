@@ -71,15 +71,17 @@ class FootnoteReviewTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_base_or_supplement_is_never_a_partial_pass(self):
         value = state(source(0, 'A sentence.'), source(1, 'sentence'))
         value['target_page']['layouts'][1]['bbox_normalized'] = [.2, .12, .5, .18]
-        for missing_call in (1, 2):
+        async def check_missing_call(missing_call):
             calls = []
-            async def evaluate(requests, calls=calls, missing_call=missing_call):
+            async def evaluate(requests):
                 rows = [(i, {name: .99 if name.startswith(('gap_', 'redundancy_')) else .01
                              for name in p['questions']}) for i, p in requests]
                 calls.append(rows)
                 return rows[:-1] if len(calls) == missing_call else rows
             self.assertIsNone(await review_footnote_page(value, evaluate))
             self.assertEqual(len(calls), missing_call)
+        for missing_call in (1, 2):
+            await check_missing_call(missing_call)
 
     async def test_complete_positive_furniture_fact_routes_without_other_page_scores(self):
         value = state(source(0, 'A sentence.'), source(1, '28', 'citation'))
