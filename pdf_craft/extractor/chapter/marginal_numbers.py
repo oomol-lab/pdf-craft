@@ -46,7 +46,7 @@ def marginal_numbers(page):
         width, height = x2 - x1, y2 - y1
         centered = (not chinese and height > 0
                     and abs((x1 + x2) - (left + right)) <= 0.12 * (right - left)
-                    and y1 - bottom >= 2 * height
+                    and y1 - bottom >= 1.5 * height
                     and 0.15 * len(item.text) * height <= width <= 1.25 * len(item.text) * height)
         if (x1 >= x2 or y1 >= y2 or not (x2 <= left or x1 >= right or centered)
                 or bottom - top < (3 if multiline else 6) * (y2 - y1)

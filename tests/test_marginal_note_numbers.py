@@ -26,6 +26,15 @@ class MarginalNoteNumberTests(unittest.TestCase):
         self.assertEqual(page.layouts[-1].ownership, 'ignored')
         self.assertEqual(raw.footnotes_layouts[0].text, '28')
 
+    def test_centered_folio_requires_one_and_a_half_heights_of_blank_gap(self):
+        for top, expected in ((910, 'ignored'), (909, 'citation')):
+            with self.subTest(top=top):
+                raw = raw_page(number='28', box=f'480,{top},520,{top+20}')
+                page = _project_window([None, raw, None], True)[1]
+                assert page is not None
+                self.assertEqual(page.layouts[-1].ownership, expected)
+                self.assertEqual(raw.footnotes_layouts[0].text, '28')
+
     def test_center_alignment_alone_cannot_exclude_notes_or_wide_ocr_frames(self):
         for box, body in (('480,900,520,920', 'A reading passage.'),
                           ('600,970,640,990', 'A reading passage.'),
