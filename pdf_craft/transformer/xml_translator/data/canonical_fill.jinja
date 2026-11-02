@@ -6,11 +6,12 @@ after the caller's shared whitespace normalization and unambiguous recovery. Pre
 words, punctuation and special spaces; normal cosmetic whitespace can be reconstructed
 by the caller. <anchor .../> nodes are zero-width structural tokens: do not add a space
 or any character on either side of one. Inline <expression> nodes are ordinary text
-slots like <span>: fill them with the corresponding canonical translated text, even when
-it uses plain symbols or prose instead of source LaTeX. Their source IDs identify
+slots like <span>: fill them with the corresponding canonical translated text. Their IDs identify
 allocation containers, not the mathematical values placed in those containers.
-The caller projects accepted canonical math into final formula nodes by value;
-do not substitute a source formula for a different canonical value. If a required inline <expression> has no corresponding
+The read-only math table has already been bound to original source formula
+identities. The caller restores those exact original nodes at the canonical
+positions; do not rewrite a value or substitute the formula of an allocation slot.
+If a required inline <expression> has no corresponding
 characters in the canonical translation, keep that expression tag and its exact ID with
 empty contents at its corresponding position (for example <expression id="5"/>). Do not
 append source formula text to make the slot nonempty. Preserve all required tags and IDs. The number of

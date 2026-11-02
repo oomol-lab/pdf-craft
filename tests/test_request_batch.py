@@ -58,7 +58,7 @@ class EchoModel:
     def answer(messages):
         user = messages[1 if len(messages) > 1 else 0]['content']
         template = re.search(r'XML template:\n```XML\n(.*?)\n```', user, re.S)
-        return template[1] if template else user
+        return template[1] if template else user.split('Text to translate:\n', 1)[-1]
 
 
 class ReadyBatcher(RequestBatcher):

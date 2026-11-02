@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock
-from xml.etree.ElementTree import fromstring, tostring
+from xml.etree.ElementTree import Element, fromstring, tostring
 
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.extractor.chapter.chapter import (
@@ -15,6 +15,8 @@ from pdf_craft.extractor.chapter.chapter import (
 )
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from tests.test_anchored_content_translation import _repairing_translator
+from pdf_craft.transformer.canonical_projection import MathProjectionError
+from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly
 
 FIXTURE = Path(__file__).parent / 'assets/translation/fill_formula_cases.json'
 
@@ -25,26 +27,45 @@ def formulas(chapter):
             for part in child.content if isinstance(part, InlineExpression)]
 
 
+def protected_fixture(case):
+    """Express the saved allocation using source identities, keeping the fixture unchanged."""
+    root = next(decode_friendly(case['reference_fill'], tags='xml'))
+    nodes = list(root.iter('expression'))
+    keys = {node.get('id'): f's{index}' for index, node in
+            enumerate(sorted(nodes, key=lambda node: int(node.get('id', '0'))), 1)}
+    source = decode(fromstring(case['source_xml']), allow_legacy=False)
+    assert len(nodes) == len(formulas(source))
+    for node in nodes:
+        node.text = '<source-math key="' + keys[node.get('id')] + '"/>'
+        for child in list(node):
+            node.remove(child)
+    canonical = ''.join(root.itertext())
+    for index, node in enumerate(nodes, 1):
+        node.text = None
+        node.append(Element('math-ref', {'key': f'm{index}'}))
+    return canonical, tostring(root, encoding='unicode')
+
+
 class FillFormulaLoopTests(unittest.TestCase):
-    def test_captured_abstract_fill_round_trips_without_invented_formula_separators(self):
+    def test_captured_abstract_without_source_identities_requires_translation_repair(self):
         response = json.loads(FIXTURE.with_name('abstract_roundtrip_response.json').read_text())
         case = next(c for c in json.loads(FIXTURE.read_text())['cases']
                     if c['name'] == response['source_case'])
         source = decode(fromstring(case['source_xml']), allow_legacy=False)
         translator, runtime = _repairing_translator([response['fill']])
         translator._translate_text_async = AsyncMock(return_value=response['translation'])
-        target = asyncio.run(NarrativeXMLTransformer(translator).transform(source, error_policy=False))
-        self.assertEqual(runtime.context_value.calls, 1)
-        self.assertEqual(Counter(formulas(target)), Counter(formulas(source)))
-        self.assertEqual(decode(fromstring(tostring(encode(target))), allow_legacy=False), target)
+        with self.assertRaises(MathProjectionError):
+            asyncio.run(NarrativeXMLTransformer(translator).transform(source, error_policy=False))
+        self.assertEqual(runtime.context_value.calls, 0)
 
     def test_three_real_paragraphs_accept_flattened_fill_then_restore_formulas(self):
         for case in json.loads(FIXTURE.read_text())['cases']:
             with self.subTest(case=case['name']):
                 source = decode(fromstring(case['source_xml']), allow_legacy=False)
                 original = deepcopy(source)
-                translator, runtime = _repairing_translator([case['reference_fill']])
-                translator._translate_text_async = AsyncMock(return_value=case['translated_text'])
+                canonical, fill = protected_fixture(case)
+                translator, runtime = _repairing_translator([fill])
+                translator._translate_text_async = AsyncMock(return_value=canonical)
                 target = asyncio.run(NarrativeXMLTransformer(translator).transform(source))
                 self.assertEqual(runtime.context_value.calls, 1)
                 self.assertEqual(source, original)
@@ -75,10 +96,10 @@ class FillFormulaLoopTests(unittest.TestCase):
                 'Apply ', InlineExpression(ExpressionKind.INLINE_PAREN, r'16\times'), ' downsampling.',
             ]),
         ])])
-        incorrect = '<xml><fragment id="1">进行<expression>16倍</expression>上采样。</fragment></xml>'
+        incorrect = '<xml><fragment id="1">进行<expression><math-ref key="m1"/></expression>上采样。</fragment></xml>'
         corrected = incorrect.replace('上采样', '下采样')
         translator, runtime = _repairing_translator([incorrect, corrected])
-        translator._translate_text_async = AsyncMock(return_value='进行16倍下采样。')
+        translator._translate_text_async = AsyncMock(return_value='进行<source-math key="s1"/>下采样。')
         target = asyncio.run(NarrativeXMLTransformer(translator).transform(source))
         self.assertEqual(runtime.context_value.calls, 2)
         self.assertIn('canonical translation', runtime.context_value.messages[1][0][-1].message)
@@ -95,13 +116,13 @@ class FillFormulaLoopTests(unittest.TestCase):
                 'Apply ', InlineExpression(ExpressionKind.INLINE_PAREN, r'16\times'), ' downsampling.',
             ]),
         ])])
-        corrected = '<xml><fragment id="1">进行<expression>16倍</expression>下采样。</fragment></xml>'
+        corrected = '<xml><fragment id="1">进行<expression><math-ref key="m1"/></expression>下采样。</fragment></xml>'
         for incorrect in [corrected.replace('expression', 'span'),
-                          '<xml><fragment id="1">进行16倍下采样。</fragment></xml>',
+                          '<xml><fragment id="1">进行<math-ref key="m1"/>下采样。</fragment></xml>',
                           corrected.replace('<expression>', '<expression id="99">')]:
             with self.subTest(incorrect=incorrect):
                 translator, runtime = _repairing_translator([incorrect, corrected])
-                translator._translate_text_async = AsyncMock(return_value='进行16倍下采样。')
+                translator._translate_text_async = AsyncMock(return_value='进行<source-math key="s1"/>下采样。')
                 target = asyncio.run(NarrativeXMLTransformer(translator).transform(source))
                 self.assertEqual(runtime.context_value.calls, 2)
                 self.assertEqual(formulas(target), [r'16\times'])

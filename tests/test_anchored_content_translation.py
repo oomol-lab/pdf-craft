@@ -307,7 +307,7 @@ def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator,
         config, config, "English", None,   10_000, 10_000,
         executor=ConcurrentExecutor(FixedCapacity(1)),
      retry_policy=RetryPolicy(fill=max(0, (2) - 1)))
-    async def translate_text(text: str) -> str:
+    async def translate_text(text: str, **_kwargs) -> str:
         return text
 
     translator._translate_text_async = translate_text  # type: ignore[method-assign]
@@ -595,12 +595,12 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             ]),
         ])])
         filled = (
-            '<xml><fragment id="1">模 <expression id="3">q'
-            '</expression> 的特征 <expression id="2">χ'
+            '<xml><fragment id="1">模 <expression id="3"><math-ref key="m1"/>'
+            '</expression> 的特征 <expression id="2"><math-ref key="m2"/>'
             '</expression>。</fragment></xml>'
         )
         translator, runtime = _repairing_translator((filled,))
-        translator._translate_text_async = AsyncMock(return_value="模 q 的特征 χ。")  # type: ignore[method-assign]
+        translator._translate_text_async = AsyncMock(return_value='模 <source-math key="s2"/> 的特征 <source-math key="s1"/>。')  # type: ignore[method-assign]
 
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 

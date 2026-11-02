@@ -31,6 +31,8 @@ from .hill_climbing import HillClimbing
 from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
 from .submitter import SubmitKind, submit
 from ...word_count import count_xml_words
+from ...source_math import SourceMathTranslation
+from ...canonical_projection import MathProjectionError
 from ...progress import TranslationProgress, active_progress, selected_item, selected_assets
 from pdf_craft.progress import UnitOutcome
 from collections import Counter
@@ -430,6 +432,7 @@ class XMLTranslator:
                           if translation_protocol is not None else [inline_segments])
         mappings: list[InlineSegmentMapping | None] = []
         for group in segment_groups:
+            source_math = translation_protocol.source_math(group) if translation_protocol is not None else None
             result = await self._translate_inline_segment_group_async(
                 inline_segments=group,
                 callbacks=callbacks,
@@ -437,14 +440,17 @@ class XMLTranslator:
                     immutable_elements_for_inline_segments(group)
                     if immutable_elements_for_inline_segments is not None else []
                 ),
-                source_text_renderer=source_text_renderer,
+                source_text_renderer=((lambda segments, math=source_math: translation_protocol.render(segments, math))
+                                      if source_math is not None and translation_protocol is not None
+                                      else source_text_renderer),
                 canonical_text_validator=canonical_text_validator,
                 source_context=(translation_protocol.context(group)
                                 if translation_protocol is not None and translation_protocol.context else ''),
                 canonical_math_projector=(
-                    (lambda mappings, canonical, owner=translation_protocol.unit(group[0]):
-                     translation_protocol.project_math(mappings, canonical, owner))
+                    (lambda mappings, canonical, owner=translation_protocol.unit(group[0]), math=source_math:
+                     translation_protocol.project_math(mappings, canonical, math, owner))
                     if translation_protocol is not None else None),
+                source_math=source_math,
             )
             if on_round is not None:
                 await on_round(group)
@@ -461,6 +467,7 @@ class XMLTranslator:
         canonical_text_validator: CanonicalTextValidator | None,
         source_context: str = '',
         canonical_math_projector: CanonicalMathProjector | None = None,
+        source_math: SourceMathTranslation | None = None,
     ) -> list[InlineSegmentMapping | None]:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
         if not primary:
@@ -487,8 +494,13 @@ class XMLTranslator:
         )
         targets = segment_locations(primary)
         try:
-            translated_text = (await self._translate_text_async(source_text, context=source_context)
-                               if source_context else await self._translate_text_async(source_text))
+            if source_math is not None:
+                context = '\n\n'.join(value for value in (source_context, source_math.context) if value)
+                translated_text = await self._translate_text_async(source_text, context=context, source_math=source_math)
+                translated_text = source_math.resolve(translated_text)
+            else:
+                translated_text = (await self._translate_text_async(source_text, context=source_context)
+                                   if source_context else await self._translate_text_async(source_text))
         except Exception as error:
             await recover(error, FailureCategory.TRANSLATION, 'text_translation',
                           'omit_translation', targets=targets, context_locations=context_targets,
@@ -525,19 +537,28 @@ class XMLTranslator:
             for text_segment in inline_segment:
                 yield text_segment.text
 
-    async def _translate_text_async(self, text: str, *, context: str = "") -> str:
+    async def _translate_text_async(self, text: str, *, context: str = "",
+                                    source_math: SourceMathTranslation | None = None) -> str:
         if not text.strip(" \t\r\n") or _already_in_target_language(text, self._target_language):
             return text
         template = await self._translation_runtime.template("translate")
         messages = [Message(MessageRole.SYSTEM, template.render(
             target_language=self._target_language, user_prompt=self._user_prompt)),
             Message(MessageRole.USER, (await self._translation_runtime.template('translation_input')).render(
-                text=text, context=context))]
+                text=text, context=context,
+                source_math={key: value.latex for key, value in source_math.values.items()} if source_math is not None else {}))]
         translator = self
         last_error = None
 
         class _TranslationProtocol:
             async def validate(self, response, state, attempt, max_attempts):
+                nonlocal last_error
+                if source_math is not None:
+                    try:
+                        source_math.resolve(response)
+                    except MathProjectionError as error:
+                        last_error = error
+                        return ProtocolRetry(str(error), state)
                 return ProtocolSuccess(response, state)
 
             async def empty(self, state, attempt, max_attempts):
@@ -549,16 +570,21 @@ class XMLTranslator:
                 raise error
 
         async with self._translation_runtime.context(cache_seed_content=self._cache_seed_content) as ctx:
+            envelope_error = False
             async def request(_current_messages, index, maximum):
-                nonlocal last_error
+                nonlocal last_error, envelope_error
                 try:
-                    # Envelope repair resends the original source. A trailing
-                    # user feedback message would itself become source prose
-                    # for a plain-text translation model. No semantic retry.
-                    return await translator._requests.request(ctx, runtime=translator._translation_runtime,
-                        stage='translation', messages=messages, retry_index=index, retry_max=maximum)
+                    # Unbound envelopes resend the original source. Only the
+                    # explicitly protected formula protocol accepts repair
+                    # feedback, retaining its original text and read-only table.
+                    request_messages = _current_messages if source_math is not None and not envelope_error else messages
+                    response = await translator._requests.request(ctx, runtime=translator._translation_runtime,
+                        stage='translation', messages=request_messages, retry_index=index, retry_max=maximum)
+                    envelope_error = False
+                    return response
                 except BatchResponseError as error:
                     last_error = error
+                    envelope_error = True
                     return ''
             return await run_repair_loop(RepairLoopOptions(
                 messages=messages, request=request, protocol=_TranslationProtocol(), state=None,
@@ -578,7 +604,6 @@ class XMLTranslator:
         canonical_math_projector: CanonicalMathProjector | None = None,
     ) -> list[InlineSegmentMapping | None] | None:
         from ...canonical_math import CanonicalMath
-        from ...canonical_projection import MathProjectionError
         canonical_math = CanonicalMath(translated_text) if canonical_text_validator is not None else None
         user_message = (await self._fill_runtime.template('fill_input')).render(
             source_text=source_text, xml_template=encode_friendly(hill_climbing.request_element()),

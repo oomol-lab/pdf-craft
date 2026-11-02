@@ -12,7 +12,7 @@ from jinja2 import Template
 from xml.etree.ElementTree import Element
 
 _MATH = re.compile(
-    r'\\+\(.*?\\+\)|\\+\[.*?\\+\]|(?<!\\)\$\$.*?(?<!\\)\$\$|(?<![\\$])\$(?!\$).*?(?<!\\)\$(?!\$)',
+    r'\\+\(.*?\\+\)|\\+\[.*?\\+\]|(?<!\\)\$\$.*?(?<!\\)\$\$|(?<!\\)\$(?!\$).*?(?<!\\)\$',
     re.DOTALL,
 )
 _REFERENCE_TAG = 'math-ref'

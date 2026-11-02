@@ -1,6 +1,7 @@
 # pylint: disable=protected-access
 """Optional assertions exercise real small PDFs/EPUBs, without OCR or LLMs."""
 import asyncio
+from io import BytesIO
 from pathlib import Path
 import tempfile
 import unittest
@@ -8,6 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from zipfile import BadZipFile, ZipFile
 
 import pypdf
+from PIL import Image
 from pypdf.errors import PdfReadError
 from pypdf.generic import DecodedStreamObject, NameObject
 
@@ -37,7 +39,7 @@ class PDFAssertionTests(unittest.TestCase):
                 assert_pdf_renderable(source)
             self.assertTrue(any('Syntax Warning' in line and 'EMC' in line for line in logs.output))
 
-    def test_poppler_error_categories_are_fatal_but_warnings_remain_visible(self):
+    def test_successful_poppler_diagnostics_are_logged_without_rejecting_output(self):
         document = PopplerDocument(Path('unused.pdf'))
         for category in ('Syntax Error', 'Config Error', 'Command Line Error', 'I/O Error',
                          'Permission Error', 'Unimplemented Feature', 'Internal Error', 'Error'):
@@ -45,13 +47,50 @@ class PDFAssertionTests(unittest.TestCase):
                 diagnostic = f'{category}{position}: failure\n'.encode()
                 with self.subTest(category=category, position=position), patch(
                     'pdf_craft.pdf.poppler.run_subprocess_sync', return_value=(b'output', diagnostic),
-                ), self.assertRaisesRegex(RuntimeError, 'failure'):
-                    document._run('pdftoppm')
+                ), self.assertLogs('pdf_craft.pdf.poppler', level='WARNING') as logs:
+                    self.assertEqual(document._run('pdftoppm'), b'output')
+                self.assertIn(diagnostic.decode().strip(), logs.output[0])
         diagnostic = b'Syntax Warning (123): unusual but readable content\n'
         with patch('pdf_craft.pdf.poppler.run_subprocess_sync', return_value=(b'output', diagnostic)), \
                 self.assertLogs('pdf_craft.pdf.poppler', level='WARNING') as logs:
             self.assertEqual(document._run('pdftoppm'), b'output')
         self.assertIn(diagnostic.decode().strip(), logs.output[0])
+
+    def test_font_diagnostics_do_not_discard_valid_page_pixels(self):
+        document = PopplerDocument(Path('unused.pdf'))
+        document._info = {'Pages': '1'}
+        with Image.new('RGB', (20, 30), (12, 34, 56)) as original:
+            for image_format in ('PNG', 'PPM'):
+                buffer = BytesIO()
+                original.save(buffer, format=image_format)
+                for diagnostic in ("Syntax Error: Unknown character collection 'DYNA-HK1'",
+                                   "Syntax Error: Couldn't create a font for '*SimSun-10558-Identity-H'"):
+                    with self.subTest(image_format=image_format, diagnostic=diagnostic), patch(
+                        'pdf_craft.pdf.poppler.run_subprocess_sync',
+                        return_value=(buffer.getvalue(), diagnostic.encode()),
+                    ), self.assertLogs('pdf_craft.pdf.poppler', level='WARNING') as logs:
+                        with document.render_page(1, 72) as rendered:
+                            self.assertEqual(rendered.mode, 'RGB')
+                            self.assertEqual(rendered.size, original.size)
+                            self.assertEqual(rendered.tobytes(), original.tobytes())
+                    self.assertIn(diagnostic, logs.output[0])
+
+    def test_successful_process_with_empty_or_corrupt_image_still_fails(self):
+        document = PopplerDocument(Path('unused.pdf'))
+        document._info = {'Pages': '1'}
+        buffer = BytesIO()
+        with Image.new('RGB', (20, 30), 'black') as image:
+            image.save(buffer, format='PNG')
+        data = buffer.getvalue()
+        truncated = data[:data.index(b'IDAT') + 8]
+        # Its header is recognizable; decoding the actual pixels must still fail.
+        with Image.open(BytesIO(truncated)) as image:
+            self.assertEqual(image.size, (20, 30))
+        for payload in (b'', b'not an image', truncated):
+            with self.subTest(payload=payload), patch(
+                'pdf_craft.pdf.poppler.run_subprocess_sync', return_value=(payload, b''),
+            ), self.assertRaises(OSError):
+                document.render_page(1, 72)
 
 
     def test_success_does_not_modify_source_or_leave_trial_files(self):
@@ -84,7 +123,7 @@ class PDFAssertionTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 assert_pdf_readable(source, poppler_path=Path(folder) / 'missing')
 
-    def test_later_page_render_error_does_not_prevent_plain_reading(self):
+    def test_later_page_syntax_error_is_logged_when_poppler_still_renders(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / 'broken-page.pdf'
             writer = pypdf.PdfWriter()
@@ -97,8 +136,9 @@ class PDFAssertionTests(unittest.TestCase):
             writer.close()
             self.assertIsNone(assert_pdf_readable(source))
             self.assertEqual(pdf_pages_count(source), 2)
-            with self.assertRaisesRegex(RuntimeError, 'MissingXObject'):
-                assert_pdf_renderable(source)
+            with self.assertLogs('pdf_craft.pdf.poppler', level='WARNING') as logs:
+                self.assertIsNone(assert_pdf_renderable(source))
+            self.assertTrue(any('MissingXObject' in line for line in logs.output))
 
     def test_read_and_conversion_do_not_run_assertions_or_eager_renders(self):
         with tempfile.TemporaryDirectory() as folder:

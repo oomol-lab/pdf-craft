@@ -1,7 +1,7 @@
 """Shared full-text allocation protocol; adapters supply semantic boundaries.
 
-The first translation is authoritative. Fill distributes that text into source
-slots, then a format projection preserves their mathematical values before decoding.
+The first translation supplies prose and positions for immutable source formula
+identities. Fill distributes that validated text, then restores original nodes.
 Neither the allocator nor its whitespace rules know a document's XML schema.
 """
 from collections.abc import Callable, Iterable
@@ -9,7 +9,8 @@ from typing import Any, Protocol
 from xml.etree.ElementTree import Element
 
 from .canonical_text import restore_canonical_whitespace
-from .canonical_projection import MathMapping
+from .canonical_projection import MathMapping, SourceMath, project_canonical_math
+from .source_math import SourceMathTranslation
 from .xml_translator.segment import InlineSegment, TextSegment, search_text_segments
 from .xml_translator.xml.matching import element_id
 
@@ -22,7 +23,7 @@ class FormulaProjection(Protocol):
     def interrupt_source_text_segments(self, segments: Iterable[TextSegment], /) -> Iterable[TextSegment]: ...
     def interrupt_translated_text_segments(self, segments: Iterable[TextSegment], /) -> Iterable[TextSegment]: ...
     def interrupt_block_element(self, element: Element) -> Element: ...
-    def project_math(self, mappings: list[MathMapping | None], canonical: str) -> list[MathMapping | None] | None: ...
+    def source_math(self, segments: Iterable[TextSegment]) -> list[SourceMath]: ...
 
 
 class StructuredTranslation:
@@ -58,13 +59,14 @@ class StructuredTranslation:
             groups[-1].append(segment)
         return groups
 
-    def render(self, segments: list[InlineSegment]) -> str:
+    def render(self, segments: list[InlineSegment], math: SourceMathTranslation | None = None) -> str:
         parts, previous = [], None
+        seen: set[str] = set()
         for segment in segments:
             owner = self.owner(segment) if self.owner is not None else segment
             if parts and owner is not previous:
                 parts.append('\n\n')
-            parts.extend(text.text for text in segment)
+            parts.extend(math.render(text, seen) if math is not None else text.text for text in segment)
             previous = owner
         return ''.join(parts)
 
@@ -105,11 +107,17 @@ class StructuredTranslation:
         if self.formulas is not None:
             self.formulas.prepare(root)
 
-    def project_math(self, mappings: list[MathMapping | None], canonical: str,
-                     owner: Element | None = None) -> list[MathMapping | None] | None:
+    def source_math(self, segments: list[InlineSegment]) -> SourceMathTranslation | None:
         if self.formulas is None:
             return None
-        projected = self.formulas.project_math(mappings, canonical)
+        sources = self.formulas.source_math(text for segment in segments for text in segment)
+        return SourceMathTranslation(sources) if sources else None
+
+    def project_math(self, mappings: list[MathMapping | None], canonical: str,
+                     math: SourceMathTranslation | None, owner: Element | None = None) -> list[MathMapping | None] | None:
+        if math is None:
+            return None
+        projected = project_canonical_math(mappings, canonical, math.bindings)
         if projected is not None and self._record_math_units and owner is not None:
             self.projected_math_units.add(self.key(owner))
         return projected

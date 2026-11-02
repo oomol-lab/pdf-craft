@@ -11,6 +11,6 @@ When there are MORE canonical references than slots, put multiple references in
 an existing slot or ordinary text; NEVER create extra expression tags or IDs.
 Do not split a math-ref or surround it with additional math delimiters.
 The caller expands these exact canonical values BEFORE structural and full
-visible-text validation, then projects those canonical values into final formula
-nodes. Source presentation is reused only when its mathematical content matches;
-an expression slot's ID does not determine the formula value at that position.
+visible-text validation, then restores the original source nodes already bound
+to these references. No new formula is created from model text. An expression
+slot's ID does not determine which original formula belongs at that position.
