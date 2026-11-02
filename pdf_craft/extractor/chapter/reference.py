@@ -13,6 +13,7 @@ from .numeric_marks import inline_number, html_number, SUPERSCRIPT_NUMBERS, supe
 _START_PREFIX_PATTERN = re.compile(r"^(?:\\?\*){1,6}\s+")
 _ESCAPED_STAR_PREFIX = re.compile(r'^(?:\\\*){1,6}(?!\\?\*)\s*(?=\S)')
 _NUMERIC_PREFIX = re.compile(r'^([1-9][0-9]{0,2})[.)]?\s+(?=\S)')
+_DEFINITION_PREFIX = re.compile(r'^(?:([1-9][0-9]{0,2})[.)]|\(([1-9][0-9]{0,2})\))\s+(?=\S)')
 
 
 class References:
@@ -164,6 +165,11 @@ def extract_head_mark(content: Content, *, numeric_marks=()) -> tuple[Mark | str
     if not head_text:
         return None, content
 
+    # Definition typography is evidence even when OCR omitted the body mark.
+    # Bare quantities still need pairing; do not fabricate a missing reference.
+    definition = _DEFINITION_PREFIX.match(head_text)
+    if definition:
+        return definition[1] or definition[2], [head_text[definition.end():], *content[1:]]
     numbered = _NUMERIC_PREFIX.match(head_text)
     if numbered and numbered[1] in numeric_marks:
         return numbered[1], [head_text[numbered.end():], *content[1:]]

@@ -40,8 +40,13 @@ class FlattenedNumericReferenceTests(unittest.TestCase):
             with self.subTest(body=body):
                 _, page = project(body, '4. An ambiguous note candidate.')
                 assert page is not None
-                self.assertIsNone(page.citations[0].index)
+                # The printed definition survives independently; these body
+                # numbers still must not become references to it.
+                self.assertEqual(page.citations[0].index, 1)
+                self.assertEqual(page.citations[0].mark, '4')
                 self.assertFalse(page.layouts[0].references)
+                assert page.layouts[0].source.origin is not None
+                self.assertEqual(page.layouts[0].source.origin.text, body)
 
     def test_ambiguous_repeated_flat_candidates_do_not_choose_a_location(self):
         _, page = project('A statement ends.4 Another statement ends.4', '4. An explanatory note.')
