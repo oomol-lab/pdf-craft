@@ -150,3 +150,30 @@ def check_mergeable(
 
 
     return True
+
+
+_REPORTED_OPENING = re.compile(
+    r'^[\u4e00-\u9fff]{1,16}(?:说|說|问|問|喊|答|回答|回了[\u4e00-\u9fff]{0,3}句)[：:,，\s]*[“「『"]')
+_OUTER_DEPENDENCY = re.compile(
+    r'(?:如果|若是|倘若|假如|假使|要是|即使|即便|虽然|雖然|尽管|儘管|除非|只要|'
+    r'每当|每當|当|當|若|因为|因為|既然|无论|無論|一旦|纵使|縱使|只有|直到|哪怕|即令|不管|不论|不論|不但|不仅|不僅)')
+
+
+def reported_turn_boundary(origin, ending, opening):
+    """Do not attach a new reporting turn to a visibly completed utterance.
+
+    A quote can still be inside an unfinished outer conditional. Preserve that
+    origin even when the quote spans fragments. This is a narrow textual cue,
+    not a general speaker classifier or a rule for postpositive attribution.
+    """
+    if not all(isinstance(value, str) for value in (origin, ending, opening)):
+        return False
+    tail = ending.rstrip()
+    closed = tail.endswith(('…', '...')) or any(
+        tail.endswith(stop + quote) for stop in '.!?。！？' for quote in '\"”」』')
+    if not closed:
+        return False
+    if not _REPORTED_OPENING.match(opening.lstrip()):
+        return False
+    outside = re.split('[“「『"]', origin, maxsplit=1)[0]
+    return bool(outside) and _OUTER_DEPENDENCY.search(outside) is None

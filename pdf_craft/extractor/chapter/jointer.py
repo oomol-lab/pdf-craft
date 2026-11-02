@@ -9,7 +9,7 @@ from ...markdown.paragraph import parse_raw_markdown
 from ...pdf import TITLE_TAGS, PageLayout
 from .chapter import SourceAsset, SourceTextFragment, TextSource, InlineExpression, TextFlowItem
 from .content import Content, expand_text_in_content, first, last
-from .mergeable import LINK_FLAGS, check_mergeable, has_numbered_prefix
+from .mergeable import LINK_FLAGS, check_mergeable, has_numbered_prefix, reported_turn_boundary
 from .paragraph_geometry import indented_line_boundary, indented_line_starts, printed_separator_boundary
 from .reading_serials import split_reading_serials
 
@@ -401,6 +401,9 @@ class Jointer:
         # Do not treat a quoted numeral in ordinary prose as an entry: establish
         # the numbered context from the paragraph head, even across line seams.
         origin = para1.children[0]
+        if (not assets and isinstance(origin, SourceTextFragment)
+                and reported_turn_boundary(first(origin.content), last(block1.content), first(block2.content))):
+            return False
         if (isinstance(origin, SourceTextFragment)
                 and has_numbered_prefix(origin.content, include_quoted=True)
                 and has_numbered_prefix(block2.content, include_quoted=True)):
