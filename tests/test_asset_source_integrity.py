@@ -8,8 +8,12 @@ import json
 from xml.etree.ElementTree import tostring
 
 from pdf_craft.extractor.chapter.chapter import SourceAsset, TextFlowItem
-from pdf_craft.extractor.chapter.jointer import _is_table_title_text, _is_table_caption_text
-from pdf_craft.extractor.chapter.page_analysis import restore_streams, LayoutAnnotations, AnalysedCitation
+from pdf_craft.extractor.chapter.asset_text import (
+    _is_table_title_text, _is_table_caption_text, active_asset_text,
+    asset_text_packet, detach_invalid_asset_text, materialize_asset_text,
+)
+from pdf_craft.extractor.chapter.page_analysis import restore_streams
+from pdf_craft.extractor.chapter.analysis_types import LayoutAnnotations, AnalysedCitation, _AnalysedAssetSource
 from pdf_craft.extractor.chapter.assembly import PageAssembly
 from pdf_craft.extractor.chapter.page_repair import RepairedLayout, RepairedPage, _compile_repaired_page, build_page_repair_messages
 from pdf_craft.extractor.chapter.page_review import build_jev_review_states
@@ -171,3 +175,57 @@ class AssetSourceIntegrityTests(unittest.TestCase):
             properties = data['output_contract']['$defs']['RepairedLayout']['properties']
             self.assertEqual('keep_asset_attachment' in properties, linked)
             self.assertEqual('asset_text_note' in data['target_page'], linked)
+
+
+    def test_attachment_requires_an_existing_asset_with_matching_citation_identity(self):
+        raw = page(('table', (10, 10, 90, 70), '<table><tr><td>5</td></tr></table>'),
+                   ('text', (10, 75, 90, 85), 'Notes: explanation.'))
+        original, = project_window((raw,), True)
+        assert original is not None
+        for case in ('same-note', 'other-note', 'ignored-asset', 'artwork-member', 'missing-asset'):
+            with self.subTest(case=case):
+                candidate = deepcopy(original)
+                asset = next(x for x in candidate.layouts if x.source_order is None)
+                member = next(x for x in candidate.layouts if x.source_order == 1)
+                for layout in (asset, member):
+                    layout.annotations.ownership = 'citation'
+                    layout.annotations.citation_id = 'note-a'
+                if case == 'other-note':
+                    member.annotations.citation_id = 'note-b'
+                elif case == 'ignored-asset':
+                    asset.annotations.ownership = 'ignored'
+                elif case == 'artwork-member':
+                    member.annotations.preserve_as_image = True
+                elif case == 'missing-asset':
+                    candidate.layouts.remove(asset)
+                expected = case == 'same-note'
+                self.assertEqual(id(member) in active_asset_text(candidate.layouts), expected)
+                # A candidate is still shown to both reviewers even when a later
+                # ownership edit makes that link ineffective.
+                review = asset_text_packet(member, include_page=True)
+                repair = asset_text_packet(member)
+                assert review is not None and repair is not None
+                self.assertEqual(review.pop('asset_page_index'), 1)
+                self.assertEqual(review, repair)
+                detach_invalid_asset_text(candidate.layouts)
+                self.assertEqual(member.annotations.keep_asset_attachment, expected)
+                snapshot = deepcopy(candidate)
+                projected = materialize_asset_text(candidate)
+                self.assertEqual(candidate, snapshot)
+                self.assertEqual(member in projected.layouts, not expected)
+                if expected:
+                    projected_asset = next(x for x in projected.layouts if x.source_order is None)
+                    assert isinstance(projected_asset.source, _AnalysedAssetSource)
+                    self.assertEqual(projected_asset.source.caption, ('Notes: explanation.',))
+
+    def test_repair_cannot_invent_an_asset_attachment_for_unrelated_text(self):
+        raw = page(('text', (10, 10, 90, 20), 'Ordinary prose.'))
+        original, = project_window((raw,), False)
+        assert original is not None
+        source = original.layouts[0]
+        proposed = RepairedLayout(layout_id=f'layout-{source.document_order}',
+            ownership='paragraph', continues_from_previous=False, paragraph_role='body',
+            paragraph_level=-1, citation_id=None, keep_asset_attachment=True)
+        with self.assertRaisesRegex(ValueError, r'\[ASSET_TEXT\].*no original local asset target'):
+            _compile_repaired_page(original, RepairedPage(
+                page_index=1, layouts=[proposed], citations=[], references=[]))

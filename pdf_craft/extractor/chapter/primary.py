@@ -4,10 +4,11 @@ from dataclasses import replace
 from copy import deepcopy
 
 from .generation import _resolve_jointers
-from .jointer import Jointer, _is_empty_text_layout
-from .page_analysis import analyse_pages, active_asset_text
-from .source import capture_sources, excluded_sources
-from .marginal_numbers import reading_notes, reading_body
+from .jointer import Jointer
+from .page_analysis import analyse_pages
+from .asset_text import active_asset_text
+from .source import capture_sources, _is_empty_text_layout
+from .marginal_numbers import excluded_sources, reading_notes, reading_body
 
 
 def project_page(page, includes_footnotes):

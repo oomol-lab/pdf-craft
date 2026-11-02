@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ...pdf import Page
-from .page_analysis import AnalysedLayout, PageAnalysis, _AnalysedAssetSource
+from .analysis_types import AnalysedLayout, PageAnalysis, _AnalysedAssetSource
+from .asset_text import asset_text_packet
 from .paragraph_geometry import text_scale_estimate
 from .local_review import LOCAL_REVIEW_THRESHOLD, local_review_requests
 from .structural_review import NamedBatchEvaluator, review_body_page
@@ -311,13 +312,9 @@ def _layout_packet(
             result['number_ink_bbox_normalized'] = [
                 round(value / (width if index % 2 == 0 else height), 3)
                 for index, value in enumerate(observation)]
-    target = getattr(source, 'asset_text_target', None)
-    if target is not None:
-        result['asset_text_association'] = {
-            'asset_page_index': target.page_index, 'asset_ref': target.ref,
-            'asset_bbox': list(target.bbox), 'slot': target.slot,
-            'retained': annotations.keep_asset_attachment,
-        }
+    association = asset_text_packet(layout, include_page=True)
+    if association is not None:
+        result['asset_text_association'] = association
     return result
 
 

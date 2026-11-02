@@ -7,7 +7,7 @@ from .footnote_completion import (
     apply_completion_proofs, apply_paired_word_proofs, apply_dependency_proofs,
 )
 from .reference import extract_head_mark
-from .jointer import _parse_block_content
+from .content import _parse_block_content
 from .local_review import local_review_requests, review_batches
 from .review_questions import question
 from .review_evidence import _duplicates, _selected_strips, _image_starts

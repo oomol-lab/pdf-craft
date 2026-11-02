@@ -16,13 +16,15 @@ from .chapter import (
 from .content import expand_text_in_content, join_texts_in_content
 from .jointer import Jointer
 from .mark import Mark, search_marks
-from .page_analysis import PageAnalysis, UnindexedCitation, analyse_pages, restore_streams
+from .analysis_types import PageAnalysis, UnindexedCitation
+from .page_analysis import analyse_pages, restore_streams
 from .page_review import load_page_pixel_sizes
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References, extract_head_mark
 from .numeric_marks import (explicit_numbers, html_number, SUPERSCRIPT_NUMBERS, superscript_number,
                             flattened_numbers, flattened_spans, prose_containers)
-from .source import capture_sources, excluded_sources
+from .source import capture_sources
+from .marginal_numbers import excluded_sources
 from .marginal_numbers import reading_notes, reading_body
 
 

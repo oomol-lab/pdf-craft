@@ -62,7 +62,13 @@ PageAnalysis 的 continuation 表示文字前驱，跳过同一归属流中的�
 完整来源和前缀范围保留到组装：正文投影保留前缀，定义投影才移除前缀。断词修复延后到 ownership
 组装完成后的语义投影；原始文字记录不被改写，投影为空的 fragment 也保留原身份和 bbox。
 
-表题/表注的独立 OCR 来源由 `Jointer` 保留原始身份和几何，`analyse_pages` 将候选关联
+`source.py` 仅捕获来源身份和阅读位置，文本解析及断词投影由 `content.py` 承载；
+页边内容排除由 `marginal_numbers.py` 承载，不能反向依赖 `Jointer`。`Jointer` 负责阅读串、
+自然段边界及跨页尾部，资产候选解析委派给 `asset_text.py`。
+`analysis_types.py` 定义来源完整的页记录，`analysis_content.py` 负责结构文本和引用位置的
+可逆投影；`page_analysis.py` 负责页顺序、结构校验与流恢复，不重新判断表题/表注归属。
+
+表题/表注的独立 OCR 来源由 `asset_text.py` 保留原始身份和几何，候选关联
 投影为可单独审核、精修的文本来源。`page_review` 同时暴露资产内生 title/content/caption；
 `page_repair` 仅在存在候选时提供解除关联选项。`materialize_asset_text` 在单页采用后的输出
 边界合并仍有效的同流成员，`PageAssembly` 保存的采用页保持来源完整。该运行时关联不是

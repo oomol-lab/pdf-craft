@@ -1,10 +1,15 @@
 """Conservative, reversible page-apparatus hypotheses from local OCR."""
+from copy import deepcopy
+from collections.abc import Iterable, Iterator, Mapping
+
 import re
 from statistics import median
 
 from ...common import ASSET_TAGS
-from ...pdf import TITLE_TAGS
-from .jointer import _parse_block_content
+from ...pdf import TITLE_TAGS, Page
+from .content import _parse_block_content
+from .chapter import SourceTextFragment, TextSource
+from .source import _is_empty_text_layout
 from .paragraph_geometry import text_scale_estimate
 from .numeric_marks import explicit_numbers, flattened_numbers
 from .mark import Mark, search_marks
@@ -318,3 +323,17 @@ def _sole_apparatus(page):
             and max(x1 - right, left - x2) >= 10 * max(height, code_height)):
         return [footer, code]
     return []
+
+
+def excluded_sources(
+    pages: Iterable[Page],
+    sources: Mapping[tuple[int, int], tuple[int, TextSource]],
+    *, includes_footnotes=False,
+) -> Iterator[SourceTextFragment]:
+    """Retain blank and excluded observations without semantic paragraphs."""
+    for page in pages:
+        ignored = {id(item) for item in marginal_layouts(page)} if includes_footnotes else set()
+        for layout in [*page.body_layouts, *page.footnotes_layouts]:
+            if _is_empty_text_layout(layout) or id(layout) in ignored:
+                order, origin = sources[(page.index, id(layout))]
+                yield SourceTextFragment(page.index, order, layout.det, list(deepcopy(origin.content)), origin)

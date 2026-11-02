@@ -2,7 +2,7 @@
 from dataclasses import replace
 
 from ..common import AssetHub
-from .chapter.page_analysis import _AnalysedAssetSource
+from .chapter.analysis_types import _AnalysedAssetSource
 
 
 def preserve_graphics(page, pdf, handler, pixel_size, assets, dpi, aborted):

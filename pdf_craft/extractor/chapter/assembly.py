@@ -6,7 +6,10 @@ from contextlib import closing
 from copy import deepcopy
 
 from .chapter import Reference, SourceAsset, StandaloneAsset, DisplayFormula, _encode_flow, _encode_reference
-from .page_analysis import _restore_layouts, _restore_mark, PageStructureError, materialize_asset_text, active_asset_text
+from .page_analysis import _restore_layouts
+from .analysis_content import _restore_mark
+from .analysis_types import PageStructureError
+from .asset_text import materialize_asset_text, active_asset_text
 from .stream import _position
 
 

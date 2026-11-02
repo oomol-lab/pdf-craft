@@ -299,8 +299,10 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
     async def test_complete_superscript_reference_can_replace_atomic_ocr_expression(self):
         from pdf_craft.expression import ExpressionKind
         from pdf_craft.extractor.chapter.chapter import InlineExpression, SourceTextFragment, TextFlowItem
-        from pdf_craft.extractor.chapter.page_analysis import (
-            analyse_pages, replace_layout_references, ReferenceSpan, layout_reference_spans)
+        from pdf_craft.extractor.chapter.page_analysis import analyse_pages
+        from pdf_craft.extractor.chapter.analysis_types import ReferenceSpan
+        from pdf_craft.extractor.chapter.analysis_content import (
+            replace_layout_references, layout_reference_spans)
         paragraph = TextFlowItem('body', -1, [SourceTextFragment(1, 0, (0, 0, 100, 20),
             ['Text ', InlineExpression(ExpressionKind.INLINE_PAREN, '^{33}'), ' follows.'])])
         layout = analyse_pages([1], [paragraph], [])[0].layouts[0]

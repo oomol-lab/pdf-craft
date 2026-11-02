@@ -23,7 +23,8 @@ from .generation import (
     _assemble_flow_items, _partition_chapters, _split_reference_origins,
     _replace_mark_with_reference,
 )
-from .jointer import JoinedPageProgress, Jointer, normalize_source_projection, _parse_block_content
+from .jointer import JoinedPageProgress, Jointer
+from .content import normalize_source_projection, _parse_block_content
 from .mark import transform2mark
 from .reference import References
 from .source import capture_sources
