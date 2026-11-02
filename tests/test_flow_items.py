@@ -46,7 +46,7 @@ def test_formula_is_boundary_and_legacy_flat_body_migrates():
       <asset ref="formula" page_index="1" det="0,10,9,19"><content>x^2</content></asset>
       <paragraph ref="text"><block page_index="1" order="2" det="0,20,9,29">after</block></paragraph>
     </body></chapter>""")
-    restored = decode(legacy)
+    restored = decode(legacy, allow_legacy=True)
     assert [type(v) for v in restored.flow_items] == [TextFlowItem, DisplayFormula, TextFlowItem]
 
 
