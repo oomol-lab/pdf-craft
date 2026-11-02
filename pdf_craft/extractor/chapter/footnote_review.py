@@ -2,7 +2,10 @@
 
 from copy import deepcopy
 from .footnote_quotation import quotation_requests, apply_quotation_proofs
-from .footnote_completion import COMPLETION_TARGETS, completion_requests, apply_completion_proofs
+from .footnote_completion import (
+    COMPLETION_TARGETS, PAIRED_WORD_PREFIXES, completion_requests,
+    apply_completion_proofs, apply_paired_word_proofs,
+)
 from .reference import extract_head_mark
 from .jointer import _parse_block_content
 from .local_review import local_review_requests, review_batches
@@ -518,6 +521,8 @@ def _main_section_requests(state):
 
 
 def footnote_pass_scores(scores):
+    word_proofs = {k: v for k, v in scores.items() if k.startswith(PAIRED_WORD_PREFIXES)}
+    scores = {k: v for k, v in scores.items() if k not in word_proofs}
     completion_proofs = {k: v for k, v in scores.items() if k.startswith(tuple(COMPLETION_TARGETS))}
     scores = {k: v for k, v in scores.items() if k not in completion_proofs}
     quotation_proofs = {k: v for k, v in scores.items() if k.startswith("quotation_boundary_")}
@@ -575,6 +580,7 @@ def footnote_pass_scores(scores):
             values[key] = max(values[key], proof)
     apply_quotation_proofs(values, quotation_proofs, FOOTNOTE_REVIEW_THRESHOLD)
     apply_completion_proofs(values, completion_proofs, FOOTNOTE_REVIEW_THRESHOLD)
+    apply_paired_word_proofs(values, word_proofs, FOOTNOTE_REVIEW_THRESHOLD)
     return values
 
 

@@ -6,6 +6,8 @@ from .review_questions import question
 from .review_encoding import compact_review_evidence, TEXT_ENCODING_NOTE
 from .structural_review import _decisions
 
+PAIRED_WORD_PREFIXES = ('seam_predecessor_', 'seam_word_')
+
 COMPLETION_TARGETS = {
     'left_word_complete_': 'word',
     'left_frame_complete_': 'syntax',
@@ -68,12 +70,30 @@ def _reporting_joins(local, scores, threshold):
         yield name, question('reporting_join', name), check
 
 
+def _paired_words(local, scores, threshold):
+    for key, check in local['checks'].items():
+        if (not key.startswith('gap_') or not check['present_decision']
+                or scores.get(key, 1) > 1 - threshold):
+            continue
+        text = target_layout(local, check)['raw_text']
+        prefix = re.match(r'^([\u4e00-\u9fff]{1,3})[，。！？、…,!?]', text)
+        prior = previous_paragraph(local, check)
+        if prefix is None or prior is None:
+            continue
+        value = dict(check, proposed_left_source=dict(
+            page_index=prior['page_index'], source_order=prior['source_order']),
+            literal_left_tail=prior['text_end'][-24:], short_current_prefix=prefix[1])
+        for kind in ('seam_predecessor', 'seam_word'):
+            name = kind + '_' + key.rsplit('_', 1)[1]
+            yield name, question(kind, name), value
+
+
 def completion_requests(state, scores, threshold):
     """Keep families separate so existing proof packets stay byte-identical."""
     if not any(key.startswith('gap_') and value <= 1 - threshold
                for key, value in scores.items()):
         return
-    for family in (_left_completions, _math_units, _reporting_joins):
+    for family in (_left_completions, _math_units, _reporting_joins, _paired_words):
         seen = set()
         for packet in local_review_requests(state):
             jobs = []
@@ -98,3 +118,14 @@ def apply_completion_proofs(values, proofs, threshold):
             key += '_' + part
         if key in values and values[key] <= 1 - threshold:
             values[key] = max(values[key], proof)
+
+
+def apply_paired_word_proofs(values, proofs, threshold):
+    """Literal word completion cannot authorize using the wrong predecessor."""
+    for name, preceding in proofs.items():
+        if not name.startswith('seam_predecessor_'):
+            continue
+        order = name.rsplit('_', 1)[1]
+        key = 'gap_' + order
+        if key in values and values[key] <= 1 - threshold:
+            values[key] = max(values[key], min(preceding, proofs['seam_word_' + order]))

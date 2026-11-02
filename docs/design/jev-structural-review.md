@@ -171,3 +171,8 @@ LLM 修复必然成功。插页后真实正文前驱、独立摘录和不完整 
 验证范围见[关闭脚注验证](../verification/jev-upstream-automatic-analysis.md)和
 [开启脚注验证](../verification/jev-footnote-analysis.md)，
 通用修复原则见[上游动态修复](upstream-dynamic-repair.md)。
+
+
+短中文词续接的补充核验把实际前驱关系与字面未完词分开判断，两项取共同成立的证据。
+词面吻合不能授权跳过真实的中间正文、图注或署名；也不能豁免同页其他错误。候选只由
+已存在且被基础审核否决的连接产生，不从更远的页面搜索匹配词尾。

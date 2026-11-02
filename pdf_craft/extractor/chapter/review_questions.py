@@ -596,6 +596,46 @@ _TEMPLATES['reporting_join'] = {'type': 'noul',
                        'independent turns/content.'}}
 
 
+_TEMPLATES['seam_predecessor'] = {'type': 'noul',
+ 'instructions': ['For this target, is proposed_left_source the actual nearest preceding '
+                  'main-reading text that the incoming join must use?',
+                  'Verify the source identity in full local_raw_evidence and '
+                  'preceding_source_index. The supplied candidate is only an algorithm proposal, '
+                  'not a correct answer. Skip genuine ancillary notes, running furniture and page '
+                  'numbers; do not skip an intervening main paragraph, caption, signature or '
+                  'retained quotation to choose an older convenient stem.',
+                  'This question asks ONLY the predecessor relation. Do not grade the word seam, '
+                  'target completeness, author meaning or other pages. If the proposed source is '
+                  'not the actual nearest main-reading predecessor, or this cannot be established, '
+                  'answer FALSE.'],
+ 'criteria': {'true': 'This proposed source is the actual nearest main-reading predecessor, not '
+                      'ancillary material or an arbitrarily older source.',
+              'false': 'That predecessor relation is not established.'}}
+
+_TEMPLATES['seam_word'] = {'type': 'noul',
+ 'instructions': ['For ONLY the two literal pieces in this check, does the short target prefix '
+                  'supply the missing end of a word begun at the immediate end of the proposed '
+                  'left source?',
+                  'literal_left_tail and short_current_prefix are unchanged original characters. '
+                  'Inspect the last unfinished stem on the left and the first characters on the '
+                  'right before their first punctuation. Chinese lexical words can span a page '
+                  'without whitespace. A later complete sentence or author comment does not undo '
+                  'this immediate word completion.',
+                  'This question is only about the literal lexical seam. Another independent '
+                  'question verifies whether the named left source is the correct predecessor; do '
+                  'not weaken this lexical answer because of uncertainty about that separate '
+                  'relationship.',
+                  'Require a genuinely unfinished word, not merely two complete words that can be '
+                  'written next to each other, a possible invented compound, topical agreement or '
+                  'an incomplete-looking target. Completed punctuation on the left, an unrelated '
+                  'full name, a signature, a new heading/item or a new spoken turn do not '
+                  'establish an unfinished stem. Do not invent missing characters.',
+                  'If these exact immediate pieces do not establish completion of one actual word, '
+                  'answer FALSE.'],
+ 'criteria': {'true': 'The exact immediate seam completes one unfinished lexical word.',
+              'false': 'Such a literal unfinished-word completion is not established.'}}
+
+
 def question(kind: str, name: str) -> dict[str, Any]:
     """Create an isolated question for one named source decision."""
     value = deepcopy(_TEMPLATES[kind])
