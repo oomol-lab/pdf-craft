@@ -90,6 +90,20 @@ class ChapterFormulaInterrupter:
                 else:
                     element.set(DISPLAY_ATTRIBUTE, display)
 
+    def release(self, root: Element) -> None:
+        """Release a settled root's projection tables in a shared stream."""
+        nodes = {id(node) for node in root.iter()}
+        identities = {formula.token_id for key, formula in self._element_to_formula.items() if key in nodes}
+        self._element_to_formula = {key: value for key, value in self._element_to_formula.items() if key not in nodes}
+        self._formula_by_id = {key: value for key, value in self._formula_by_id.items() if value.token_id not in identities}
+        for values in (self._raw_text_segments, self._block_formula_parent_stacks,
+                       self._block_formula_positions, self._block_formula_progress,
+                       self._block_formula_context_counts):
+            for key in identities:
+                values.pop(key, None)
+        if self._last_paragraph_stack and id(self._last_paragraph_stack[0]) in nodes:
+            self._last_paragraph_stack = None
+
     def source_math(self, segments: Iterable[TextSegment]) -> list[SourceMath]:
         identities = {node.get(_FORMULA_ID_KEY): node for segment in segments for node in segment.parent_stack
                       if _FORMULA_ID_KEY in node.attrib}
@@ -100,6 +114,9 @@ class ChapterFormulaInterrupter:
         self, text_segments: Iterable[TextSegment],
     ) -> Generator[TextSegment, None, None]:
         """Replace source formulas with readable temporary formula tokens."""
+        # Context never crosses independent XML roots. A stream may now
+        # project many roots using this adapter instance.
+        self._last_paragraph_stack = None
         for text_segment in text_segments:
             formula, formula_index = self._formula_in(text_segment)
             formula_id = formula.token_id if formula is not None else None

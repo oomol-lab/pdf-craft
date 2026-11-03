@@ -6,7 +6,7 @@ ready conversations; it never holds model executor capacity while gathering.
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar, copy_context
 from functools import wraps
 import inspect
@@ -24,11 +24,6 @@ from ..usage import current_usage_scope, shared_request_usage
 
 MAX_BATCH_UNITS = 64
 READY_DELAY = 0.01
-
-
-def ready_window(window: int) -> int:
-    """Bound ready semantic work independently of provider executor capacity."""
-    return max(window, MAX_BATCH_UNITS)
 
 
 _REQUEST_WINDOW: ContextVar[asyncio.Semaphore | None] = ContextVar('translation_request_window', default=None)
@@ -100,10 +95,11 @@ class _Batch:
 class RequestBatcher:
     """One translator's ready calls, isolated by operation and request settings.
 
-    A separate bounded content lookahead supplies ready work. A queue
-    holds at most 64 conversations and a 10ms readiness deadline. Oversize
-    conversations keep the established single-call path rather than truncating
-    a semantic unit. Executor concurrency remains owned by LLMRuntime.
+    The mapper supplies explicit bounded content cohorts. Their members flush
+    when ready, so file/template IO cannot arbitrarily fragment requests. Calls
+    outside a content cohort retain a short sparse-input deadline. Each batch
+    holds at most 64 conversations and the existing token budget; oversize
+    semantic units retain their single-call path. LLMRuntime owns execution.
     """
 
     def __init__(self, max_score: int):
@@ -123,7 +119,9 @@ class RequestBatcher:
         overhead = len(encoding.encode(instruction, disallowed_special=())) + 16
         scope = current_usage_scope()
         policy = current()
-        key = (policy.task_id, policy.request_headers, id(scope.collector) if scope else None,
+        from .group_requests import current_group
+        group = current_group()
+        key = (group, policy.task_id, policy.request_headers, id(scope.collector) if scope else None,
                shared, stage, tuple(sorted(options.items())))
         loop = asyncio.get_running_loop()
         call = _Call(messages, context, runtime, options, loop.create_future(), active_log(), scope, tokens, copy_context())
@@ -134,19 +132,23 @@ class RequestBatcher:
             batch = None
         if batch is None:
             batch = self.pending[key] = _Batch(overhead=overhead)
-            self.timers[key] = loop.call_later(READY_DELAY, self._launch, key)
+            if group is None:
+                self.timers[key] = loop.call_later(READY_DELAY, self._launch, key)
         batch.calls.append(call)
         if overhead + tokens >= self.budget or len(batch.calls) >= MAX_BATCH_UNITS:
             self._launch(key)
         try:
-            return await call.future
+            with group.request(lambda: self._launch(key)) if group is not None else nullcontext():
+                return await call.future
         finally:
             # A cancelled consumer cannot cancel siblings' shared request.
             # The last consumer owns and awaits transport cancellation/cleanup.
             if all(item.future.done() for item in batch.calls):
                 if self.pending.get(key) is batch:
                     self.pending.pop(key)
-                    self.timers.pop(key).cancel()
+                    timer = self.timers.pop(key, None)
+                    if timer is not None:
+                        timer.cancel()
                 if batch.task is not None and not batch.task.done():
                     batch.task.cancel()
                     await settle_tasks([batch.task])

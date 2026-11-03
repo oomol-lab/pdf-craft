@@ -279,10 +279,21 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
         async def result(value):
             results.append(value[1])
         with patch.object(XMLTranslator,'_translate_inline_segments_async',new=mappings):
-            task=asyncio.create_task(translator()._translate_elements(tasks(),window=2,on_result=result,collect_results=False))
+            from pdf_craft.transformer.structured_translation import StructuredTranslation
+            task=asyncio.create_task(translator()._translate_elements(tasks(),window=2,on_result=result,
+                collect_results=False, **StructuredTranslation().arguments()))
             try:
                 await asyncio.wait_for(last.wait(),3)
-                gc.collect()
+                # One group now admits its semantic members together. Let
+                # completed members reach the detached reorder store before
+                # checking retention; the blocked first root stays in flight.
+                async def released():
+                    while True:
+                        gc.collect()
+                        if sum(ref() is not None for ref in roots) <= 4:
+                            return
+                        await asyncio.sleep(0.01)
+                await asyncio.wait_for(released(), 2)
                 self.assertLessEqual(sum(ref() is not None for ref in roots),4)
             finally:
                 release.set()

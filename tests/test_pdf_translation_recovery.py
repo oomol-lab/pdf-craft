@@ -1,5 +1,6 @@
 """The PDF consumer must submit only accepted translations to native layout."""
 # pylint: disable=protected-access,unused-argument
+import asyncio
 from contextlib import asynccontextmanager
 import tempfile
 import unittest
@@ -15,6 +16,8 @@ from pdf_craft.common import save_xml
 from pdf_craft.error import NoUsableFillPagesError
 from pdf_craft.extractor.chapter.chapter import Chapter, Reference, encode
 from pdf_craft.pipeline.pdf import PDFPatcher
+from pdf_craft.pipeline.pdf.feed import ReplacementFeed
+from pdf_craft.runtime import IO_DOMAIN
 from tests.extraction_helpers import make_extraction
 from tests.test_paragraph_content import text, translated, translator
 from tests.test_pdf_patcher import BlankVisualBaseCompiler
@@ -36,7 +39,17 @@ class PDFTranslationRecoveryTests(unittest.IsolatedAsyncioTestCase):
         async def local_policy(checker):
             yield checker
 
+        self.compose_started = asyncio.Event()
+
         async def compose(function, *args, **kwargs):
+            self.compose_started.set()
+            # This test keeps Qt on the calling thread to inspect its mocks.
+            # Unlike the real isolated Qt domain, that thread also runs the
+            # source producer. Wait for the disk feed off-loop before entering
+            # the synchronous compositor, or a later source slot deadlocks it.
+            for value in args:
+                if isinstance(value, ReplacementFeed):
+                    await IO_DOMAIN.run(tuple, value)
             return function(*args, **kwargs)
 
         handler = Mock()
@@ -123,7 +136,14 @@ class PDFTranslationRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 source, pdf, _, _ = self.source(root, footnote=footnote)
                 target = root / 'output.pdf'
                 target.write_bytes(b'existing output')
-                with patch.object(self.patcher, '_write_erasure_overlay', side_effect=RuntimeError('fill failed')), \
+                async def delayed_missing(runtime, inline_segments, is_note=footnote, **kwargs):
+                    if not is_note and any('Fail' in part.text for segment in inline_segments for part in segment):
+                        # Guarantee the good body reaches composition before
+                        # the earlier missing slot is written to the feed.
+                        await self.compose_started.wait()
+                    return await partial(runtime, inline_segments, **kwargs)
+                with patch.object(XMLTranslator, '_translate_inline_segments_async', delayed_missing), \
+                        patch.object(self.patcher, '_write_erasure_overlay', side_effect=RuntimeError('fill failed')), \
                         self.assertRaises(NoUsableFillPagesError) as caught:
                     await AsyncPDFCraft(error_policy=True).translate_pdf(
                         pdf, source, target, translator=translator(),

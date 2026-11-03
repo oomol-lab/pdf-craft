@@ -510,11 +510,10 @@ class TerminationTests(IsolatedAsyncioTestCase):
                 source = source_fixture(root / 'source')
                 entered, finish, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
                 events, active = [], 0
-                original = NarrativeXMLTransformer.transform
                 failure = NonContinuableError('provider stopped')
-                async def transform(self, chapter, **kwargs):
+                async def request(_self, text, **_kwargs):
                     nonlocal active
-                    if chapter.flow_items and isinstance(chapter.flow_items[0], TextFlowItem) and chapter.flow_items[0].role == 'heading':
+                    if text == 'Heading':
                         active += 1
                         entered.set()
                         try:
@@ -525,12 +524,11 @@ class TerminationTests(IsolatedAsyncioTestCase):
                     elif mode == 'fatal':
                         await entered.wait()
                         raise failure
-                    return await original(self, chapter, **kwargs)
+                    return text
                 async def callback(_content):
                     await entered.wait()
                     raise ValueError('callback rejected result')
-                with patch.object(NarrativeXMLTransformer, 'transform', transform), patch.object(
-                        XMLTranslator, '_translate_text_async', identity), patch.object(XMLTranslator, '_request_and_submit_async', identity_fill):
+                with patch.object(XMLTranslator, '_translate_text_async', request), patch.object(XMLTranslator, '_request_and_submit_async', identity_fill):
                     task = asyncio.create_task(AsyncPDFCraft().translate_extraction(source, root / 'output.pcex',
                         translator(), window=3, on_footnote=callback if mode == 'callback' else None,
                         on_translation_event=events.append))

@@ -20,7 +20,7 @@ from pdf_craft.transformer.request_batch import BatchResponseError, RequestBatch
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.segment import search_inline_segments, search_text_segments
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
-from tests.test_request_batch import translator_fixture
+from tests.translation_model import translator_fixture
 from tests.test_anchored_content_translation import _repairing_translator
 from tests.test_canonical_math_allocation import source as formula_source
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
@@ -39,7 +39,13 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
         async def invoke(messages, *args, **kwargs):
             invocations.append(messages)
             if len(invocations) == 1:
-                return '[{"id":"0","text":"accepted"},{"id":"1","text":"x"},{"id":"1","text":"y"}]'
+                payload = json.loads(messages[-1].message)
+                identities = {entry['messages'][-1]['content']: entry['id'] for entry in payload}
+                return json.dumps([
+                    {'id': identities['source A'], 'text': 'accepted'},
+                    {'id': identities['source B'], 'text': 'x'},
+                    {'id': identities['source B'], 'text': 'y'},
+                ])
             return messages[-1].message
         translator._translation_runtime.__dict__['_invoke'] = invoke
         result = await self._translations(translator, ['source A', 'source B'], retry_policy=RetryPolicy(translation=1))

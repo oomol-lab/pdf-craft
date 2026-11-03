@@ -82,17 +82,24 @@ analysis/OCR 缓存。
 - `pdf_craft/llm/` 负责增强目录分析所需的可选 LLM 调用。核心转换应保持不依赖该增强能力也可使用。
 - `pdf_craft/common/` 负责可复用的文件系统、XML、资源和统计辅助逻辑。
 
-## 翻译请求打包边界
+## 翻译请求分组边界
 
-PCEX 和原生 EPUB 的首阶段翻译与 fill 共用 `transformer/request_batch.py`。
-内容/章节身份、canonical 验收单元与请求批次是三个独立边界；批次只携带显式临时 ID，
-不能改变持久化章节来迁就请求。批次收集使用独立的有界内容就绪窗口，
-默认 window=1 也能跨章节组包；window 保留请求并发上限，实际网络并发还受
-原来的共享 executor 限制。
-请求共享公共 system 指令，单元只携带私有文本/模板/历史。mapper 逐单元调度及归还结果，
-单元修复预算、采纳和来源定位保留在原链路中；成功单元不随同批失败单元重试，
-前面的已验收单元不等待后面的独立单元修复。具体预算、日志/usage 语义和离线实验入口见
-[翻译请求打包验证](../docs/verification/translation-request-batches.md)。
+PCEX 与原生 EPUB 把连续内容送入同一个 XML mapper；章节只决定归属和写回，
+不重置预算分组。PCEX 的磁盘就绪队列提供带稳定身份的正文／脚注流，
+Narrative 适配器统一投影；EPUB 的异步 XML 根同样共用既有 splitter。
+按预算拆分后，每个 canonical 单元仍独立翻译、验收和修复。
+
+mapper 使用有界来源收集窗口，再以最多 64 个语义工作组成一次调度准入，
+包括大章节，避免每个自然段先启动一套独立完整翻译流程。
+`group_requests.py` 显式跟踪同组成员的请求就绪与结束；`request_batch.py`
+按原 token/输出预算聚合首阶段和 fill，不靠文件 IO 恰好落在 10ms 内实现节省。
+有界工作容量按 `window` 分配，完整组一次准入，成员各自释放容量；operation 的
+request window 与共享 LLM executor 继续限制真实模型请求并发。源码暂停时允许有界时间内交付尾批，不预载全书。
+
+请求组不是采纳边界。PCEX 可按来源身份独立结算完整单元，正文与脚注通知仍独立；
+EPUB 保留片段顺序、CFI 与原子 owner 验收。成功单元不随兄弟单元重试。
+具体计数门禁、预算与日志语义见
+[翻译请求分组验证](../docs/verification/translation-request-batches.md)。
 
 ## 外部包边界
 
