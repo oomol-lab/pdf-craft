@@ -39,7 +39,13 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
         async def invoke(messages, *args, **kwargs):
             invocations.append(messages)
             if len(invocations) == 1:
-                return '[{"id":"0","text":"accepted"},{"id":"1","text":"x"},{"id":"1","text":"y"}]'
+                payload = json.loads(messages[-1].message)
+                identities = {entry['messages'][-1]['content']: entry['id'] for entry in payload}
+                return json.dumps([
+                    {'id': identities['source A'], 'text': 'accepted'},
+                    {'id': identities['source B'], 'text': 'x'},
+                    {'id': identities['source B'], 'text': 'y'},
+                ])
             return messages[-1].message
         translator._translation_runtime.__dict__['_invoke'] = invoke
         result = await self._translations(translator, ['source A', 'source B'], retry_policy=RetryPolicy(translation=1))
