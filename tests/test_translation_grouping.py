@@ -10,6 +10,7 @@ from tests.test_epub_optional_cfi import book
 from pdf_craft.document.stream_view import content_view
 from pdf_craft._policy import policy_operation
 from xml.etree.ElementTree import fromstring, tostring
+from zipfile import ZipFile
 
 from pdf_craft import AsyncPDFCraft, SubmitKind
 from pdf_craft.common import save_xml
@@ -61,6 +62,8 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
                         '<html xmlns="http://www.w3.org/1999/xhtml"><body>' + body + '</body></html>'))
                 book(root / 'source.epub', documents)
                 translator, model = translator_fixture(max_group_score=2600)
+                answer = model.answer
+                model.answer = lambda messages, source_answer=answer: source_answer(messages).replace('Paragraph', 'Translated')
                 received = []
                 async def invoke(_runtime, messages, *args, provider=model, **kwargs):
                     return await provider.invoke(messages, *args, **kwargs)
@@ -70,8 +73,15 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
                         max_group_tokens=2600, submit=SubmitKind.REPLACE, executor=translator._translation_runtime.executor, on_body=received.append)
                 self.assertLessEqual(len(model.wire_calls), 6, [len(batch) for batch in model.calls])
                 self.assertTrue(any(len(batch) > 4 for batch in model.calls))
-                self.assertEqual([value.translated for value in received], [f'Paragraph {i}.' for i in range(24)])
+                self.assertEqual([value.original for value in received], [f'Paragraph {i}.' for i in range(24)])
+                self.assertEqual([value.translated for value in received], [f'Translated {i}.' for i in range(24)])
                 self.assertTrue(all(value.epubcfi is not None for value in received))
+                with ZipFile(root / 'out.epub') as archive:
+                    for start in range(0, 24, width):
+                        document = fromstring(archive.read(f'EPUB/c{start}.xhtml'))
+                        paragraphs = document.findall('.//{http://www.w3.org/1999/xhtml}p')
+                        self.assertEqual([''.join(node.itertext()) for node in paragraphs],
+                                         [f'Translated {i}.' for i in range(start, start + width)])
 
     @skipUnless(Path('/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/pdf-craft-output/issue-932-1bc9aef5-investigation/source.pcex').exists(),
                 'Private production fixture is available only in the investigation workspace')
