@@ -31,7 +31,7 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
                              root / f'source/chapters/chapter_{start + 1}.xml')
                 translator, model = translator_fixture(max_group_score=2600)
                 answer = model.answer
-                model.answer = lambda messages: answer(messages).replace('Paragraph', 'Translated')
+                model.answer = lambda messages, source_answer=answer: source_answer(messages).replace('Paragraph', 'Translated')
                 result = await asyncio.wait_for(AsyncPDFCraft().translate_extraction(
                     source, root / 'translated.pcex', translator, target_language='English', with_anchored=False), 20)
                 self.assertLessEqual(len(model.wire_calls), 4, [len(batch) for batch in model.calls])
@@ -81,7 +81,6 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
         translator, model = translator_fixture(max_group_score=2600, encoding='o200k_base')
         original_answer = model.answer
         def answer(messages):
-            from xml.etree.ElementTree import tostring
             value = original_answer(messages)
             if value.startswith('<xml') and '<formula_context' in value:
                 element = fromstring(value)
