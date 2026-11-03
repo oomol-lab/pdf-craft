@@ -24,6 +24,7 @@ from pdf_craft.transformer.package import AnchoredContentExtractionTransformer
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
 from tests.test_anchored_content_translation import _repairing_translator, _ResponseRuntime
+from tests.translation_model import translator_fixture
 
 
 def image(parts):
@@ -57,16 +58,27 @@ def offline_translator():
 
 class StructuredTranslationTests(IsolatedAsyncioTestCase):
     async def test_non_narrative_units_have_independent_canonical_translations(self):
-        translator, runtime = _repairing_translator([
-            json.dumps([{'id': '1', 'text': '<xml><unit id="1">second</unit></xml>'},
-                        {'id': '0', 'text': '<xml><unit id="1">first</unit></xml>'}]),
-        ])
-        translator._translate_text_async = AsyncMock(side_effect=['first', 'second'])
-        protocol = StructuredTranslation(owner=lambda segment: segment.parent)
-        root = fromstring('<document><unit>one</unit><unit>two</unit></document>')
-        target, _ = await protocol.translate(translator, TranslationTask(root, SubmitKind.REPLACE, None))
-        self.assertEqual([node.text for node in target], ['first', 'second'])
-        self.assertEqual(runtime.context_value.calls, 1)
+        canonical = {'one': 'first', 'two': 'second'}
+        for sources in (('one', 'two'), ('two', 'one')):
+            with self.subTest(sources=sources):
+                translator, model = translator_fixture()
+                translator._translate_text_async = AsyncMock(side_effect=lambda text, **_kwargs: canonical[text])
+                template_answer = model.answer
+
+                def answer(messages, source_answer=template_answer):
+                    candidate = fromstring(source_answer(messages))
+                    unit = candidate.find('unit')
+                    assert unit is not None
+                    unit.text = messages[-1]['content'].split('Translated text:\n', 1)[1].strip()
+                    return tostring(candidate, encoding='unicode')
+
+                # The provider echoes the actual envelope IDs in reverse response order.
+                model.answer = answer
+                protocol = StructuredTranslation(owner=lambda segment: segment.parent)
+                root = fromstring('<document>' + ''.join(f'<unit>{text}</unit>' for text in sources) + '</document>')
+                target, _ = await protocol.translate(translator, TranslationTask(root, SubmitKind.REPLACE, None))
+                self.assertEqual([node.text for node in target], [canonical[text] for text in sources])
+                self.assertEqual(len(model.wire_calls), 1)
 
     async def test_asset_uses_canonical_math_references_and_exact_text_acceptance(self):
         translator, runtime = _repairing_translator([
