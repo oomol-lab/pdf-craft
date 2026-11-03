@@ -193,6 +193,8 @@ class XMLTranslator:
         on_mapping: Callable[[tuple[InlineSegment, list[TextSegment]]], object] | None = None,
         on_result: Callable[[tuple[Element, T]], object] | None = None,
         collect_results: bool = True,
+        on_task_result=None,
+        ordered_roots=True,
         on_task_mapping=None,
         on_before_submit: Callable[[tuple[Element, list[InlineSegmentMapping], T]], object] | None = None,
         _task_store=None,
@@ -214,6 +216,7 @@ class XMLTranslator:
                     total_words=total_words,
                     window=window, on_mapping=on_mapping, on_result=on_result,
                     collect_results=collect_results, on_task_mapping=on_task_mapping,
+                    on_task_result=on_task_result, ordered_roots=ordered_roots,
                     on_before_submit=on_before_submit,
                     _task_store=TaskStore(directory) if isinstance(tasks, AsyncIterable) else None,
                     unit_counts=unit_counts, _progress_path=directory,
@@ -374,10 +377,11 @@ class XMLTranslator:
                         if task.word_count is not None else count_xml_words(task.element)))
                     await unit.finish(UnitOutcome.SKIPPED)
             strip_source(element)
+            await invoke_callback(on_task_result, (element, task))
 
         mapping_stream = stream_mapper.map_stream_async(
             elements=generate_async_elements() if async_tasks is not None else generate_elements(),
-            callbacks=callbacks, window=window, track_progress=progress is not None, ownership=translation_protocol,
+            callbacks=callbacks, window=window, track_progress=progress is not None, ownership=translation_protocol, ordered_roots=ordered_roots,
             on_mapping=mapping_callback if on_mapping is not None or on_task_mapping is not None else None,
             map=translate_round, on_empty=empty_task,
         )
@@ -408,6 +412,7 @@ class XMLTranslator:
                     if scope_item is None and progress is not None and unit not in progress.headers.values():
                         await unit.finish()
                 strip_source(translated_element)
+                await invoke_callback(on_task_result, (translated_element, task))
                 result = (translated_element, task.payload)
                 await invoke_callback(on_result, result)
                 if collect_results:

@@ -1,308 +1,30 @@
-"""Physical-request regression tests: no HTTP, OCR or model calls."""
+"""Translation transport integrity, separate from content grouping regressions."""
 # pylint: disable=protected-access
 import asyncio
 import json
-import re
-from contextlib import contextmanager
 from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import IsolatedAsyncioTestCase
 from xml.etree.ElementTree import fromstring
 
-from pdf_craft import AsyncPDFCraft, RetryPolicy
-from pdf_craft.common import save_xml
-from pdf_craft.extractor.chapter.chapter import encode
-from tests.test_pdf_craft_extraction import make_extraction
+from pdf_craft import RetryPolicy
 from pdf_craft._policy import policy_operation
 from pdf_craft.concurrency import ConcurrentExecutor, FixedCapacity
 from pdf_craft.extractor.chapter.chapter import Chapter, SourceTextFragment, TextFlowItem, InlineExpression, SourceAsset, Reference, search_references_in_chapter
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
-from pdf_craft.llm import LLM, Message, MessageRole
+from pdf_craft.llm import Message, MessageRole
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer.request_batch import RequestBatcher, MAX_BATCH_UNITS, request_window
 from pdf_craft.transformer.structured_translation import StructuredTranslation
-from pdf_craft.transformer.xml_translator.xml_translator import XMLTranslator, TranslationTask, SubmitKind
+from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask, SubmitKind
 from pdf_craft.usage import UsageCollector, UsageScope, shared_request_usage, usage_context, request_attempt
 
 
-class EchoModel:
-    """Exercise real runtime, cache and fill validation, replacing only HTTP."""
-    def __init__(self):
-        self.calls = []
-        self.wire_calls = []
-        self.active = self.peak = 0
-
-    async def invoke(self, messages, *_args, **_kwargs):
-        self.wire_calls.append(messages)
-        self.active += 1
-        self.peak = max(self.peak, self.active)
-        try:
-            await asyncio.sleep(0)
-            if messages[0].message.startswith('Execute each independent conversation'):
-                units = json.loads(messages[-1].message)
-                for unit in units:
-                    if unit['messages'][0]['role'] != 'system':
-                        unit['messages'].insert(0, {'role': 'system', 'content': messages[0].message})
-                self.calls.append([unit['messages'] for unit in units])
-                return json.dumps([{'id': unit['id'], 'text': self.answer(unit['messages'])}
-                                   for unit in reversed(units)])
-            units = [[{'role': message.role.name.lower(), 'content': message.message} for message in messages]]
-            self.calls.append(units)
-            return self.answer(units[0])
-        finally:
-            self.active -= 1
-
-    @staticmethod
-    def answer(messages):
-        user = messages[1 if len(messages) > 1 else 0]['content']
-        template = re.search(r'XML template:\n```XML\n(.*?)\n```', user, re.S)
-        return template[1] if template else user.split('Text to translate:\n', 1)[-1]
-
-
-class ReadyBatcher(RequestBatcher):
-    """Flush the fixed experiment only after all six inputs are actually ready.
-
-    The real 10ms deadline is tested separately. Source IO speed must not
-    decide the expected physical request count in a packing experiment.
-    """
-    def __init__(self, units):
-        super().__init__(10000)
-        self.units = units
-
-    def _launch(self, key):
-        batch = self.pending.get(key)
-        if batch is None:
-            return
-        if len(batch.calls) >= self.units:
-            super()._launch(key)
-        else:
-            self.timers[key] = asyncio.get_running_loop().call_later(0.001, self._launch, key)
-
-
-def translator_fixture(*, ready_units=None, max_group_score=10000):
-    model = EchoModel()
-    config = LLM('test', 'https://example.invalid', 'offline', 'cl100k_base', retry_times=0)
-    translator = XMLTranslator(config, config, 'English', None, 10000, max_group_score,
-                               executor=ConcurrentExecutor(FixedCapacity(2)))
-    if ready_units is not None:
-        translator._requests = ReadyBatcher(ready_units)
-    translator._translation_runtime.__dict__['_invoke'] = model.invoke
-    translator._fill_runtime.__dict__['_invoke'] = model.invoke
-    return translator, model
-
-
-@contextmanager
-def simultaneous_calls(translator, count):
-    """Control input readiness, leaving production packing/deadlines unchanged.
-
-    A default-window regression deadlocks here if admission still waits for
-    the preceding semantic unit to complete before reading its successor.
-    """
-    request = translator._requests.request
-    arrivals = {}
-    gates = {}
-    async def ready(context, messages, *, stage, **options):
-        if options.get('retry_index', 0) == 0:
-            arrivals[stage] = arrivals.get(stage, 0) + 1
-            gate = gates.setdefault(stage, asyncio.Event())
-            if arrivals[stage] == count:
-                gate.set()
-            await gate.wait()
-        return await request(context, messages, stage=stage, **options)
-    with patch.object(translator._requests, 'request', ready):
-        yield
-
-
-def paragraph(index):
-    return TextFlowItem('body', 0, [SourceTextFragment(index, index, (0, 0, 100, 30), [f'Paragraph {index}.'])])
-
+from tests.translation_model import translator_fixture, paragraph
 
 class RequestBatchTests(IsolatedAsyncioTestCase):
-    async def test_pcex_layout_does_not_multiply_physical_requests(self):
-        reports = []
-        for fragmented in (False, True):
-            translator, model = translator_fixture(ready_units=6)
-            chapters = ([Chapter(i, 1, [paragraph(i)]) for i in range(6)] if fragmented else
-                        [Chapter(0, 1, [paragraph(i) for i in range(6)])])
-            results = await asyncio.wait_for(NarrativeXMLTransformer(translator, window=2).transform_many(
-                [(chapter, str(index)) for index, chapter in enumerate(chapters)]), 30)
-            actual = [fragment.content for chapter in results for flow in chapter.flow_items if isinstance(flow, TextFlowItem)
-                      for fragment in flow.children if isinstance(fragment, SourceTextFragment)]
-            self.assertEqual(actual, [[f'Paragraph {i}.'] for i in range(6)])
-            counts = {'translation': 0, 'fill': 0}
-            for batch in model.calls:
-                counts['fill' if 'XML template:' in batch[0][1]['content'] else 'translation'] += 1
-            self.assertEqual(counts, {'translation': 1, 'fill': 1})
-            self.assertLessEqual(model.peak, 2)
-            reports.append(counts)
-        print('TRANSLATION_BATCH_COUNTS', json.dumps({
-            'scope': 'offline HTTP substitute; controlled input readiness; real runtime and canonical fill',
-            'one_chapter': reports[0], 'six_chapters': reports[1], 'paragraphs': 6}))
-        self.assertEqual(reports[0], reports[1])
-
-    @policy_operation
-    async def test_async_epub_roots_keep_own_payload_and_node_mapping(self):
-        translator, model = translator_fixture(max_group_score=2600)
-        async def roots():
-            for index in range(6):
-                await asyncio.sleep(0.02)  # Deliberately slower than the production flush deadline.
-                yield TranslationTask(fromstring(f'<html><body><p>Paragraph {index}.</p></body></html>'),
-                                      SubmitKind.REPLACE, index)
-        delivered = []
-        protocol = StructuredTranslation()
-        with simultaneous_calls(translator, 6):
-            results = await asyncio.wait_for(translator._translate_elements(roots(), **protocol.arguments(),
-                                                        on_result=lambda value: delivered.append(value[1])), 5)
-        self.assertEqual(delivered, list(range(6)))
-        self.assertEqual([(index, root.findtext('body/p')) for root, index in results],
-                         [(index, f'Paragraph {index}.') for index in range(6)])
-        self.assertEqual(len(model.calls), 2)
-
-    async def test_real_pcex_schedule_batches_small_chapters_and_persists_coverage(self):
-        with TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = make_extraction(root / 'source', page_pixel_sizes={i: (100, 100) for i in range(1, 7)})
-            for path in (root / 'source/chapters').glob('*.xml'):
-                path.unlink()
-            for index in range(6):
-                save_xml(encode(Chapter(index + 1, 1, [paragraph(index + 1)])),
-                         root / f'source/chapters/chapter_{index + 1}.xml')
-            translator, model = translator_fixture(max_group_score=2600)
-            model.answer = lambda messages: EchoModel.answer(messages).replace("Paragraph", "Translated")
-            with simultaneous_calls(translator, 6):
-                result = await asyncio.wait_for(AsyncPDFCraft().translate_extraction(
-                    source, root / 'translated.pcex', translator,
-                    target_language='English', with_anchored=False), 5)
-            with result._materialize() as paths:
-                assert paths.translations is not None
-                index = json.loads((paths.translations / 'index.json').read_text())
-                self.assertTrue(index)
-                coverage_files = list(paths.translations.glob('*/coverage.xml'))
-                self.assertEqual(len(coverage_files), 1)
-                entries = fromstring(coverage_files[0].read_text()).findall('./narrative/paragraph')
-                self.assertEqual(len(entries), 6)
-                self.assertTrue(all(entry.get('state') == 'translated' for entry in entries))
-                text = ''.join(path.read_text() for path in paths.translations.glob('*/chapters/*.xml'))
-                for number in range(1, 7):
-                    self.assertIn(f'Translated {number}.', text)
-                self.assertNotIn('Paragraph', text)
-            self.assertEqual(len(model.calls), 2)
-            print('PCEX_SCHEDULE_BATCH_COUNTS', json.dumps({
-                'physical_requests': len(model.calls), 'paragraphs': 6, 'scope': 'offline transport; controlled input readiness',
-                'translation': sum('XML template:' not in batch[0][1]['content'] for batch in model.calls),
-                'fill': sum('XML template:' in batch[0][1]['content'] for batch in model.calls)}))
-
-    @policy_operation
-    async def test_dense_epub_and_fragmented_roots_share_instructions_and_requests(self):
-        for fragmented in (False, True):
-            translator, model = translator_fixture()
-            model.answer = lambda messages: EchoModel.answer(messages).replace('Paragraph', 'Translated')
-            async def roots(fragmented=fragmented):
-                for index, indexes in enumerate(([i] for i in range(48)) if fragmented else [range(48)]):
-                    yield TranslationTask(fromstring('<html><body>' + ''.join(
-                        f'<p>Paragraph {i}.</p>' for i in indexes) + '</body></html>'), SubmitKind.REPLACE, index)
-            with simultaneous_calls(translator, 48):
-                results = await asyncio.wait_for(translator._translate_elements(
-                    roots(), **StructuredTranslation().arguments()), 5)
-            self.assertEqual([p.text for root, _ in results for p in root.findall('body/p')],
-                             [f'Translated {i}.' for i in range(48)])
-            self.assertEqual(len(model.calls), 2)  # Original dense EPUB also used 1 + 1.
-            self.assertEqual([len(batch) for batch in model.calls], [48, 48])
-            for messages in model.wire_calls:
-                self.assertEqual(len(messages), 2)
-                units = json.loads(messages[1].message)
-                self.assertTrue(all(all(m['role'] != 'system' for m in u['messages']) for u in units))
-            fill = model.wire_calls[1]
-            self.assertIn('Canonical visible-text constraint', fill[0].message)
-            self.assertNotIn('Canonical visible-text constraint', fill[1].message)
-
-    @policy_operation
-    async def test_accepted_paragraph_delivers_before_later_paragraph_finishes_repair(self):
-        translator, model = translator_fixture()
-        original = model.invoke
-        repairing, release, delivered = asyncio.Event(), asyncio.Event(), asyncio.Event()
-        fills = 0
-        async def invoke(messages, *args, **kwargs):
-            nonlocal fills
-            filling = any('XML template:' in message.message for message in messages)
-            if filling:
-                fills += 1
-                if fills == 2:
-                    repairing.set()
-                    await release.wait()
-            response = await original(messages, *args, **kwargs)
-            if filling and fills == 1:
-                # Accept the first paragraph; only the later paragraph repairs.
-                items = json.loads(response)
-                for item in items:
-                    item['text'] = item['text'].replace('Paragraph 1.', 'wrong')
-                response = json.dumps(items)
-            return response
-        translator._translation_runtime.__dict__['_invoke'] = invoke
-        translator._fill_runtime.__dict__['_invoke'] = invoke
-        async def roots():
-            yield TranslationTask(fromstring(
-                '<html><body><p>Paragraph 0.</p><p>Paragraph 1.</p></body></html>'), SubmitKind.REPLACE, 0)
-        values = []
-        def notify(mapping):
-            values.append(''.join(text.text for text in mapping[1]))
-            delivered.set()
-        with simultaneous_calls(translator, 2):
-            task = asyncio.create_task(translator._translate_elements(
-                roots(), **StructuredTranslation().arguments(), on_mapping=notify))
-            try:
-                await asyncio.wait_for(repairing.wait(), 5)
-                await asyncio.wait_for(delivered.wait(), 2)
-                self.assertEqual(values, ['Paragraph 0.'])
-                self.assertFalse(task.done())
-            finally:
-                release.set()
-                await asyncio.wait_for(task, 5)
-        self.assertEqual(values, ['Paragraph 0.', 'Paragraph 1.'])
-
-    async def test_partial_fill_retries_only_rejected_unit(self):
-        translator, model = translator_fixture()
-        original = model.answer
-        rejected = False
-        def answer(messages):
-            nonlocal rejected
-            value = original(messages)
-            if 'XML template:' in messages[1]['content'] and 'Paragraph 1.' in value and not rejected:
-                rejected = True
-                return value.replace('Paragraph 1.', 'wrong')
-            return value
-        model.answer = answer
-        results = await NarrativeXMLTransformer(translator).transform_many([
-            (Chapter(index, 1, [paragraph(index)]), index) for index in range(2)])
-        self.assertEqual(len(results), 2)
-        fills = [batch for batch in model.calls if 'XML template:' in batch[0][1]['content']]
-        self.assertEqual([len(batch) for batch in fills], [2, 1])
-        self.assertIn('Paragraph 1.', fills[1][0][1]['content'])
-        self.assertNotIn('Paragraph 0.', fills[1][0][1]['content'])
-
-    @policy_operation
-    async def test_short_batch_delivers_while_input_is_waiting(self):
-        translator, _ = translator_fixture()
-        delivered, release = asyncio.Event(), asyncio.Event()
-        async def roots():
-            yield TranslationTask(fromstring('<html><body><p>First.</p></body></html>'),
-                                  SubmitKind.REPLACE, 0)
-            await release.wait()
-            yield TranslationTask(fromstring('<html><body><p>Last.</p></body></html>'),
-                                  SubmitKind.REPLACE, 1)
-        protocol = StructuredTranslation()
-        task = asyncio.create_task(translator._translate_elements(
-            roots(), **protocol.arguments(), window=2,
-            on_mapping=lambda _value: delivered.set()))
-        try:
-            await asyncio.wait_for(delivered.wait(), 2)
-            self.assertFalse(release.is_set())
-        finally:
-            release.set()
-            await task
-
     @policy_operation
     async def test_unit_and_token_limits_split_ready_calls_without_executor_deadlock(self):
         translator, model = translator_fixture()
@@ -342,9 +64,8 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
                 for index in range(24):
                     yield TranslationTask(fromstring(f'<html><body><p>Paragraph {index}.</p></body></html>'),
                                           SubmitKind.REPLACE, index)
-            with simultaneous_calls(translator, 24):
-                results = await asyncio.wait_for(translator._translate_elements(
-                    roots(), **StructuredTranslation().arguments(), window=window), 5)
+            results = await asyncio.wait_for(translator._translate_elements(
+                roots(), **StructuredTranslation().arguments(), window=window), 5)
             self.assertEqual(len(results), 24)
             self.assertGreater(len(model.calls), 2)
             self.assertEqual(peak, window)

@@ -3,7 +3,7 @@ from collections.abc import AsyncIterable, AsyncGenerator, Awaitable, Callable, 
 from contextlib import aclosing
 from collections import deque
 from dataclasses import dataclass
-from itertools import chain
+from itertools import chain, islice
 from typing import TypeVar
 from xml.etree.ElementTree import Element
 
@@ -12,14 +12,20 @@ from tiktoken import Encoding
 
 from pdf_craft.transformer.xml_translator.segment import InlineSegment, TextSegment, search_inline_segments, search_text_segments
 from pdf_craft.runtime import invoke_callback
-from ...request_batch import ready_window
+from ...request_batch import MAX_BATCH_UNITS
+from ...group_requests import GroupRequests, current_group
+import asyncio
+import time
+from contextlib import nullcontext
 from .callbacks import Callbacks
-from .concurrency import run_async_parameters, run_concurrency_async
+from .concurrency import run_async_parameters
 from .source_store import source_identity, rebind, NODE_KEY, ROOT_KEY
 from .score import ScoreSegment, expand_to_score_segments, truncate_score_segment
 
 _PAGE_INCISION = 0
 _BLOCK_INCISION = 1
+_SOURCE_IDLE_TIMEOUT = 0.2
+_SOURCE_READY_TIMEOUT = 1.0
 _T = TypeVar("_T")
 
 _ResourcePayload = tuple[InlineSegment, list[ScoreSegment]]
@@ -42,6 +48,7 @@ class _Work:
     """An independently accepted unit, with private optional context slots."""
     segments: list[InlineSegment]
     primary: list[bool]
+    group: GroupRequests | None = None
 
 
 class XMLStreamMapper:
@@ -58,11 +65,18 @@ class XMLStreamMapper:
         on_mapping: Callable[[tuple[InlineSegment, list[TextSegment]]], object] | None = None,
         track_progress: bool = False,
         on_empty: Callable[[Element], object] | None = None,
-        *, ownership=None,
+        *, ownership=None, ordered_roots=True,
     ) -> AsyncGenerator[tuple[Element, list[InlineSegmentMapping]], None]:
         current_element: Element | None = None
         mapping_buffer: list[InlineSegmentMapping] = []
         notifications = deque()
+        root_states = {}
+        expected = {}
+        completed = {}
+
+        def expanded(root, count):
+            if not ordered_roots:
+                expected[source_identity(root)] = count
 
         def rejected(root):
             return {id(child) for node in root.iter() if node.get('__pdf_craft_missing') == '1'
@@ -94,47 +108,70 @@ class XMLStreamMapper:
             # In particular a later paragraph's repair must not hold an earlier
             # accepted paragraph behind a chapter/group completion barrier.
             groups = ownership.groups(segments) if ownership is not None else [segments]
+            groups = [unit for unit in groups if any(id(segment) in body_ids for segment in unit)]
             for unit in groups:
                 primary = [id(segment) in body_ids for segment in unit]
                 if any(primary):
                     yield _Work(unit, primary)
 
+        def batch_works(groups):
+            # Splitter and root expansion stay lazy, including one enormous
+            # chapter. Only this bounded chunk is materialized for admission.
+            chunk = []
+            def seal():
+                members = [work for work in chunk if isinstance(work, _Work)]
+                cohort = GroupRequests(len(members)) if current_group() is None else None
+                for work in members:
+                    work.group = cohort
+                return chunk
+            for group in groups:
+                for work in units(group):
+                    chunk.append(work)
+                    if len(chunk) == MAX_BATCH_UNITS:
+                        yield seal()
+                        chunk = []
+            if chunk:
+                yield seal()
+
         async def execute(work):
             if isinstance(work, _EmptyElement):
                 await invoke_callback(on_empty, work.root)
                 return ()
-            mappings = await map(work.segments)
+            with work.group.member() if work.group is not None else nullcontext():
+                mappings = await map(work.segments)
             return [(origin, target) for origin, target, primary in
                     zip(work.segments, mappings, work.primary, strict=True) if primary]
 
-        capacity = ready_window(window) if ownership is not None else window
+        # All members of a bounded group must be admitted together so its
+        # readiness is explicit. Independent results still leave in source
+        # order and accepted siblings never wait for a later repair.
+        capacity = window * MAX_BATCH_UNITS if ownership is not None else window
         if isinstance(elements, AsyncIterable):
             async def work_items():
-                try:
-                    async for element in elements:
-                        for group in self._split_into_serial_groups(
-                            (element,), callbacks, on_mapping is not None, track_progress, on_empty is not None, ownership,
-                        ):
-                            for work in units(group):
-                                yield work
-                finally:
-                    close = getattr(elements, "aclose", None)
-                    if close is not None:
-                        await close()
-            results = run_async_parameters(work_items(), execute, capacity, preserve_sources=False)
+                async with aclosing(self._async_groups(
+                    elements, callbacks, on_mapping is not None, track_progress,
+                    on_empty is not None, ownership, expanded,
+                )) as groups:
+                    async for group_batch in groups:
+                        for works in batch_works(group_batch):
+                            yield works
+            results = run_async_parameters(work_items(), execute, capacity, preserve_sources=False, expand=lambda works: works, ordered=ordered_roots)
         else:
-            work_items_sync = (work for group in self._split_into_serial_groups(
-                elements, callbacks, on_mapping is not None, track_progress, on_empty is not None, ownership,
-            ) for work in units(group))
-            results = run_concurrency_async(work_items_sync, execute, capacity)
+            work_items_sync = (works for group in self._split_into_serial_groups(
+                elements, callbacks, on_mapping is not None, track_progress, on_empty is not None, ownership, expanded,
+            ) for works in batch_works([group]))
+            results = run_async_parameters(work_items_sync, execute, capacity, expand=lambda works: works)
         async with aclosing(results):
             async for mapping_pairs in results:
                 for origin, target in mapping_pairs:
                     origin_element = origin.head.root
+                    if not ordered_roots:
+                        key = source_identity(origin_element)
+                        current_element, mapping_buffer = root_states.setdefault(key, (origin_element, []))
                     if current_element is None:
                         current_element = origin_element
 
-                    if source_identity(current_element) != source_identity(origin_element):
+                    if ordered_roots and source_identity(current_element) != source_identity(origin_element):
                         assert current_element is not None
                         yield current_element, accepted(current_element, mapping_buffer)
                         current_element = origin_element
@@ -166,26 +203,97 @@ class XMLStreamMapper:
                             mapping_buffer.append((block_element, text_segments))
                     if on_mapping is not None:
                         await notify_ready(current_element, origin._notification_index)
+                    if not ordered_roots:
+                        key = source_identity(origin_element)
+                        completed[key] = completed.get(key, 0) + 1
+                        if completed[key] == expected.get(key):
+                            completed.pop(key)
+                            expected.pop(key)
+                            root_states.pop(key)
+                            assert current_element is not None
+                            yield current_element, accepted(current_element, mapping_buffer)
+                            current_element = None
+                            mapping_buffer = []
 
-        if current_element is not None:
+
+        if ordered_roots and current_element is not None:
             yield current_element, accepted(current_element, mapping_buffer)
+
+    async def _async_groups(self, elements, callbacks, track_origins, track_progress, include_empty, ownership, on_expanded):
+        """Feed the same budget splitter across roots with bounded lookahead.
+
+        A deadline bounds first delivery when input pauses; it is a source
+        collection bound, not a race between independent model calls. Keep an
+        outstanding read alive across a short tail flush and close it on exit.
+        """
+        iterator = aiter(elements)
+        incoming = None
+        exhausted = False
+        try:
+            while not exhausted:
+                roots = deque()
+                deadline = None
+                score = 0
+                while len(roots) < MAX_BATCH_UNITS:
+                    if incoming is None:
+                        incoming = asyncio.ensure_future(anext(iterator))
+                    if deadline is not None:
+                        done, _ = await asyncio.wait([incoming], timeout=min(_SOURCE_IDLE_TIMEOUT, max(0, deadline - time.monotonic())))
+                        if not done:
+                            break
+                    try:
+                        root = await incoming
+                    except StopAsyncIteration:
+                        exhausted = True
+                        incoming = None
+                        break
+                    incoming = None
+                    roots.append(root)
+                    if deadline is None:
+                        deadline = time.monotonic() + _SOURCE_READY_TIMEOUT
+                    # Bound DOM lookahead by the existing score as well as
+                    # root count. Projection/tokenization happens once below.
+                    score += len(self._encoding.encode(''.join(root.itertext()), disallowed_special=()))
+                    if score >= self._max_group_score:
+                        break
+                def consume_roots():
+                    while roots:
+                        yield roots.popleft()
+                yield self._split_into_serial_groups(
+                    consume_roots(), callbacks, track_origins, track_progress, include_empty, ownership, on_expanded,
+                )
+        finally:
+            if incoming is not None:
+                incoming.cancel()
+                from pdf_craft.concurrency import settle_tasks
+                await settle_tasks([incoming])
+            close = getattr(iterator, 'aclose', None)
+            if close is not None:
+                await close()
 
     def _split_into_serial_groups(self, elements: Iterable[Element], callbacks: Callbacks,
                                   track_origins: bool = False, track_progress: bool = False,
-                                  include_empty: bool = False, ownership=None):
+                                  include_empty: bool = False, ownership=None, on_expanded=None):
         def generate():
             for element in elements:
-                resources = self._expand_to_resources(element, callbacks, track_origins, track_progress, ownership)
+                resources = self._expand_to_resources(element, callbacks, track_origins, track_progress, ownership, on_expanded)
                 first = next(resources, None)
                 if first is None:
                     if include_empty:
                         yield _EmptyElement(element)
                     continue
-                yield from split(
-                    max_segment_count=self._max_group_score,
-                    border_incision=_PAGE_INCISION,
-                    resources=chain((first,), resources),
-                )
+                while first is not None:
+                    # resource_segmentation collects its input before grouping.
+                    # Bound that collection even for one enormous XHTML root;
+                    # the existing merger below joins the chunk's short tail
+                    # with its successor using the unchanged score budget.
+                    part = list(islice(chain((first,), resources), MAX_BATCH_UNITS))
+                    yield from split(
+                        max_segment_count=self._max_group_score,
+                        border_incision=_PAGE_INCISION,
+                        resources=iter(part),
+                    )
+                    first = next(resources, None)
 
         group = None
         sum_count = 0
@@ -201,7 +309,9 @@ class XMLStreamMapper:
                 sum_count = group.head_remain_count + next_sum_body_count
                 continue
             next_sum_count = sum_count + next_sum_body_count
-            if next_sum_count + next_group.tail_remain_count > self._max_group_score:
+            if (next_sum_count + next_group.tail_remain_count > self._max_group_score
+                    or len(list(self._expand_inline_segments(group.body))) +
+                    len(list(self._expand_inline_segments(next_group.body))) > MAX_BATCH_UNITS):
                 yield group
                 group = next_group
                 sum_count = group.head_remain_count + next_sum_body_count
@@ -233,7 +343,7 @@ class XMLStreamMapper:
             [r.payload[0] for r in tail],
         )
 
-    def _expand_to_resources(self, element: Element, callbacks: Callbacks, track_origins: bool = False, track_progress: bool = False, ownership=None):
+    def _expand_to_resources(self, element: Element, callbacks: Callbacks, track_origins: bool = False, track_progress: bool = False, ownership=None, on_expanded=None):
         def expand(element: Element):
             # Weights belong to original blocks, before formula/context transport
             # projection. Never count temporary tokens or prompt context.
@@ -281,6 +391,7 @@ class XMLStreamMapper:
         else:
             inline_segment_generator = expand(element)
         start_incision = _PAGE_INCISION
+        count = 1
         inline_segment = next(inline_segment_generator, None)
         if inline_segment is None:
             return
@@ -289,6 +400,7 @@ class XMLStreamMapper:
             next_inline_segment = next(inline_segment_generator, None)
             if next_inline_segment is None:
                 break
+            count += 1
 
             if next_inline_segment.head.root is inline_segment.tail.root:
                 end_incision = _BLOCK_INCISION
@@ -316,6 +428,8 @@ class XMLStreamMapper:
             start_incision=start_incision,
             end_incision=_PAGE_INCISION,
         )
+        if on_expanded is not None:
+            on_expanded(element, count)
 
     def _transform_to_resource(
         self,

@@ -73,12 +73,15 @@ async def run_concurrency_async(
 
 
 @fatal_error_boundary
-async def run_async_parameters(parameters, execute, concurrency, *, preserve_sources=True):
+async def run_async_parameters(parameters, execute, concurrency, *, preserve_sources=True, expand=None, ordered=True):
     """Slow ordered output never prevents admission to an idle execution slot.
 
     Completed content is pickled and loaded at its input-order position.
     Legacy callers can retain original node identities; detached async XML
     adapters disable that retention and recover source contexts from disk.
+    ``expand`` admits a bounded group atomically, with independent completion;
+    admission may exceed capacity by at most one group's size minus one. A
+    remaining member's repair never reserves an entire group's capacity.
     """
     if concurrency < 1:
         raise ValueError("concurrency must be at least 1")
@@ -92,6 +95,16 @@ async def run_async_parameters(parameters, execute, concurrency, *, preserve_sou
 
         async def produce():
             pending = {}
+
+            def admit(parameter):
+                nonlocal next_input
+                members = list(expand(parameter)) if expand is not None else [parameter]
+                for member in members:
+                    task = asyncio.create_task(execute(member))
+                    pending[task] = (next_input, _source_elements(member) if preserve_sources else {})
+                    next_input += 1
+                if expand is not None and isinstance(parameter, list):
+                    parameter.clear()  # Transfer ownership to the admitted tasks.
             incoming = None
             next_input = 0
             exhausted = False
@@ -104,9 +117,7 @@ async def run_async_parameters(parameters, execute, concurrency, *, preserve_sou
                             except StopIteration:
                                 exhausted = True
                                 break
-                            task = asyncio.create_task(execute(parameter))
-                            pending[task] = (next_input, _source_elements(parameter) if preserve_sources else {})
-                            next_input += 1
+                            admit(parameter)
                     elif not exhausted and incoming is None and len(pending) < concurrency:
                         incoming = asyncio.ensure_future(anext(iterator))
                     waiting = set(pending)
@@ -126,10 +137,7 @@ async def run_async_parameters(parameters, execute, concurrency, *, preserve_sou
                         except StopAsyncIteration:
                             exhausted = True
                         else:
-                            sources = _source_elements(parameter) if preserve_sources else {}
-                            task = asyncio.create_task(execute(parameter))
-                            pending[task] = (next_input, sources)
-                            next_input += 1
+                            admit(parameter)
                         incoming = None
                     for task in done:
                         if task not in pending:
@@ -138,6 +146,9 @@ async def run_async_parameters(parameters, execute, concurrency, *, preserve_sou
                         references = await IO_DOMAIN.run(_save, root / str(index), task.result(), sources)
                         ready[index] = references
                         changed.set()
+                    # asyncio.wait may next block on an unrelated slow member.
+                    # Its previous done set must not retain all completed DOMs.
+                    done.clear()
             finally:
                 try:
                     tasks = list(pending)
@@ -169,9 +180,10 @@ async def run_async_parameters(parameters, execute, concurrency, *, preserve_sou
                 changed.clear()
                 if producer.done():
                     producer.result()
-                if index in ready:
-                    references = ready.pop(index)
-                    yield await IO_DOMAIN.run(_load, root / str(index), references)
+                selected = index if ordered else next(iter(ready), None)
+                if selected in ready:
+                    references = ready.pop(selected)
+                    yield await IO_DOMAIN.run(_load, root / str(selected), references)
                     index += 1
                 elif producer.done():
                     return

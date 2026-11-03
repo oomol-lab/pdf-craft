@@ -11,18 +11,27 @@ EPUB 共用 XMLTranslator 的两个请求入口：首阶段翻译和 fill。
 
 ## 有界与失败语义
 
-- 每批最多 64 个 conversation，最多等待 10ms。达到单元数或 token 预算立即发出；
-  稀疏输入不依赖 EOF，也不在模型 executor 内等待其他输入。
+- PCEX 的真实调度入口把正文和脚注持续交给一个 Narrative/XML 任务流，
+  不再按 ContentItem 单独调用 transform。原生 EPUB 的异步根使用相同的 splitter，
+  不因读到下一个 XHTML 重新清空分组范围。
+- 来源收集最多 64 个 XML 根，并以原 token 分组预算约束读前量。首个根到达后
+  连续输入最多收集 1 秒；输入暂停 200ms 时保持那一次未完成读取，先处理现有尾批。
+  逐根读取不会因整个收集耗时刚超过 200ms 就截断仍在连续到达的内容。
+  大根仍由原 splitter 按预算拆分；每次最多准入 64 个语义工作，工作容量为 `64 * window`。整组
+  一次准入最多额外占用 63 个工作位；成员独立释放容量，不能让一个修复中的单元
+  占住整组容量、阻止后续就绪内容。不会因为一本书只有一个大章节而启动整本书数量的并发任务。
+- 每组成员保留各自 canonical 译文及 fill 修复循环。GroupRequests 显式等待本组
+  成员进入模型请求或完成，再 flush 就绪 conversation；既有 token/输出预算及
+  64 单元上限仍可提前切批。该收集不占 provider 槽位，也不等待兄弟单元完成 repair。
+  没有内容组的独立调用仍使用原 10ms 稀疏调用期限；它不再是正文分组的依据。
 - 组包预算为 `max(4096, max_group_score * 4)`。公共 system 指令只传输和计费一次；
   每个 conversation 只携带自己的消息历史、文本和 XML 模板，按实际编码后的 JSON
   预留同等输出 token，再计入共享指令和外层 envelope 的开销。canonical 验收说明
   属于共享 system 指令，公式引用表仍属于各自单元。预算约束新增聚合。
   单个已由 mapper 拆分的超预算单元沿用单请求，不为凑预算截断语义内容。
-- 内置 PCEX 调度及 XML mapper 使用独立的有界就绪窗口 `max(window, 64)`。
-  默认 `window=1` 也能收集多个单元、跨章节组包；网络并发仍由调用者原来的共享
-  LLM executor 限制，并用 operation 共享的 request window 保留调用者的请求并发
-  上限；等待请求槽位前已经完成组包，不为每组创建模型 executor。自定义 PCEX transformer 保留原有
-  job-window 语义。不预载全书、不等待下一章、不创建整书单元 future 列表。
+- 每个 operation 的 request window 与 LLM executor 继续限制真实网络并发。
+  自定义 PCEX transformer 保留原有 job-window 契约。页眉页脚的就绪工作也采用
+  显式收集，metadata、anchored content 与正文保持独立进度，避免辅助字段成为交付屏障。
 - mapper 在调度前将内容组拆成独立 canonical 单元，按来源顺序增量归还 mapping；
   不再等整组完成后一次性返回。前面已验收的段落不等待后面段落的 repair。
   同一原子 owner 或包围它的 owner 尚未完整验收时，仍按原有通知边界等待。
@@ -40,42 +49,40 @@ EPUB 共用 XMLTranslator 的两个请求入口：首阶段翻译和 fill。
   外层 envelope 不完整时撤销整批缓存写入，但当前轮仍保留可验证的独立结果。
 - 不同 operation、HTTP headers、usage collector、阶段和修复调度参数不能混批。
 
-## 无网络实验入口
+## 无网络回归入口
 
 在仓库根目录运行：
 
 ```sh
-.venv/bin/python -m unittest tests.test_request_batch -v
+.venv/bin/python -m unittest tests.test_translation_grouping tests.test_request_batch -v
 ```
 
-测试只替换 LLMRuntime 的 HTTP transport，保留真正的 tokenizer、executor、请求分发、
-canonical fill、公式还原和结果提交。`TRANSLATION_BATCH_COUNTS` 输出按真正 transport
-调用统计的 JSON，包含首阶段和 fill，既不计逻辑任务，也不计缓存命中。
-默认窗口的 PCEX 公共 API 和异步 EPUB 对照使用输入就绪屏障，让六个单元同时
-到达生产 RequestBatcher；不替换组包策略或 10ms 截止线。这样既能检测 window=1
-阻止后续内容入场的错误，也避免把机器 IO 速度误当作组包能力。稀疏输入的实时交付
-另有不使用屏障的测试。最初的 Narrative 对照仍单独使用可控 flush。结果为：
+`test_translation_grouping` 经由 PCEX `translate_extraction` 和原生 EPUB
+`translate_epub`，只替换供应商 transport，保留 tokenizer、分组、运行时、canonical
+fill、采纳及归档写回。相同的 24 段分别放一章、六章和每段一章，直接断言模型调用
+总数（包括首阶段与 fill），并检查译文、coverage、章节归属和 EPUB CFI。
+不使用“所有请求先同时到达”的屏障，也不替换 flush。
 
-| 布局 | 首阶段请求 | fill 请求 | 采用段落 |
-| --- | ---: | ---: | ---: |
-| 1 章 6 段 | 1 | 1 | 6 |
-| 6 章各 1 段 | 1 | 1 | 6 |
+同模块还以生成的 57 段／2177 words／11 章样本固定包含 metadata 与 furniture 的
+15 次调用门禁，CI 不依赖客户材料。还覆盖错开 20ms 的自然输入、慢供应商与单请求槽位、137 个单元的有界准入和
+EOF 尾批、1000 段单章在首个请求前的资源展开上限、输入暂停时交付、取消关闭未完成读取，以及一个兄弟单元修复时另一个已采纳
+单元及时交付。transport 层的身份、预算、缓存、usage、失败日志和取消测试继续独立执行。
 
-重构前两种 PCEX 布局均为 6 + 6 次。此表是离线协议实验，不能代表真实模型翻译质量或
-整书节省比例。实际组包受 token 大小、输入到达时间、调度窗口与修复次数影响。
-`PCEX_SCHEDULE_BATCH_COUNTS` 另外统计完整 PCEX 调度及译文层导出的实际请求（包括
-元数据）；该固定夹具没有可翻译元数据，使用默认窗口和上述输入就绪屏障。真实运行的计数
-仍会随输入 IO/10ms 就绪截止线变化。
-该测试同时检查 6 条正文 coverage 均为 translated，不用文件存在冒充成功。
+真实 DEV 样本的本地门禁为
+`test_private_production_case_includes_metadata_and_furniture`。它从以下固定私有目录读取
+`source.pcex`，材料不存在时跳过，客户内容不进入 Git：
 
-48 个短段落放一章或 48 个异步根的回归，均验证首阶段 1 次加 fill 1 次请求，
-并逐段检查实际译文和来源归属；同一案例在首版组包中需要 6 + 12 次请求。
-该对照使用 max_group_score=10000；默认预算 2600 的六段案例仍为 1 + 1。
-另有确定性屏障测试将第二段的修复挂起，确认第一段已在挂起期间交付，
-再释放并检查第二段恰好交付一次。
+```
+/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/pdf-craft-output/issue-932-1bc9aef5-investigation/
+```
 
-同一测试模块还覆盖异步跨根 EPUB、真实 PCEX 译文层导出、局部 fill 错误/耗尽证据、
-重复局部公式身份、长短单元/批次上限、输入暂停时交付和取消清理。
+该门禁使用现场的 o200k_base、2600 分组预算、window=6，启用 metadata 和 furniture，
+断言完整转换的真实 transport 调用不超过 15 次，并逐单元检查来源文本、公式、资产及
+几何结构的往返。开发期离线运行观察到 12–14 次；这是正确模拟响应的调用计数，
+不能代表实际模型翻译质量或保证所有文档的节省比例。
+
+新门禁首先在旧生产入口上运行：24 个短段落发出 16 次调用，超过 4 次上限。
+该失败来自实际 provider 调用数，不能用任务数、文件生成成功或一章/多章同样多代替。
 
 完整轻量验证：
 
@@ -92,5 +99,4 @@ PDF_CRAFT_EPUB_CFI_REGRESSION=/absolute/path/to/original.epub \
   .venv/bin/python -m unittest tests.test_epub_task_context -v
 ```
 
-该门禁仍逐片段检查原始节点端点，不再把旧的 253 个请求分组当作业务身份。
-私有现场不入库；真实模型效果、首段延迟及付费请求数由 Origin 后续亲自实验。
+私有现场不入库；真实模型质量及付费回归由后续实验评估。

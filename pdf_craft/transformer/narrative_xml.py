@@ -1,4 +1,4 @@
-# pylint: disable=unused-argument
+# pylint: disable=unused-argument,protected-access
 
 from pdf_craft.usage import UsageCollector, adopted_result
 from collections.abc import Mapping
@@ -90,7 +90,7 @@ class NarrativeXMLTransformer:
 
     @property
     def window(self) -> int:
-        """Maximum number of independent content units in flight."""
+        """Maximum concurrent requests in the translation stream."""
         return self._window
 
     @property
@@ -341,6 +341,57 @@ class NarrativeXMLTransformer:
                     await unit.finish(UnitOutcome.FALLBACK if any(
                         not accepted for accepted in tasks_by_index[index].outcomes.values()) else UnitOutcome.PROCESSED)
         return results
+
+    async def _transform_stream(self, chapters, on_result):
+        """Project a bounded, shared content stream and settle each source unit."""
+        from .xml_translator.xml_translator import XMLTranslator
+        assert isinstance(self._translator, XMLTranslator)
+        protocol = _narrative_protocol()
+        anchors_by_root = {}
+        prepared = {}
+
+        async def tasks():
+            try:
+                async for chapter, identity in chapters:
+                    if not self.has_translatable_content(chapter):
+                        await on_result(chapter, identity)
+                        continue
+                    element = encode(chapter)
+                    _prepare_chapter_references(element)
+                    anchors = _NarrativeAnchorProjection(element)
+                    anchors.replace_assets()
+                    protocol.prepare(element)
+                    anchors_by_root[id(element)] = anchors
+                    prepared[identity] = (element, anchors)
+                    yield TranslationTask(element, self._mode, identity,
+                        source_locations=chapter_locations(chapter), item_kind=UnitKind.CONTENT,
+                        item_id=str(identity), word_count=count_xml_words(element))
+            finally:
+                await chapters.aclose()
+
+        def immutable(segments):
+            if not segments:
+                return []
+            return anchors_by_root[id(segments[0].head.root)].immutable_elements_for_inline_segments(segments)
+
+        async def result(value):
+            element, task = value
+            source, anchors = prepared.pop(task.payload)
+            anchors_by_root.pop(id(source))
+            assert isinstance(protocol.formulas, ChapterFormulaInterrupter)
+            protocol.formulas.release(source)
+            protocol.finish(element)
+            anchors.restore_assets(element)
+            _restore_chapter_references(element)
+            chapter = decode(element)
+            from .translation_coverage import apply_outcomes
+            apply_outcomes(chapter, task.outcomes)
+            await on_result(chapter, task.payload)
+
+        await self._translator._translate_elements(
+            tasks(), **protocol.arguments(), window=self._window,
+            immutable_elements_for_inline_segments=immutable,
+            collect_results=False, on_task_result=result, ordered_roots=False)
 
     @staticmethod
     def source_word_count(chapter: Chapter) -> int:
