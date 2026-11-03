@@ -23,10 +23,19 @@ from pdf_craft_tool.cli import (
     _work_dir,
 )
 from pdf_craft_tool.paths import create_run_directory
-from pdf_craft_tool.runtime import create_llm_from_env, create_ocr_config_from_env, ocr_mode_from_env
+from pdf_craft_tool.runtime import create_llm_from_env, create_ocr_config_from_env, ocr_mode_from_env, model_request_options
 
 
 class TestPDFCraftTool(unittest.TestCase):
+    def test_private_gateway_headers_are_optional_and_operation_local(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(model_request_options(), {})
+        with patch.dict("os.environ", {"PDF_CRAFT_OO_CALLER_CREDENTIAL": "pcc:test"}, clear=True):
+            options = model_request_options()
+            self.assertEqual(options, {"request_headers": {"X-OO-Caller-Credential": "pcc:test"}})
+            options["request_headers"].clear()
+            self.assertEqual(model_request_options()["request_headers"]["X-OO-Caller-Credential"], "pcc:test")
+
     def test_pdf_parser_exposes_opt_in_book_metadata_llm(self):
         args = _parser().parse_args([
             "pdf", "convert", "source.pdf", "--format", "epub",

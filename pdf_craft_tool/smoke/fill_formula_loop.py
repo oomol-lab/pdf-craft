@@ -23,7 +23,7 @@ from pdf_craft.llm.loop import run_repair_loop
 from pdf_craft.llm.runtime import LLMContext
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer.xml_translator.xml_translator.translator import XMLTranslator
-from ..runtime import create_llm_from_env, load_project_env
+from ..runtime import create_llm_from_env, load_project_env, model_request_options
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / 'tests/assets/translation/fill_formula_cases.json'
@@ -138,7 +138,7 @@ async def _case(case, directory, llm, executor):
         with patch.object(LLMContext, 'request', request), patch(
             'pdf_craft.transformer.xml_translator.xml_translator.translator.run_repair_loop', recorder.loop,
         ):
-            target = await NarrativeXMLTransformer(translator, window=2).transform(deepcopy(source), error_policy=False)
+            target = await NarrativeXMLTransformer(translator, window=2).transform(deepcopy(source), error_policy=False, **model_request_options())
         if any(getattr(item, '_translation_missing', False) for item in target.flow_items):
             raise AssertionError('Missing translation cannot pass this gate')
         if _formulas(target) != _formulas(source) or _geometry(target) != _geometry(source):

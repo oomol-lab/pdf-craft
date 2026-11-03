@@ -19,7 +19,7 @@ from pdf_craft import (
     Refinement, RetryPolicy, XMLTranslator, PDFOptions,
 )
 from pdf_craft.pdf.handler import DefaultPDFHandler
-from ..runtime import create_jev_from_env, create_llm_from_env, create_ocr_config_from_env, load_project_env
+from ..runtime import create_jev_from_env, create_llm_from_env, create_ocr_config_from_env, load_project_env, model_request_options
 
 SOURCE_SHA256 = 'dd5cec9ee94ebf4fa755a9e8d6155d83156df50af0294495910f5ac2d3cde5ea'
 
@@ -70,11 +70,13 @@ async def run(source: Path, output: Path, profile: str, *,
                           footnotes=footnotes, refinement=Refinement(jev=jev, llm=llm, executor=executor),
                           on_body=body, on_footnote=note, on_extraction_event=progress),
         analysing_path=output / 'analysis', retry_policy=retry, error_policy=error_policy,
+        **model_request_options(),
     )
     print('EXTRACTION_COMPLETE', flush=True)
     translator = XMLTranslator(llm, llm, target_language, None, 3, 2600, executor=executor)
     await craft.translate_pdf(source, source_extraction, output / 'translated.pdf', translator,
-                              window=2, with_furniture=True, retry_policy=retry, error_policy=error_policy)
+                              window=2, with_furniture=True, retry_policy=retry, error_policy=error_policy,
+                              **model_request_options())
     print('TRANSLATION_COMPLETE', flush=True)
     result_pages = len(PdfReader(output / 'translated.pdf').pages)
     if result_pages != pages:

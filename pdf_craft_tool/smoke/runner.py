@@ -27,6 +27,7 @@ from pdf_craft import (
     XMLTranslator,
 )
 from .assets import SmokeAsset, discover_assets
+from ..runtime import model_request_options
 from .checks import check_epub, check_markdown, check_package, check_pdf_patch_geometry
 from .ocr import create_ocr_config
 from .page_repair import run_page_repair_smoke
@@ -212,7 +213,7 @@ def _execute(run: SmokeRun, asset: SmokeAsset, run_path: Path,
                                       max_group_tokens=run.translation.get("max_group_tokens", 2600),
                                       window=run.translation.get("concurrency", 1),
                                       executor=ConcurrentExecutor(FixedCapacity(int(run.translation.get("concurrency", 1)))),
-                                      translation_llm=llm, fill_llm=fill_llm)
+                                      translation_llm=llm, fill_llm=fill_llm, **model_request_options())
         with report.stage("check"):
             status, errors = _result_from_errors(check_epub(output))
         return status, errors, {"outputs": [str(output)]}
@@ -252,7 +253,7 @@ def _run_pdf(
                 generate_plot=run.generate_plot, toc_assumed=run.toc_assumed,
                 on_extraction_event=report.on_extraction_event,
                 ),
-                analysing_path=run_path / "analysis",
+                analysing_path=run_path / "analysis", **model_request_options(),
             )
     except Exception as error:
         unavailable = _unavailable_ocr_reason(error)
@@ -327,7 +328,7 @@ def _run_pdf(
             if translation_transformer is not None
             else _DeterministicXMLTranslator(str(prefix))
         )
-        craft.translate_pdf(asset.path, package, target, cast(Any, translator))
+        craft.translate_pdf(asset.path, package, target, cast(Any, translator), **model_request_options())
     from .checks import check_pdf
     import pypdf
     with report.stage("check"):
@@ -417,7 +418,7 @@ def _translate_package(
     return craft.translate_extraction(
         package, run_path / "translated.pcex", transformer,
         translation_id=translation_id if isinstance(translation_id, str) else None,
-        target_language=str(translation.get("target_language", "en")),
+        target_language=str(translation.get("target_language", "en")), **model_request_options(),
     )
 
 
