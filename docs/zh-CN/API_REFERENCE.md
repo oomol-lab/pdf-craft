@@ -271,9 +271,9 @@ JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `ll
 | False | Refinement(...) | 普通 OCR + JEV + 按需 LLM 页面精校 |
 | True | Refinement(...) | 脚注 OCR + JEV + 按需 LLM 页面精校 |
 
-页面精校使用库内部固定的分模式判定，`Refinement` 不接受 `risk_threshold`。
-关闭脚注时，JEV 分别核验自然段入向和来源归属，每次最多四个具名问题；收到全部
-请求分数后才采用该页判定。开启脚注时，沿用包含定义及引用关系的专用页级审核。
+页面精校使用库内部固定阈值，`Refinement` 不接受 `risk_threshold`。
+JEV 核验自然段入向和来源归属，开启脚注时还检查定义及引用关系。各项检查共享证据，
+关闭脚注每页最多一次实际请求，开启时最多两次，重试计入上限；缺失分数或服务失败不能冒充通过。
 分数不是经过校准的错误概率，也不设置精修配额。审核原则与限制见
 [JEV 结构审核](../design/jev-structural-review.md)。
 

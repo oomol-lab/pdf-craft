@@ -1,35 +1,29 @@
 # JEV review prompts
 
-Four root templates cover the two footnote modes and two review rounds:
+Four root templates define source-specific structural checks:
 
-| Footnotes | Base decisions | Supplementary facts |
+| Footnotes | Base decisions | Supporting facts |
 | --- | --- | --- |
 | Disabled | [body_base.jinja](body_base.jinja) | [body_followup.jinja](body_followup.jinja) |
 | Enabled | [footnote_base.jinja](footnote_base.jinja) | [footnote_followup.jinja](footnote_followup.jinja) |
 
-Entry-specific wording stays inline. Only cross-entry content is shared:
-[shared_base.jinja](shared_base.jinja), [shared_followup.jinja](shared_followup.jinja)
-and [evidence.jinja](evidence.jinja). Do not split prose merely because it is long,
-use a macro library or assemble prompt instructions in Python.
+Shared prose stays in `shared_base.jinja`, `shared_followup.jinja` and `evidence.jinja`.
+Instructions are readable English; original document evidence keeps its language.
+`# Instructions`, `# True` and `# False` delimit provider fields and are not sent.
 
-## Runtime contract
+`packed_review.py` shares evidence and repeated rules across independently named
+questions. It uses at most one physical request without footnotes and two with
+footnotes, including retries. Pages without applicable checks make no request.
+The first footnote request checks roles and local predecessor hypotheses; the
+second checks remaining relationships and source-specific supporting facts.
 
-Python selects question kinds and raw evidence, batches requests and aggregates
-scores. A template entry is not an HTTP request: a round may have multiple batches,
-each containing at most four named questions.
+`packed_question.jinja`, `packed_check_context.jinja`, `packed_contract.jinja` and
+`packed_text_encoding.jinja` describe lossless shared transport. Short answer keys
+are restored before aggregation. `fault_orientation.jinja` states fault-oriented
+questions; their scores are converted back before applying source-specific proofs.
+`predecessor_candidate.jinja` and `role_confirmation.jinja` provide fallible local
+hypotheses, never authority to overwrite source evidence or approve unrelated checks.
 
-`# Instructions`, `# True` and `# False` delimit provider fields; they are not sent.
-Blank lines separate instructions. A high True score supports the proposition,
-which may establish a fault rather than approve the page. Source-specific proofs
-apply only to their corresponding test, never to the whole page.
-
-Selection and aggregation live in [local_review.py](../local_review.py),
-[structural_review.py](../structural_review.py), [body_review_facts.py](../body_review_facts.py)
-and [footnote_review.py](../footnote_review.py), with supplementary evidence in
-[review_evidence.py](../review_evidence.py), [footnote_quotation.py](../footnote_quotation.py)
-and [footnote_completion.py](../footnote_completion.py).
-
-Instructions are English; document evidence keeps its original language. File-only
-refactors must preserve complete rendered payloads, field order, instruction strings
-and score-driven question selection. Wording changes require separate evaluation.
-See [review principles](../../../../docs/design/jev-structural-review.md).
+Missing scores, provider failures and exhausted request budgets follow the analysis
+error policy. They cannot become a passing verdict. Review uses only immutable
+current/direct-neighbor evidence and does not wait for other pages' review results.

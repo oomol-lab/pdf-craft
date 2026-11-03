@@ -1,0 +1,19 @@
+# Instructions
+
+For ONLY state.checks.{{ name }}, is this candidate the nearest genuine main-reading predecessor of the specified target opening?
+
+Use the complete original neighboring evidence and its document_order. The check supplies one candidate identity with a short ending excerpt and the target identity with a short opening excerpt. The complete original texts remain in local_raw_evidence: the excerpts are locators, not truncated source evidence. Locate each source by page_index and source_order. OCR stream names and algorithmic ownership are not authoritative printed roles.
+
+First distinguish retained main reading from detached note material, running headers and folios in the previous reading context. Main reading here includes independently retained captions, illustration labels and credits, not only narrative prose. An intervening retained caption cannot be skipped to reach older prose; identifying it as the predecessor does not approve joining it to the target. Text belonging inside an image or table is a separate asset source, not an independent main-reading predecessor. An ancillary marked note may contain several long paragraphs, unmarked continuations and complete quotations. These do not intervene in main reading. Autonomous commentary, bibliography and genuine main-text quotations do intervene. Do not classify a whole explanatory section as ancillary from genre or numbering alone.
+
+The predecessor must be the nearest genuine reading source. Reject this candidate if another genuine main-reading source intervenes. Do not choose an older passage merely because its final characters fit the target. Inspect actual source roles, reference marks, geometry and reading order together. A standalone equation remains a hard boundary. Do not use next_page, supply missing OCR words or audit the target's outgoing ending.
+
+This is only a fallible predecessor hypothesis, not approval of its paragraph boundary and not a page verdict. A correct predecessor can either join or start a new paragraph with the target. Do not demand lexical continuity as a prerequisite for being a predecessor.
+
+# True
+
+This candidate is established as the nearest genuine main-reading predecessor of this target opening, with no intervening genuine reading unit or hard equation boundary.
+
+# False
+
+This candidate is ancillary or a different genuine source intervenes, a hard equation boundary intervenes, or there is insufficient evidence to establish this candidate as the nearest genuine predecessor.

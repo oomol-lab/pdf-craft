@@ -84,14 +84,15 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
 
         async def evaluate(_runtime, _index, packet, **_kwargs):
             packets.append(packet)
-            if fail_review and _index == 1 and any(name.startswith('owner_') for name in packet['questions']):
+            if fail_review and _index == 1 and any(name.startswith('owner_') for name in packet['state']['checks']):
                 raise ValueError('missing local ownership review')
             return 0.99 if pass_review else 0.1
 
         async def evaluate_questions(_runtime, _index, packet, **_kwargs):
             value = await evaluate(_runtime, _index, packet, **_kwargs)
-            return {name: value if name.startswith(('gap_', 'owner_', 'redundancy_', 'reference_', 'definition_', 'note_gap_')) else .01
-                    for name in packet['questions']}
+            return {alias: (1 - value) if name.startswith(
+                        ('owner_', 'footnote_role_', 'main_reading_', 'furniture_')) else .01
+                    for alias, name in zip(packet['questions'], packet['state']['checks'])}
 
         class Runtime:
             async def request(self, messages, **_kwargs):

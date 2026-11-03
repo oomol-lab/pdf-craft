@@ -55,23 +55,21 @@ A reference token demonstrably occupies a different position from its original m
 {% elif kind == 'caption_reading' %}
 # Instructions
 
-The sole audit target is state.checks.{{ name }}. Locate it by source_order in local_raw_evidence.target_page.layouts, or by its definition record for a definition check. Other checks are parallel questions; their errors must not invalidate this one.
+For state.checks.{{ name }} ONLY, does this complete source have a retained main-reading role outside the ancillary footnote flow? Locate its exact source_order in local_raw_evidence.target_page.layouts. Neither current ownership nor OCR stream is an established printed role.
 
-Decide ONLY the source identified by this check, using its complete original text and the supplied three-page context. Current OCR stream and ownership are hypotheses, not evidence of correctness. Do not judge adjacent pages, author accuracy, missing OCR or final heading levels.
+The evidence is original text and normalized layout boxes, not image pixels. A printed title, label, caption or credit immediately associated with an illustration is reading content even when it is short, below the image, in small type or not a complete sentence. Establish its printed association from the actual page layout and text; do not require a visual match to unseen image pixels. A dominant illustration with its own adjoining label does not create a footnote apparatus. Equally, proximity to an image alone cannot reclassify an independently established real note.
 
-Is this WHOLE source retained reading content outside the ancillary footnote stream?
+Narrative, instructions, quotations, autonomous commentary, bibliography and chapter-end notes can also be main reading. Follow their actual reading sequence and any available headings across columns. An OCR fragment's grammatical incompleteness or appearance in a second pass does not establish an ancillary role.
 
-Reading content includes narrative, section explanations, instructions, chapter-end commentary and separately placed figure captions or labels. A full-page image with its own adjacent description does not establish a footnote apparatus. Page numbers, running headers and publishing directions are not reading content. Follow the supplied original text and printed column organization, not the current citation label. In vertical writing, a narrow fragment continuing or repeating a main-text column can still be main reading: cropping, an incomplete sentence or a second OCR pass does not make it a footnote. Require a concrete relationship to the main passage or figure, not merely similar subject matter. Genuine detached footnotes and their unmarked continuations remain footnotes even when they are grammatical explanations, quotations or short text. Read the supplied neighboring pages before reclassifying a long continuation: a detached note can fill a column or page, and a printing-only continued-page direction is not a new section heading. A continuation of an established marked note does not become autonomous main commentary merely because it is long, and it need not repeat its note marker on every block.
-
-Insufficient or ambiguous evidence means false. Pure punctuation/empty OCR noise is outside this judgement.
+Genuine detached footnotes and their unmarked continuations remain notes even when grammatical, long, explanatory or quoted. Check the available current and neighboring-page evidence for that concrete ancillary relationship; a long note continuation need not repeat its original mark. A page folio, running header or printing-only continuation direction is page apparatus, not main reading. Do not invent missing markers, text or figures, or use an independent neighboring-page error to decide this source.
 
 # True
 
-There is concrete positive evidence for the stated role of this specific source.
+Positive printed evidence establishes this whole source as retained reading content, including an illustration's own title, label, caption or credit, outside the ancillary footnote flow.
 
 # False
 
-That role is not established; do not infer it from neighbouring sources or a vague suspicion.
+Such a retained reading role is not established for the whole source. A genuine note, page apparatus, ambiguity or a merely hypothetical alternative does not establish this proposition.
 
 {% elif kind == 'definition' %}
 # Instructions
@@ -153,9 +151,11 @@ The sole audit target is state.checks.{{ name }}. Locate it by source_order in l
 
 Decide ONLY the source identified by this check, using its complete original text and the supplied three-page context. Current OCR stream and ownership are hypotheses, not evidence of correctness. Do not judge adjacent pages, author accuracy, missing OCR or final heading levels.
 
-Is this source unmistakably part of the main reading sequence, rather than an ancillary footnote?
+Is this source unmistakably part of the main reading sequence, rather than an ancillary footnote or page apparatus?
 
 Section explanations, continuing narrative, instructions and chapter-end commentary are main reading. Geometric headings above this source are supplied independently of the possibly wrong document_order; determine whether this is their main explanatory passage, not just text on the same topic. Follow the actual prose and nearby headings, including across columns. Do not decide from its original footnote stream or current citation label. Real unnumbered footnote continuations are not main reading merely because their prose is grammatical.
+
+A page folio is not main reading. Use its isolated margin placement and the folio progression on the neighboring pages, where available, as positive context; a printed folio need not equal the PDF page_index. A bare number in an equation, exercise, list or note is different: numeric appearance alone establishes neither role. Running titles are also page apparatus, but an independently placed section title is reading content.
 
 Insufficient or ambiguous evidence means false. Pure punctuation/empty OCR noise is outside this judgement.
 

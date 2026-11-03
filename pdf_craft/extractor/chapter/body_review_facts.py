@@ -11,7 +11,7 @@ def body_supplementary_requests(state, risks):
     """Keep generic facts intact; specialize only the body review's questions."""
     yield from supplementary_requests(state, risks)
     yield from review_batches(state, list(_example_setups(state, risks)))
-    yield from review_batches(state, list(_numbered_instructions(state)))
+    yield from review_batches(state, list(_conditional_instructions(state)))
     yield from _role_packets(state, _closed_predecessor_frames(state, risks))
     yield from _role_packets(state, _publisher_apparatus(state))
     yield from _role_packets(state, _nonreading_traces(state))
@@ -114,12 +114,10 @@ def _example_setups(state, risks):
         yield key, spec, value
 
 
-def _numbered_instructions(state):
+def _conditional_instructions(state):
     evidence = state['local_raw_evidence']
     for name, check in state['checks'].items():
         if not name.startswith('gap_') or check['present_decision']:
-            continue
-        if not re.match(r'^(?:find|calculate|determine|show|prove|evaluate|solve)\b', check['current_start'].strip(), re.I):
             continue
         prior = previous_paragraph(state, check)
         if prior is None:
@@ -134,11 +132,17 @@ def _numbered_instructions(state):
         if source is None:
             continue
         raw = source['raw_text'].strip()
-        if not re.match(r'^(?:\(\d+\)|\d+[.)])\s*If\b', raw, re.I) or not raw.endswith(','):
+        if (re.match(r'^(?:\(\d+\)|\d+[.)])\s*If\b', raw, re.I) and raw.endswith(',')
+                and re.match(r'^(?:find|calculate|determine|show|prove|evaluate|solve)\b',
+                             check['current_start'].strip(), re.I)):
+            kinds = ('one_numbered_instruction', 'conditional_command_required')
+        elif re.match(r'^if\b', raw, re.I) and raw.endswith((',', ';', '，', '；')):
+            kinds = ('conditional_frame_open', 'conditional_main_clause')
+        else:
             continue
         value = dict(check, selected_predecessor=dict(page_index=prior['page_index'],
                      source_order=prior['source_order'], raw_text=source['raw_text']))
-        for kind in ('one_numbered_instruction', 'conditional_command_required'):
+        for kind in kinds:
             key = f"{kind}_{check['source_order']}"
             prompt = review_question('body_followup', kind=kind, key=key)
             yield key, prompt, deepcopy(value)
@@ -147,24 +151,28 @@ def _numbered_instructions(state):
 def _illustration_joins(state):
     evidence = state['local_raw_evidence']
     page = evidence['target_page']
-    prior_page = evidence.get('previous_page')
-    if not prior_page or not any(x['source_type'] == 'image' for x in prior_page.get('assets', [])):
-        return
     for name, check in state['checks'].items():
         if not name.startswith('gap_') or not check['present_decision']:
             continue
         prior = previous_paragraph(state, check)
-        if prior is None or prior['page_index'] != prior_page['page_index']:
+        if prior is None:
             continue
-        source = next((x for x in prior_page['paragraph_boundary']
-                       if x['source_order'] == prior['source_order']), None)
+        prior_page = next((evidence[k] for k in ('target_page', 'previous_page')
+                           if evidence.get(k) and evidence[k]['page_index'] == prior['page_index']), None)
+        if prior_page is None:
+            continue
+        sources = prior_page.get('layouts', prior_page.get('paragraph_boundary', []))
+        images = [x for x in prior_page.get('layouts', prior_page.get('assets', []))
+                  if x['source_type'] == 'image']
+        if not images:
+            continue
+        source = next((x for x in sources if x['source_type'] == 'text'
+                       and x['source_order'] == prior['source_order']), None)
         if source is None:
             continue
         geometry = []
         box = source['bbox_normalized']
-        for image in prior_page.get('assets', []):
-            if image['source_type'] != 'image':
-                continue
+        for image in images:
             a = image['bbox_normalized']
             geometry.append(dict(image_bbox=a, image_page_area=(a[2]-a[0])*(a[3]-a[1]),
                 source_is_below_image=box[1] >= a[3], vertical_gap=box[1]-a[3],
@@ -195,15 +203,19 @@ def apply_body_facts(risks, facts):
     for name, value in facts.items():
         if name.startswith('same_example_setup_') and value >= LOCAL_REVIEW_THRESHOLD:
             target = 'gap_' + name.rsplit('_', 1)[1]
-            if result.get(target, 0) >= LOCAL_REVIEW_THRESHOLD:
+            if target in result:
                 result[target] = min(result[target], 1-value)
         elif name.startswith('one_numbered_instruction_'):
             order = name.rsplit('_', 1)[1]
             result['split_numbered_instruction_' + order] = min(
                 value, facts['conditional_command_required_' + order])
+        elif name.startswith('conditional_frame_open_'):
+            order = name.rsplit('_', 1)[1]
+            result['split_conditional_clause_' + order] = min(
+                value, facts['conditional_main_clause_' + order])
         elif name.startswith('closed_predecessor_frame_') and value >= LOCAL_REVIEW_THRESHOLD:
             target = 'gap_' + name.rsplit('_', 1)[1] + '_syntax'
-            if result.get(target, 0) >= LOCAL_REVIEW_THRESHOLD:
+            if target in result:
                 proof = min(value, facts['closed_predecessor_main_reading_' + name.rsplit('_', 1)[1]])
                 if proof >= LOCAL_REVIEW_THRESHOLD:
                     result[target] = min(result[target], 1-proof)

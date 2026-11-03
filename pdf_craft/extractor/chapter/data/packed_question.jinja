@@ -1,0 +1,16 @@
+# Instructions
+
+{{ lead }}
+{% if shared %}
+Apply rules {{ instruction_ids | join(', ') }} from state.instruction_texts, in order, and state.transport_contract. This question's target is state.checks.{{ name }}.
+{% else %}
+Continue with the following complete instruction paragraphs, in this order: {{ instruction_ids | join(', ') }}. Each paragraph's exact text is in state.instruction_texts under its ID. These are instructions for THIS question; other questions' scores and hypotheses are not evidence of its correctness. The current named check is state.checks.{{ name }}. The complete neighborhood is state.local_raw_evidence; source classifications there are hypotheses, not established printed roles.
+{% endif %}
+
+# True
+
+{{ true_criterion }}
+
+# False
+
+{{ false_criterion }}

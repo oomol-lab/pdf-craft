@@ -1,50 +1,62 @@
 {# Footnotes disabled: base review. Read ownership and concrete joins here; proposed breaks use the shared base questions. #}
 
-{% if kind == 'ownership' %}
+{% if kind in ('ownership', 'ownership_fault') %}
 # Instructions
 
+{% if kind == 'ownership_fault' %}
 {% if retained %}
-Audit only the current operation on source_order={{ order }} in target_page: retain it as paragraph in the main reading stream, identified by checks.{{ key }}. Judge only this source ownership, not other sources or natural-paragraph incoming edges.
+At checks.{{ key }}, does positive printed evidence establish that keeping this ENTIRE target_page source as paragraph is incorrect because it belongs to an excluded ancillary or publisher role?
 {% else %}
-Audit only the current operation on source_order={{ order }} in target_page: exclude it as ignored, identified by checks.{{ key }}. Judge only this source ownership, not other sources or natural-paragraph incoming edges.
+At checks.{{ key }}, is excluding this entire target_page source as ignored incorrect because it demonstrably belongs to main reading?
+{% endif %}
+{% elif retained %}
+Audit ONLY checks.{{ key }}, source_order={{ order }}: retain its target_page source as paragraph. Judge this source's ownership, not other sources or paragraph joins.
+{% else %}
+Audit ONLY checks.{{ key }}, source_order={{ order }}: exclude its target_page source as ignored. Judge this source's ownership, not other sources or paragraph joins.
 {% endif %}
 
-Footnote extraction is disabled. Do not require citation records, footnote-number matching or body ref objects. The original OCR class and algorithmic ownership are not authoritative answers.
+Footnote extraction is disabled: actual ancillary footnote text must be excluded, while main reading remains. This is an ownership audit, not a request to create citation/ref objects or validate their internal indices. Printed reference marks and their explanatory definitions remain evidence of a source's role even when no citation objects exist.
 
-paragraph is the main reading stream, including body text, headings and quotations. Page numbers, running headers and decorations do not belong in it.
+Locate this exact source in the complete three-page local_raw_evidence. Judge its printed function using raw text, source order and column geometry. OCR classes, preliminary ownership and other model questions are not answers. Do not proofread wording, reconstruct missing OCR text or judge paragraph joins here.
 
-Disabling footnotes means that the final output excludes footnotes, not that the original OCR classes are necessarily correct. Do not build a citation or reference system.
+Main reading includes narrative, headings, quotations, exercises, autonomous commentary/endnotes, bibliographies and author/editor signatures attached to a reading section. Running headers, page numbers, publisher directions and actual ancillary footnotes do not belong in it.
 
-An original footnote candidate defaults to ignored. If clear evidence establishes main text or a cross-page main-text continuation, require correction to restore paragraph ownership.
+A footnote is an auxiliary reading stream attached to continuing main text. Positive evidence can combine a printed mark in the main text, a corresponding explanatory opening and a separate note region in the same local evidence. A literal note mark in mathematics-style delimiters is still a printed mark, not automatically a formula or an ordinary numbered exercise. Do not ignore this relationship merely because the OCR called both sources body.
 
-A whole original body block that clearly belongs to a footnote must be ignored; retaining it requires correction. Bottom-of-page position, small print or a numeric opening alone does not establish a footnote.
+A footnote can occupy much of a page and contain several natural paragraphs, quotations or an unnumbered continuation. Judge each source within that actual region. A complete sentence or missing repeated number does not turn a demonstrated note continuation into main reading. Conversely an ordinary paragraph near a note remains main text unless its own ancillary role is established.
 
-A source containing both main text and footnote material must not be ignored wholesale. When evidence is uncertain, retain the preliminary ownership; do not require deleting main text or reconstructing missing words.
+An autonomous commentary/endnote section begins in the main reading sequence after a discussion has ended, sometimes in the next column on the same page. Its explanations and reference numbers do not make it a footer stream. A bibliography, closing author signature and then a separate headed commentary can be successive main reading sections. Determine the actual column sequence, not the fraction of the page below a box. A heading alone cannot convert notes underneath continuing prose into autonomous commentary.
 
-Inspect the entire footnote region source by source, including unnumbered explanations, diagrams and cross-page continuations. Excluding only numbered openings while retaining unnumbered continuation blocks is still wrong. Neighboring preliminary pages may also be misclassified and do not automatically justify acceptance.
+Position, type size, digits, initials or explanatory genre alone are insufficient. A source mixing genuine main prose with note text must not be excluded wholesale. Only a definite whole-source role contradiction warrants correction; mere uncertainty or a plausible alternative is acceptable.
 
-Printing-only continued-page directions and isolated page numbers are not main text. A main-text continuation must pass over these publisher directions and footnotes rather than join them to genuine main text.
-
-Full-page or chapter-end commentary is main reading and belongs to paragraph. A note at the page bottom ancillary to a body reference is a footnote. Numbering or explanatory genre alone does not justify excluding a whole commentary section.
-
-With footnotes disabled, original reference characters such as circled numbers, superscript digits or stars may remain in the main text. Missing citation or ref objects is also valid. These reference-representation details alone are not ownership errors; the source's actual printed role must still satisfy the ownership rules above.
-
-The complete three-page evidence is in local_raw_evidence. Use original text, existing marks and geometry together; do not invent unprovided image separators or words. Do not assign another source's error to this one. Only a clear, structurally repairable ownership error warrants FAIL; author wording, OCR typos or mere uncertainty do not.
+If the source is retained as paragraph, reject only a demonstrated excluded role. If it is ignored, require restoration only when its main-reading role is established. Do not require deleting reference characters from main text or inventing a missing reference system.
 
 # True
 
+{% if kind == 'ownership_fault' %}
 {% if retained %}
-This source is main text, a heading, a quotation or autonomous commentary; retaining it is valid.
+Positive, source-specific evidence establishes that this entire source clearly belongs to an excluded footnote or publisher/navigation stream. Keeping it as paragraph contradicts that demonstrated role. Autonomous commentary, bibliography and section signatures remain main reading; uncertainty about a subtype is not an exclusion proof.
+{% else %}
+This source clearly belongs to main reading, a heading, quotation or autonomous commentary, but has been wrongly excluded.
+{% endif %}
+{% elif retained %}
+No demonstrated ancillary or publisher role contradicts retaining this entire source; the existing ownership is acceptable.
 {% else %}
 This source should be excluded, or there is insufficient evidence to restore it to main reading; the existing exclusion is acceptable.
 {% endif %}
 
 # False
 
+{% if kind == 'ownership_fault' %}
 {% if retained %}
-This source clearly belongs to an excluded footnote, running header, page number or similar apparatus, but has been kept in the main reading stream.
+No demonstrated ancillary or publisher role contradicts retaining this entire source; the existing ownership is acceptable.
 {% else %}
-This source clearly belongs to main text, a heading, a quotation or autonomous commentary, but has been wrongly excluded.
+This source should be excluded, or there is insufficient evidence to restore it to main reading; the existing exclusion is acceptable.
+{% endif %}
+{% elif retained %}
+This source clearly belongs to an excluded footnote, running header, page number or similar apparatus, but has been kept in the main reading stream. This requires a demonstrated ancillary or publisher role; an autonomous commentary/endnote section, bibliography or main-section author signature does not satisfy this fault.
+{% else %}
+This source clearly belongs to main reading, a heading, quotation or autonomous commentary, but has been wrongly excluded.
 {% endif %}
 
 {% elif kind == 'concrete_join' %}
@@ -60,13 +72,15 @@ Use only the supplied local raw text to decide whether the two blocks form one n
 
 Join blocks that split one word or mandatory grammatical construction. Start a new paragraph for a clearly independent utterance, heading or numbered item. Shared topic, question-and-answer wording or a period does not mechanically decide the boundary.
 
+A printed setting, time or scene cue can be an independent reading unit without a complete sentence or heading tag. Establish its function from the surrounding prose and actual source placement, width and vertical gaps, not brevity alone. An ellipsis can mark a scene transition; it does not make a separately printed cue part of the preceding dialogue or narration.
+
 Do not proofread text, supply missing OCR characters or assume distant content. Even when the current block is long, inspect its opening and the direct seam with the preceding ending.
 
 When present_decision=false, reject the break only if the current block directly completes an unfinished word or mandatory syntactic component of the predecessor. Two already complete expressions may be separate paragraphs. A conjunction, consequence, contrast or shared topic does not require joining.
 
 A paragraph introducing a quotation and the following independent quotation may be separate paragraphs. An attribution or source after a quotation may also stand alone. A colon or an attribution relationship is not evidence that joining is mandatory.
 
-Judge only whether the existing incoming decision has a definite structural error. Do not infer unprovided first-line indentation from the overall box or impose your own paragraph-layout preference.
+Judge only whether the existing incoming decision has a definite structural error. Source boxes provide actual relative placement; do not invent first-line indentation inside a multi-line box or impose a paragraph-style preference.
 
 The current decision is a JOIN. First combine one or two characters at the predecessor ending and target opening to check for a complete word. If the two parts of a word are split across pages, keeping this join is correct; do not be distracted by other complete sentences later in the current block.
 

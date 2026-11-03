@@ -10,7 +10,7 @@ _ENVIRONMENT = Environment(
 )
 
 
-_ENTRIES = frozenset(('body_base', 'body_followup', 'footnote_base', 'footnote_followup'))
+_ENTRIES = frozenset(('body_base', 'body_followup', 'footnote_base', 'footnote_followup', 'packed_question', 'role_confirmation', 'fault_orientation', 'predecessor_candidate'))
 
 
 def review_text(path: str, **context: Any) -> str:

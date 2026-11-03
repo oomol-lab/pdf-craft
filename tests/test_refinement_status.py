@@ -56,7 +56,7 @@ class RefinementStatusTests(TestCase):
                         # A valid no-op still completed LLM refinement. Text
                         # differences cannot determine whether it was applied.
                         return deepcopy(target_page)
-                    module = 'footnote_review.review_footnote_page' if footnotes else 'structural_review.review_body_page'
+                    module = 'page_review.review_page'
                     with patch('pdf_craft.extractor.chapter.' + module,
                                side_effect=probability if isinstance(probability, Exception) else None,
                                return_value=probability), patch(
@@ -81,7 +81,7 @@ class RefinementStatusTests(TestCase):
             craft.extract_pdf('scripted.pdf', root / 'initial.pcex',
                 self.options(None, False, enabled=False), analysing_path=root / 'analysis')
             events = []
-            with patch('pdf_craft.extractor.chapter.structural_review.review_body_page', return_value=1.0):
+            with patch('pdf_craft.extractor.chapter.page_review.review_page', return_value=1.0):
                 craft.extract_pdf('scripted.pdf', root / 'reviewed.pcex',
                     self.options(events.append, False), analysing_path=root / 'analysis')
             self.assert_statuses(events, RefinementStatus.NOT_REQUIRED)
@@ -98,7 +98,7 @@ class RefinementStatusTests(TestCase):
         async def repair(*, target_page, **_kwargs):
             return deepcopy(target_page)
         with TemporaryDirectory() as directory, patch.object(PDFExtractionEngine, '_finish_extraction', finish), patch(
-                'pdf_craft.extractor.chapter.structural_review.review_body_page', return_value=0.0), patch(
+                'pdf_craft.extractor.chapter.page_review.review_page', return_value=0.0), patch(
                 'pdf_craft.extractor.chapter.page_repair.repair_page_with_llm', side_effect=repair):
             self.craft().extract_pdf('scripted.pdf', Path(directory) / 'book.pcex',
                 self.options(events.append, False), error_policy=True)
@@ -107,7 +107,7 @@ class RefinementStatusTests(TestCase):
     def test_strict_review_error_does_not_invent_page_completion(self):
         events = []
         with TemporaryDirectory() as directory, patch(
-                'pdf_craft.extractor.chapter.structural_review.review_body_page',
+                'pdf_craft.extractor.chapter.page_review.review_page',
                 side_effect=ValueError('review unavailable')):
             with self.assertRaisesRegex(ValueError, 'review unavailable'):
                 self.craft().extract_pdf('scripted.pdf', Path(directory) / 'book.pcex',

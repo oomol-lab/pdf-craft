@@ -333,11 +333,11 @@ separate `refinement=Refinement(...)` argument; no compatibility alias is provid
 | False | Refinement(...) | Ordinary OCR, JEV, and LLM repair only when needed |
 | True | Refinement(...) | Footnote OCR, JEV, and LLM repair only when needed |
 
-Page refinement uses internal, mode-specific decisions; `Refinement` has no
-`risk_threshold` parameter. With footnotes disabled, JEV checks incoming paragraph
-edges and ownership in batches of at most four named questions. Every requested
-score must be available before the page decision is adopted. With footnotes
-enabled, the dedicated page rubric also checks citation/reference relationships.
+Page refinement uses a fixed internal decision threshold; `Refinement` has no
+`risk_threshold` parameter. JEV checks incoming paragraph edges and ownership,
+and also citation/reference relationships when footnotes are enabled. Shared
+checks use at most one physical request per page without footnotes and two with
+footnotes, including retries. Missing scores or provider failures cannot pass a page.
 Scores are not calibrated error probabilities and do not impose a refinement quota.
 See the [structural-review scope and limits](../design/jev-structural-review.md).
 

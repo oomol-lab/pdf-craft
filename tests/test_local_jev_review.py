@@ -69,8 +69,8 @@ class LocalReviewPacketTests(unittest.TestCase):
         self.assertGreater(len(requests), 1)
         self.assertIn('footnote_role_0', {n for _, p in requests for n in p['questions']})
         self.assertTrue(all(len(p['questions']) <= 4 for _, p in requests))
-        self.assertEqual(review_threshold(True), 0.45)
-        self.assertEqual(review_threshold(False), 0.52)
+        self.assertEqual(review_threshold(True), 0.39)
+        self.assertEqual(review_threshold(False), 0.39)
         self.assertNotIn('risk_threshold', inspect.signature(Refinement).parameters)
 
     def test_empty_body_has_no_fake_provider_review(self):
@@ -102,7 +102,7 @@ class LocalReviewRuntimeTests(unittest.IsolatedAsyncioTestCase):
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=None)
         async def system_one(*, state, questions):
-            if 'owner_4' in questions:
+            if 'owner_4' in state.get('checks', {}):
                 return SimpleNamespace(nouls={})
             return SimpleNamespace(nouls={name: SimpleNamespace(noul=.99) for name in questions})
         client.system_one = AsyncMock(side_effect=system_one)
@@ -155,9 +155,9 @@ class LocalReviewRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_local_batch_results_reduce_to_one_unrounded_page_decision(self):
         raw, analysed, sizes = inputs(5)
         async def evaluate(requests):
-            return [(index, {name: .01 if name.startswith('publisher_apparatus_') else
-                             .48 if name == 'gap_4_word' else .99
-                             for name in request['questions']}) for index, request in requests]
+            return [(index, {alias: .52 if name == 'gap_4_word' else .01
+                             for alias, name in zip(request['questions'], request['state']['checks'])})
+                    for index, request in requests]
         reviewer = JevReviewProcessor(AsyncMock(), includes_footnotes=False,
                                       question_batch_evaluator=evaluate)
         await reviewer(raw, analysed, sizes)

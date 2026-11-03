@@ -113,6 +113,6 @@ def aggregate_risks(base: NamedScores, facts: NamedScores) -> NamedScores:
                 continue
             if proof >= LOCAL_REVIEW_THRESHOLD:
                 for key in targets:
-                    if risks.get(key, 0) >= LOCAL_REVIEW_THRESHOLD:
+                    if key in risks:
                         risks[key] = min(risks[key], 1 - proof)
     return risks

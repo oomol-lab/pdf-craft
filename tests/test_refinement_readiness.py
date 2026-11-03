@@ -44,8 +44,8 @@ class RefinementReadinessTests(IsolatedAsyncioTestCase):
 
         async def evaluate(_runtime, index, _packet, **_kwargs):
             calls.append(index)
-            return {name: .1 if name.startswith(("gap_", "reference_", "definition_", "note_gap_")) else .01
-                    for name in _packet["questions"]}
+            return {alias: .9 if name.startswith(("owner_", "footnote_role_", "main_reading_", "furniture_")) else .01
+                    for alias, name in zip(_packet["questions"], _packet["state"]["checks"])}
 
         class Runtime:
             async def request(self, messages, **_kwargs):

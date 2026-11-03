@@ -43,7 +43,8 @@ def raw_roles(state):
             continue
         layouts = page.get(
             "layouts",
-            page.get("paragraph_boundary", []) + page.get("citation_boundary", []) + page.get("asset_text_sources", []),
+            page.get("paragraph_boundary", []) + page.get("citation_boundary", [])
+            + page.get("excluded_candidates", []) + page.get("asset_text_sources", []),
         )
         unique = {l["document_order"]: l for l in layouts}
         out[side] = dict(

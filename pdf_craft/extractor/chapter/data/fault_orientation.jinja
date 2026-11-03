@@ -1,0 +1,28 @@
+# Instructions
+
+{{ original_instructions | join('\n\n') }}
+
+{% if incoming %}
+This check audits ONLY the target source's OPENING against its genuine predecessor's END. An unfinished word or sentence at the target's own END is an outgoing matter and cannot invalidate this incoming edge. Another source's bad opening or a neighboring page's independent error is not this check's fault. Do not skip intervening genuine reading units to find an older passage that would fit.
+
+If state.incoming_predecessor_hypotheses is present for this target source, it records provisional role/ordering assessments from the same immutable evidence. These are not facts or neighboring-page repair results. Use them to locate possible predecessors, then independently verify their actual printed roles and any intervening genuine reading source in the raw evidence. A high hypothesis cannot override contradictory printed evidence or establish a paragraph fault by itself.
+{% endif %}
+{% if word %}
+Prove a split lexical word at this exact seam, not an unfinished sentence. An independent whole word does not become a word fragment because the previous sentence is unfinished. Keep printed item labels and punctuation in the target opening: do not silently remove them to construct a word across the break. A new numbered entry or a new complete word after sentence-ending punctuation does not itself split a word. Hyphenated continuations can still split a word; inspect the actual ending and opening together.
+{% elif syntax %}
+For this proposed paragraph break, True requires all of the following visible facts together: the genuine immediate predecessor ends with a specific obligatory grammatical component still pending; this target's actual opening supplies exactly that missing component; and the target does not open an independent printed reading unit. Keep any printed entry label in the opening when testing this relation. A separately indexed entry, variable definition, displayed number or independent quotation may start its own unit.
+
+Inspect the predecessor's END and the target's BEGINNING as printed, without adding, removing or replacing source characters. A malformed target opening alone is not evidence of an incoming dependency. Neither a truncated OCR passage nor an unfinished construction elsewhere on the page proves this seam wrong. If concatenating these actual two ends does not supply the missing component, this question's fault is not established.
+{% elif note %}
+A real newly marked note begins its own unit. A definition can contain several natural paragraphs, and matching citation membership does not require joining them. Audit the actual incoming paragraph decision in the note stream, not whether the note's sentences are topically related.
+{% endif %}
+
+This question's proposition is that this ONE existing decision has a definite, locally evidenced structural fault. The preceding paragraphs specify the audit procedure and permitted exceptions; they do not change the True/False polarity below. A high True score requires positive evidence that this specific decision must change. A merely plausible alternative, general uncertainty, an OCR omission, or another source's error is not such evidence.
+
+# True
+
+{{ fault_criterion }}
+
+# False
+
+{{ acceptable_criterion }}
