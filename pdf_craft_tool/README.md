@@ -16,6 +16,13 @@ backend 时不需要再修改 `.env`。翻译或可选的 TOC 层级增强需要
 JEV 页审核通过官方 TypeSafe SDK 直连，使用 `.env` 中独立的
 `PDF_CRAFT_JEV_API_KEY`、`PDF_CRAFT_JEV_BASE_URL` 和 `PDF_CRAFT_JEV_MODEL`；它不再通过 `oo` 转发。
 
+私有 PDFCraft 模型网关按 `.env.template` 末尾示例配置 `pcc-deepseek-flash`、
+`pcc-deepseek-ocr` 和 `pcc-jev`，并设置 `PDF_CRAFT_OO_CALLER_CREDENTIAL`。
+DEV 使用 `new-llm.oomol.dev`，PROD 使用 `.com`；用户 Token 和 caller credential 必须与环境一致。
+CLI、矩阵及独立模型 smoke 通过公共 `request_headers` 传递额外凭证，不写入库配置或验收 manifest。
+此 Header 对整次模型操作生效，该操作中的模型端点应统一使用 OOMOL 网关。
+普通单测、PR Check、Merge Build 与 Release 不运行在线模型 smoke，不需要此凭证或新增模型 Secret。
+
 缓存 OCR 页可直接运行官方 JEV 审核：
 
 ```shell

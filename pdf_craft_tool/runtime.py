@@ -58,6 +58,12 @@ def create_jev_from_env() -> JEV:
     )
 
 
+def model_request_options() -> dict[str, Any]:
+    """Supply operation-local gateway credentials without serializing them in run configs."""
+    credential = _str("PDF_CRAFT_OO_CALLER_CREDENTIAL")
+    return {"request_headers": {"X-OO-Caller-Credential": credential}} if credential else {}
+
+
 def create_ocr_config_from_env(mode: OCRMode | None = None) -> OCRConfig:
     """Create an explicit pdf-craft OCR config from ``PDF_CRAFT_*`` settings."""
     mode = mode or cast(OCRMode, _str("PDF_CRAFT_OCR_MODE", default="deepseek-ocr-local"))

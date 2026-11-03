@@ -17,6 +17,7 @@ from pdf_craft.extractor.chapter.page_repair import AllPageLlmRepairProcessor
 from pdf_craft.extractor.toc import TocInfo
 from pdf_craft.llm import runtime_for
 
+from ..runtime import model_request_options
 from ..jev import PinnedPageSelection
 
 
@@ -80,7 +81,7 @@ async def _run_page_repair_smoke(
             max_tokens=16000,
             retry_index=index,
             retry_max=maximum,
-            use_cache=False,
+            use_cache=False, **model_request_options(),
         )
         (raw_path / f"{stem}-response.txt").write_text(
             response + "\n", encoding="utf-8"

@@ -40,6 +40,7 @@ from .runtime import (
     create_ocr_config_from_env,
     create_llm_from_env,
     load_project_env,
+    model_request_options,
     ocr_mode_from_env,
     ocr_values_from_env,
     llm_values_from_env,
@@ -329,13 +330,14 @@ def _translate_pdf(args: argparse.Namespace) -> None:
         result.craft.translate_pdf(
             args.source, result.extraction, output, translator,
             window=args.concurrency,
+            **model_request_options(),
             with_furniture=with_furniture,
         )
     else:
         mode = SubmitKind[args.submit.replace("-", "_").upper()]
         translated = result.craft.translate_extraction(
             result.extraction, work_dir / "translated.pcex", translator,
-            submit=mode, window=args.concurrency,
+            submit=mode, window=args.concurrency, **model_request_options(),
         )
         output = args.output or work_dir / ("book.md" if args.format == "markdown" else "book.epub")
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -355,7 +357,7 @@ def _translate_package(args: argparse.Namespace) -> None:
     mode = SubmitKind[args.submit.replace("-", "_").upper()]
     craft.translate_extraction(
         extraction, output_package, translator, submit=mode,
-        window=args.concurrency,
+        window=args.concurrency, **model_request_options(),
         with_furniture=args.with_furniture, target_language=args.target_language,
     )
     print(f"Extraction: {output_package}")
@@ -400,7 +402,7 @@ def _translate_epub(args: argparse.Namespace) -> None:
         user_prompt=args.prompt, retry_policy=RetryPolicy(fill=args.fill_retries),
         max_group_tokens=args.max_group_tokens, window=args.concurrency,
         executor=ConcurrentExecutor(FixedCapacity(args.concurrency)),
-        translation_llm=translation_llm, fill_llm=fill_llm,
+        translation_llm=translation_llm, fill_llm=fill_llm, **model_request_options(),
     )
     print(f"Output: {output}")
 
@@ -600,7 +602,7 @@ async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
             max_tokens=16000,
             retry_index=index,
             retry_max=maximum,
-            use_cache=False,
+            use_cache=False, **model_request_options(),
         )
         (llm_raw_path / f"{stem}-response.txt").write_text(
             response + "\n", encoding="utf-8"
@@ -714,7 +716,7 @@ def _recording_jev_evaluator(evaluator, output_path: Path):
             json.dumps(request, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        probability = await evaluator(page_index, request)
+        probability = await evaluator(page_index, request, **model_request_options())
         response_path.write_text(
             json.dumps(
                 {"pass_probability": probability},
@@ -741,7 +743,7 @@ def _recording_jev_batch_evaluator(evaluator, output_path: Path):
         request_list = list(requests)
         for page_index, request in request_list:
             record(page_index, "requests", request)
-        results = await evaluator(request_list)
+        results = await evaluator(request_list, **model_request_options())
         for page_index, scores in results:
             record(page_index, "responses", {"scores": scores})
         return results
@@ -857,7 +859,7 @@ def _extract(
                 log_dir_path=extraction_path.parent / "toc-logs") if args.toc_llm else None),
             on_extraction_event=_print_ocr_event,
         ),
-        analysing_path=extraction_path.parent / "analysis",
+        analysing_path=extraction_path.parent / "analysis", **model_request_options(),
     )
     return _ExtractionResult(craft, extraction, extraction_path, metering)
 
