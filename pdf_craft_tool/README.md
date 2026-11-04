@@ -18,6 +18,8 @@ JEV 页审核通过官方 TypeSafe SDK 直连，使用 `.env` 中独立的
 
 私有 PDFCraft 模型网关按 `.env.template` 末尾示例配置 `pcc-deepseek-flash`、
 `pcc-deepseek-ocr` 和 `pcc-jev`，并设置 `PDF_CRAFT_OO_CALLER_CREDENTIAL`。
+该变量只保存原始凭证，不带 `pcc:`；`pcc:<credential>` 是网关配置中的映射条目，
+请求 Header 只发送 `<credential>`，CLI 原样传递，不自动转换。
 DEV 使用 `new-llm.oomol.dev`，PROD 使用 `.com`；用户 Token 和 caller credential 必须与环境一致。
 CLI、矩阵及独立模型 smoke 通过公共 `request_headers` 传递额外凭证，不写入库配置或验收 manifest。
 此 Header 对整次模型操作生效，该操作中的模型端点应统一使用 OOMOL 网关。
