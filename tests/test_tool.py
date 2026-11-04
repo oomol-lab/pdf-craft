@@ -30,11 +30,11 @@ class TestPDFCraftTool(unittest.TestCase):
     def test_private_gateway_headers_are_optional_and_operation_local(self):
         with patch.dict("os.environ", {}, clear=True):
             self.assertEqual(model_request_options(), {})
-        with patch.dict("os.environ", {"PDF_CRAFT_OO_CALLER_CREDENTIAL": "pcc:test"}, clear=True):
+        with patch.dict("os.environ", {"PDF_CRAFT_OO_CALLER_CREDENTIAL": "test-caller-credential"}, clear=True):
             options = model_request_options()
-            self.assertEqual(options, {"request_headers": {"X-OO-Caller-Credential": "pcc:test"}})
+            self.assertEqual(options, {"request_headers": {"X-OO-Caller-Credential": "test-caller-credential"}})
             options["request_headers"].clear()
-            self.assertEqual(model_request_options()["request_headers"]["X-OO-Caller-Credential"], "pcc:test")
+            self.assertEqual(model_request_options()["request_headers"]["X-OO-Caller-Credential"], "test-caller-credential")
 
     def test_pdf_parser_exposes_opt_in_book_metadata_llm(self):
         args = _parser().parse_args([
