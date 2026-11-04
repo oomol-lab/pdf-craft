@@ -37,11 +37,10 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         for footnotes in (False, True):
             threshold = review_threshold(footnotes)
             cutoff = 1 - threshold
-            function = 'review_footnote_page' if footnotes else 'review_body_page'
             for probability, expected in ((nextafter(cutoff, inf), False),
                                           (cutoff, True), (nextafter(cutoff, -inf), True)):
                 with self.subTest(footnotes=footnotes, probability=probability), patch(
-                        'pdf_craft.extractor.chapter.page_review.' + function,
+                        'pdf_craft.extractor.chapter.page_review.review_page',
                         return_value=probability):
                     reviewer = JevReviewProcessor(unused, includes_footnotes=footnotes,
                                                  question_batch_evaluator=unused_many)
@@ -148,11 +147,13 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         paragraphs, citations = _resolve_pages(pages)
         analyses = analyse_pages([1, 2, 3], paragraphs, citations)
 
-        async def evaluate(index, _request):
-            return (1 - {1: 0.56, 2: 0.55, 3: 0.54}[index]) if next(iter(_request["questions"])).startswith(("footnote_role_", "furniture_")) else .99
+        async def evaluate(state, _evaluate, **_kwargs):
+            index = state["target_page"]["page_index"]
+            return {1: .62, 2: .61, 3: .60}[index]
 
-        reviewer = JevReviewProcessor(evaluate)
-        await reviewer(pages, analyses, {index: (10, 10) for index in (1, 2, 3)})
+        with patch('pdf_craft.extractor.chapter.page_review.review_page', side_effect=evaluate):
+            reviewer = JevReviewProcessor(evaluate)
+            await reviewer(pages, analyses, {index: (10, 10) for index in (1, 2, 3)})
         self.assertEqual([result.requires_review for result in reviewer.results], [False, True, True])
         self.assertEqual(reviewer.results[1].risk, JEV_REVIEW_THRESHOLD)
 

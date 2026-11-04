@@ -7,6 +7,7 @@ review context. This encoding makes no claim that a repeated passage is wrong.
 from copy import deepcopy
 from difflib import SequenceMatcher
 from itertools import groupby
+import json
 import re
 from typing import Any
 from .review_templates import review_text
@@ -80,6 +81,24 @@ def compact_review_evidence(value: Any) -> Any:
                        if key in ('raw_text', 'analysed_text') and isinstance(item, str)
                        else compact_review_evidence(item))
     return result
+
+
+def quote_encoded_literals(value: Any) -> Any:
+    """Keep encoded source runs opaque to the provider's structured renderer.
+
+    Certain hosts reject nested run descriptors while accepting their literal
+    expansion. A JSON string preserves every encoded part without exposing
+    nested repeat objects to the provider's structured input handling.
+    This affects only the detached review packet, never OCR or page state.
+    """
+    if isinstance(value, dict):
+        if set(value) == {'literal_parts'}:
+            return {'literal_parts_json': json.dumps(value['literal_parts'],
+                    ensure_ascii=False, separators=(',', ':'))}
+        return {key: quote_encoded_literals(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [quote_encoded_literals(child) for child in value]
+    return value
 
 
 def literal_reference_edits(raw: str, analysed: str) -> list[dict[str, str]] | None:

@@ -125,9 +125,10 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
         self_test = self
         async def evaluate(_runtime, index, packet, **kwargs):
             packets.append(packet)
-            return {name: (.99 if pass_review else .1)
-                    if name.startswith(('gap_', 'owner_', 'redundancy_')) else .01
-                    for name in packet['questions']}
+            return {alias: (.01 if pass_review else .9) if name.startswith('owner_')
+                    else .99 if name.startswith('redundancy_') or (
+                        name.startswith('gap_') and not name.endswith(('_word', '_syntax'))) else .01
+                    for alias, name in zip(packet['questions'], packet['state']['checks'])}
 
         class Runtime:
             async def request(self, messages, **kwargs):
@@ -176,7 +177,8 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
                     await asyncio.wait_for(task, 10)
             states = [packet['state']['local_raw_evidence'] for packet in packets]
             self.assertEqual({state['target_page']['page_index'] for state in states}, set(range(1, 7)))
-            self.assertTrue(all(0 < len(packet['questions']) <= 4 for packet in packets))
+            self.assertTrue(all(packet['questions'] for packet in packets))
+            self.assertEqual(len(packets), 6)
             first = next(state['target_page'] for state in states if state['target_page']['page_index'] == 1)
             candidates = {item['raw_text']: item for item in first['layouts']}
             self.assertEqual(candidates['Misclassified body must survive.']['ocr_stream'], 'footnote')

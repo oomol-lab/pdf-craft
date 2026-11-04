@@ -242,8 +242,10 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             return json.dumps(response)
 
         async def evaluate(page_index, _request):
-            name = next(iter(_request["questions"]))
-            return 1 - probabilities[page_index] if name.startswith(("footnote_role_", "furniture_")) else .99
+            alias = next(iter(_request["questions"]))
+            name = list(_request["state"]["checks"])[int(alias.removeprefix('q'))]
+            return 1 - probabilities[page_index] if name.startswith(
+                ("footnote_role_", "furniture_", "main_reading_")) else .01
 
         processor = JevLlmRepairProcessor(evaluate, request)
         repaired = await processor(

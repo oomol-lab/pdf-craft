@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from copy import deepcopy
+import re
 from typing import Any
 
 from .review_questions import question
@@ -10,11 +11,18 @@ from .review_templates import review_question
 LOCAL_REVIEW_THRESHOLD = 0.52
 _QUESTIONS_PER_REQUEST = 4
 
-def local_review_requests(state: dict[str, Any], *, concrete_joins: bool = False) -> Iterator[dict[str, Any]]:
+
+def local_review_requests(state: dict[str, Any], *, concrete_joins: bool = False,
+                          native_faults: bool = False) -> Iterator[dict[str, Any]]:
     """Yield bounded questions; body-only review binds concrete incoming sources.
 
+    The packed body caller explicitly opts into native faults for ownership and
+    proposed breaks, restoring pass scores afterwards. Existing calls and joins
+    keep pass polarity; concrete source binding alone must not change it.
     Footnote review keeps its separate ownership and edge-fact protocol.
     """
+    if native_faults and not concrete_joins:
+        raise ValueError('Native fault questions require the concrete body review')
     page = state["target_page"]["page_index"]
     index: dict[str, Any] = {}
     jobs: dict[str, list[tuple[str, dict[str, Any], dict[str, Any]]]] = {}
@@ -69,12 +77,21 @@ def local_review_requests(state: dict[str, Any], *, concrete_joins: bool = False
                 else:
                     jobs[key] = []
                     for part in ("word", "syntax"):
+                        # A literal balanced numeric label plus whitespace is
+                        # already a word boundary. Syntax and ownership remain
+                        # reviewable; never discard the label to invent a word.
+                        if (native_faults and part == 'word'
+                                and re.match(r'^\([0-9]+\)\s+\S', raw)):
+                            continue
                         name = f"{key}_{part}"
-                        jobs[key].append((name, question(f"gap_{part}", name, entry='body_base' if concrete_joins else 'footnote_base'), check))
+                        jobs[key].append((name, question(f"gap_{part}", name,
+                            entry='body_base' if concrete_joins else 'footnote_base',
+                            native_faults=native_faults), check))
             key = f"owner_{order}"
             owner = layout["ownership"]
             check = dict(source_order=order, ownership=owner, current_start=layout["raw_text"][:240])
-            prompt = review_question('body_base', kind='ownership', order=order, key=key, retained=owner == 'paragraph')
+            prompt = review_question('body_base', kind='ownership_fault' if native_faults else 'ownership',
+                                     order=order, key=key, retained=owner == 'paragraph')
             jobs[key] = [(key, prompt, check)]
         observe(page, layout)
     raw_evidence = _raw_evidence(state)

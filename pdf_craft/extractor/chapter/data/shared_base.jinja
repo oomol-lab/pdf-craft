@@ -3,30 +3,70 @@
 {% if kind == 'gap_word' %}
 # Instructions
 
+{% if entry == 'body_base' and (native_faults | default(false)) %}
+At checks.{{ name }}. Does this exact paragraph break split one lexical word between the actual predecessor's end and the target's beginning?
+
+Full raw neighboring evidence is local_raw_evidence. Find the nearest genuine main-text predecessor among preceding_source_candidates; ancillary notes, headers and page numbers may be misclassified and must not hide it. Do not choose an arbitrary older main-text passage or anything from next_page.
+{% else %}
 Audit ONLY the new-paragraph break at checks.{{ name }}. Full raw neighboring evidence is local_raw_evidence. Find the nearest genuine main-text predecessor among preceding_source_candidates; ancillary notes, headers and page numbers may be misclassified and must not hide it. Do not choose an arbitrary older main-text passage or anything from next_page.
+{% endif %}
 
 A standalone formula/equation is a hard boundary. Images and tables do not force a break. Do not invent missing OCR text or unprovided indentation.
 
+{% if entry == 'body_base' and (native_faults | default(false)) %}
+Keep a new item's printed number or letter label when testing the seam; do not delete it or use a later target word to invent a split word. A standalone mathematical variable is not an unfinished lexical word merely because it has one letter.
+
+
+
+{% endif %}
+{% if entry == 'body_base' and (native_faults | default(false)) %}
+Test the literal seam only: the target's first characters must complete a lexical word begun at the genuine predecessor's end, including Chinese compound words and line-end hyphenation. A whole new word, a later word inside the target, or a merely related phrase does not establish this fault. Ignore syntax and paragraph-style issues.
+{% else %}
 Does this proposed paragraph break preserve whole words? Check the tail of the real predecessor against the target opening for a word split across the seam, including Chinese multi-character words and words broken by a page transition. Ignore other sentence-level and paragraph-style issues in this question.
+{% endif %}
 
 # True
 
+{% if entry == 'body_base' and (native_faults | default(false)) %}
+The target's first literal characters complete a lexical word begun at the actual predecessor's end; this break divides that word.
+{% else %}
 Whole words are preserved: this break does not cut one word into pieces.
+{% endif %}
 
 # False
 
+{% if entry == 'body_base' and (native_faults | default(false)) %}
+No such literal word completion is established. A new whole word may start a new paragraph; uncertainty is not proof of a divided word.
+{% else %}
 A single word is cut into two pieces by this break; the target begins with the missing end of that word.
+{% endif %}
 
 {% elif kind == 'gap_syntax' %}
 # Instructions
 
+{% if entry == 'body_base' and (native_faults | default(false)) %}
+At checks.{{ name }}. Does this exact paragraph break sever a mandatory grammatical dependency from the actual predecessor's end to this target's beginning?
+
+Full raw neighboring evidence is local_raw_evidence. Find the nearest genuine main-text predecessor among preceding_source_candidates; ancillary notes, headers and page numbers may be misclassified and must not hide it. Do not choose an arbitrary older main-text passage or anything from next_page.
+{% else %}
 Audit ONLY the new-paragraph break at checks.{{ name }}. Full raw neighboring evidence is local_raw_evidence. Find the nearest genuine main-text predecessor among preceding_source_candidates; ancillary notes, headers and page numbers may be misclassified and must not hide it. Do not choose an arbitrary older main-text passage or anything from next_page.
+{% endif %}
 
 A standalone formula/equation is a hard boundary. Images and tables do not force a break. Do not invent missing OCR text or unprovided indentation.
 
+{% if entry == 'body_base' and (native_faults | default(false)) %}
+Test an obligatory left-to-right grammatical dependency, not whether the passages could form one paragraph. A condition still requiring its main clause, a verb or preposition missing its obligatory complement, or another unfinished construction is a fault only when this actual target opening supplies that missing component.
+{% else %}
 Does this proposed paragraph break preserve mandatory syntactic units? This is about an unfinished construction, not whether the passages could form one paragraph. A condition still requiring its main clause, a verb or preposition lacking its obligatory complement, or a similarly unfinished construction must not be split.
+{% endif %}
 
+{% if entry == 'body_base' and (native_faults | default(false)) %}
+Complete clauses, derivation steps, exercise items and independent quotations can occupy separate paragraphs. In a list defining symbols, an initial definition can refer back to an already displayed expression; the next symbol definition does not thereby supply a missing component of the first. Such displayed definition items may be separate blocks. This does not permit splitting an unfinished condition before its first consequence, or a definition before its own required complement. Shared topic and punctuation alone do not require joining. Word-internal splitting is checked separately.
+
+A complete utterance or quotation may start a separate paragraph after its reporting, speech or recitation introduction, even when it supplies that verb's object. The option to keep them together does not make the existing break wrong. This convention does not cover a merely quoted term inside an unfinished clause, an unfinished external conditional, or a word split within a continuing utterance. Do not impose a quotation-layout preference.
+{% else %}
 Complete independent clauses, successive derivation steps, separate variable definitions, separate exercise items and independent quotations can be different paragraphs. A conjunction, shared topic, colon or semicolon alone does not require joining. A mathematical expression inside a text layout does not automatically complete an unfinished surrounding clause. Ignore merely word-internal splitting, which is checked separately.
+{% endif %}
 
 A failure requires that joining to the nearest true predecessor actually completes ITS unfinished construction. An odd or incomplete-looking target opening alone is not enough: do not join it to a complete unrelated sentence to hide missing OCR words.
 
@@ -34,10 +74,18 @@ Respect ordinary language and literary conventions: Chinese can omit subjects; d
 
 # True
 
+{% if entry == 'body_base' and (native_faults | default(false)) %}
+The actual predecessor has an obligatory grammatical component still pending, this exact target opening supplies it, and the target is not an independent printed reading unit. This break severs that specific dependency.
+{% else %}
 No unfinished mandatory syntactic construction is split; this new paragraph is permissible under this specific test.
+{% endif %}
 
 # False
 
+{% if entry == 'body_base' and (native_faults | default(false)) %}
+That exact mandatory dependency is not established. Stylistic continuity, a next derivation step, a pronoun reference or a shared topic does not prove that joining is required.
+{% else %}
 The target supplies an obligatory missing part of the preceding unfinished construction; this paragraph break cuts that construction.
+{% endif %}
 
 {% endif %}

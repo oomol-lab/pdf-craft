@@ -9,7 +9,8 @@ from collections.abc import Mapping
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Iterable, Callable, Coroutine
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from .request_events import validate_callback, RequestCallback, observe_response, invalid_response
 from dataclasses import dataclass, field
 from typing import Any, Self, Protocol, TypeVar
@@ -50,6 +51,38 @@ class JEV:
             raise ValueError("JEV API key cannot be empty")
         if not self.model.strip():
             raise ValueError("JEV model cannot be empty")
+
+
+class JEVRequestBudgetExceeded(RuntimeError):
+    """A page cannot spend another provider request, including retries."""
+
+
+@dataclass
+class _PageRequestBudget:
+    limit: int
+    used: int = 0
+
+    def consume(self) -> None:
+        if self.used >= self.limit:
+            raise JEVRequestBudgetExceeded(f'JEV page request budget exhausted ({self.limit})')
+        self.used += 1
+
+
+_PAGE_REQUEST_BUDGET: ContextVar[_PageRequestBudget | None] = ContextVar('jev_page_request_budget', default=None)
+
+
+@contextmanager
+def jev_page_request_budget(limit: int):
+    """Bind a strict physical-call allowance to this page and its retry tasks."""
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        raise ValueError('JEV request budget must be positive')
+    if _PAGE_REQUEST_BUDGET.get() is not None:
+        raise RuntimeError('A JEV page request budget cannot be nested')
+    token = _PAGE_REQUEST_BUDGET.set(_PageRequestBudget(limit))
+    try:
+        yield
+    finally:
+        _PAGE_REQUEST_BUDGET.reset(token)
 
 
 class _ObservedTransport(httpx2.AsyncHTTPTransport):
@@ -231,6 +264,9 @@ class JEVRuntime:
 
     async def _request_scores_once(self, request: dict[str, Any]) -> dict[str, float]:
         assert self._client is not None
+        budget = _PAGE_REQUEST_BUDGET.get()
+        if budget is not None:
+            budget.consume()
         with request_attempt(self.config) as attempt_usage:
             try:
                 response = await self._client.system_one(

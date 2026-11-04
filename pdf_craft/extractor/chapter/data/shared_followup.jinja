@@ -9,6 +9,10 @@ This is a distinct boundary question. Determine whether the target opening forms
 
 Do not require caption text to continue a main prose paragraph merely because its topic or wording also appears in that prose. Conversely a caption can run over pages: an opening which supplies an unfinished word or mandatory construction from an earlier image-associated text is not a new caption unit.
 
+{% if entry == 'body_followup' %}
+An independently printed excerpt can start mid-sentence or mid-word. Confirm its separate image-associated unit from the actual layout and source roles, not from a complete opening sentence. A lexical match to an earlier main-narrative word does not make a detached excerpt a continuation of that narrative. A continuation of an earlier caption requires an actual predecessor in that same caption/excerpt stream.
+
+{% endif %}
 The image positions, current gap decision, ownership hints and immediate_paragraph_hint are fallible locators rather than answers. Do not certify the start from punctuation alone, or guess a missing beginning. Do not grade missing OCR characters, other sources or the ownership choice in this question. If a separate start is not established in the supplied neighborhood, answer FALSE.
 
 # True
@@ -45,6 +49,12 @@ Classify only the FUNCTION of target source at checks.{{ name }}: is it illustra
 
 Use full local_raw_evidence and the image/text positions. A literary excerpt accompanying a photograph can have no Figure label and no quotation marks. A small strip above a nearly full-page image can still be image-associated text. The words may repeat an earlier narrative passage.
 
+{% if entry == 'body_followup' %}
+Evaluate the function of the whole strip, including any attached photograph credit. A narrow credited excerpt beside a page-dominating photograph can be an independent illustration-associated unit even when its prose is copied from the story. A credit or a nearby image alone is insufficient; require the corresponding source organization. Do not relabel the prose part as running narrative while treating only its credit as caption material.
+
+Evaluate a trailing credit in the source's language: a name followed by a photography verb can lack punctuation or an English label. When it terminates the same detached image strip, judge the function of the whole strip rather than only its final words. A credit in an otherwise sustained body column does not establish a whole caption.
+
+{% endif %}
 Do not decide from image size or text repetition alone. Ordinary body prose can continue across a page with an image. Do not mistake diagram labels, an ordinary chapter heading, a mixed body/caption block or missing text for a whole caption/excerpt. This question asks text role only, not whether a continuation flag is correct.
 
 # True

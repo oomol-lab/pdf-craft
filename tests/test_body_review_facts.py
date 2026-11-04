@@ -51,6 +51,48 @@ class BodyReviewFactTests(unittest.TestCase):
                    for p in body_supplementary_requests(base['state'], {})]
         self.assertFalse(any('prior_illustration_unit_0' in p['questions'] for p in packets))
 
+    def test_same_page_illustration_caption_is_checked_as_the_selected_predecessor(self):
+        image = dict(text(-1, '', (.1, .1, .9, .68)), source_order=None, source_type='image')
+        value = state([image, text(0, 'A credited illustration excerpt.', (.1, .7, .9, .78)),
+                       text(1, 'An independent narrative starts.', (.1, .81, .9, .94), joined=True)])
+        before = deepcopy(value)
+        packets = [p for base in local_review_requests(value, concrete_joins=True)
+                   for p in body_supplementary_requests(base['state'], {})]
+        packet = next(p for p in packets if 'prior_illustration_unit_1' in p['questions'])
+        check = packet['state']['checks']['prior_illustration_unit_1']
+        self.assertEqual(check['selected_predecessor']['page_index'], 2)
+        self.assertEqual(check['selected_predecessor']['source_order'], 0)
+        self.assertTrue(check['measured_adjacency'][0]['source_is_below_image'])
+        self.assertEqual(value, before)
+
+    def test_unnumbered_condition_and_first_textual_consequence_get_direct_checks(self):
+        value = state([text(0, 'If the rate is constant;'),
+                       text(1, 'one integration gives the distance.')])
+        packets = [p for base in local_review_requests(value, concrete_joins=True)
+                   for p in body_supplementary_requests(base['state'], {})]
+        names = {name for p in packets for name in p['questions']}
+        self.assertIn('conditional_frame_open_1', names)
+        self.assertIn('conditional_main_clause_1', names)
+
+    def test_standalone_formula_keeps_its_hard_boundary_after_a_condition(self):
+        formula = dict(text(1, 'z = q', (.2, .3, .8, .4)), source_order=None,
+                       source_type='formula')
+        value = state([text(0, 'If the rate is constant;'), formula,
+                       text(2, 'one integration gives the distance.')])
+        packets = [p for base in local_review_requests(value, concrete_joins=True)
+                   for p in body_supplementary_requests(base['state'], {})]
+        self.assertFalse(any(name.startswith('conditional_frame_open_')
+                             for p in packets for name in p['questions']))
+
+    def test_conditional_fault_needs_both_an_open_frame_and_its_actual_completion(self):
+        base = {'gap_1_syntax': .1, 'owner_0': .8}
+        facts = {'conditional_frame_open_1': .95, 'conditional_main_clause_1': .9}
+        result = apply_body_facts(base, facts)
+        self.assertEqual(result['split_conditional_clause_1'], .9)
+        self.assertEqual(result['owner_0'], .8)
+        weak = dict(facts, conditional_main_clause_1=.1)
+        self.assertEqual(apply_body_facts(base, weak)['split_conditional_clause_1'], .1)
+
     def test_independent_illustration_fault_cannot_be_erased_by_a_word_proof(self):
         result = apply_body_facts({'gap_0': .05, 'owner_1': .9},
             {'prior_illustration_unit_0': .92, 'target_leaves_illustration_0': .84})

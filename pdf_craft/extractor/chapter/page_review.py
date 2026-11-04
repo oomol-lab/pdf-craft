@@ -13,14 +13,18 @@ from ...pdf import Page
 from .analysis_types import AnalysedLayout, PageAnalysis, _AnalysedAssetSource
 from .asset_text import asset_text_packet
 from .paragraph_geometry import text_scale_estimate
-from .local_review import LOCAL_REVIEW_THRESHOLD, local_review_requests
-from .structural_review import NamedBatchEvaluator, review_body_page
-from .footnote_review import (FOOTNOTE_REVIEW_THRESHOLD, footnote_review_requests, review_footnote_page)
+from .local_review import local_review_requests
+from .structural_review import NamedBatchEvaluator
+from .footnote_review import footnote_review_requests
+from .packed_review import packed_review
 
 from .review_templates import review_text
 
-JEV_REVIEW_THRESHOLD = FOOTNOTE_REVIEW_THRESHOLD
+JEV_REVIEW_THRESHOLD = 0.39
 
+
+class IncompletePageReview(RuntimeError):
+    """The error-policy bridge handled a failed request, leaving no verdict."""
 
 
 @dataclass(frozen=True)
@@ -89,12 +93,11 @@ class JevReviewProcessor:
         self.results = []
         for _, state in build_jev_review_states(source_pages, analyses, page_pixel_sizes,
                                                 includes_footnotes=self._includes_footnotes):
-            if self._includes_footnotes:
-                probability = await review_footnote_page(state, evaluate)
-            else:
-                index = state['target_page']['page_index']
-                probability = await review_body_page(
-                    ((index, packet) for packet in local_review_requests(state, concrete_joins=True)), evaluate)
+            try:
+                probability = await review_page(
+                    state, evaluate, includes_footnotes=self._includes_footnotes)
+            except IncompletePageReview:
+                continue
             if probability is not None:
                 cutoff = 1 - self._threshold
                 # Compare on the score's own scale: taking the complement can
@@ -184,9 +187,23 @@ def build_jev_review_states(
     return generate()
 
 
-def review_threshold(includes_footnotes: bool) -> float:
-    """Mode-specific internal decisions, not a caller-controlled cost quota."""
-    return JEV_REVIEW_THRESHOLD if includes_footnotes else LOCAL_REVIEW_THRESHOLD
+def review_threshold(_includes_footnotes: bool) -> float:
+    """Frozen internal working point, not a caller-controlled cost quota."""
+    return JEV_REVIEW_THRESHOLD
+
+
+async def review_page(state, evaluate: NamedBatchEvaluator, *, includes_footnotes: bool):
+    """Run bounded review through the existing executor and error-policy bridge."""
+    async def single(index, packet):
+        results = await evaluate(((index, packet),))
+        if not results:
+            raise IncompletePageReview('JEV request failed without a complete verdict')
+        if len(results) != 1 or results[0][0] != index:
+            raise ValueError('JEV batch result does not match the requested page')
+        return results[0][1]
+
+    result = await packed_review(state, single, includes_footnotes=includes_footnotes)
+    return result['pass_probability']
 
 
 def load_page_pixel_sizes(path: Path) -> dict[int, tuple[int, int]]:
