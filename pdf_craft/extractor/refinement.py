@@ -21,6 +21,7 @@ class PageResult:
     usage: Any = None
     initial: Any = None
     refinement_status: RefinementStatus = RefinementStatus.NOT_REQUIRED
+    following: Any = None
 
 
 async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS, includes_footnotes=True):
@@ -115,6 +116,9 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
                     result, (previous, local) = load(f'result-{index}')
                     canonical_previous = initial.previous_analysis
                     canonical = initial.append(load(f'raw-{index}'))
+                    following = sequence[position + 1] if position + 1 < len(sequence) else None
+                    result.following = (deepcopy(initial).append(load(f'raw-{following}'))
+                                        if following is not None else None)
                     result.page = bind_local_result(result.page, local, previous, canonical, canonical_previous)
                     if result.initial is not None:
                         result.initial = canonical
