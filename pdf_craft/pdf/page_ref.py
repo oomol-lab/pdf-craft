@@ -5,8 +5,8 @@ from typing import Generator
 from PIL.Image import Image
 
 from ..error import PDFError
-from ..metering import AbortedCheck
-from .handler import DefaultPDFHandler, PDFDocument, PDFHandler
+from ..metering import AbortedCheck, check_aborted
+from .handler import DefaultPDFDocument, DefaultPDFHandler, PDFDocument, PDFHandler
 from .png import bounded_png
 
 
@@ -86,6 +86,9 @@ class PageRef:
         *, png_path: Path | None = None, aborted: AbortedCheck = lambda: False,
     ) -> Image:
         try:
+            check_aborted(aborted)
+            if isinstance(self._document, DefaultPDFDocument):
+                dpi = self._document.render_dpi(self._page_index, dpi)
             return bounded_png(
                 lambda resolution: self._document.render_page(page_index=self._page_index, dpi=resolution),
                 dpi, max_image_file_size, png_path, aborted,

@@ -17,7 +17,7 @@ from pdf_craft import (
     assert_pdf_readable, assert_pdf_renderable, assert_pdf_editable,
     assert_epub_readable, pdf_pages_count, AsyncPDFCraft,
 )
-from pdf_craft.pdf.poppler import PopplerDocument
+from pdf_craft.pdf.poppler import PageGeometry, PopplerDocument
 from tests.pdf_assertion_helpers import write_pdf
 from tests.test_epub_optional_cfi import book, document as epub_document
 
@@ -59,6 +59,7 @@ class PDFAssertionTests(unittest.TestCase):
     def test_font_diagnostics_do_not_discard_valid_page_pixels(self):
         document = PopplerDocument(Path('unused.pdf'))
         document._info = {'Pages': '1'}
+        document._geometries = {1: PageGeometry((0, 0, 20, 30), (0, 0, 20, 30), 0)}
         with Image.new('RGB', (20, 30), (12, 34, 56)) as original:
             for image_format in ('PNG', 'PPM'):
                 buffer = BytesIO()
@@ -78,6 +79,7 @@ class PDFAssertionTests(unittest.TestCase):
     def test_successful_process_with_empty_or_corrupt_image_still_fails(self):
         document = PopplerDocument(Path('unused.pdf'))
         document._info = {'Pages': '1'}
+        document._geometries = {1: PageGeometry((0, 0, 20, 30), (0, 0, 20, 30), 0)}
         buffer = BytesIO()
         with Image.new('RGB', (20, 30), 'black') as image:
             image.save(buffer, format='PNG')

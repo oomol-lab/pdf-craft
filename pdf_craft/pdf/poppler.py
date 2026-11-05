@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import BytesIO
 import logging
+from math import ceil, floor, isfinite, sqrt
 from pathlib import Path
 import re
 
@@ -16,6 +17,35 @@ from .types import PDFDocumentMetadata
 
 
 _LOGGER = logging.getLogger(__name__)
+MAX_PAGE_PIXELS = 80_000_000
+
+
+def _render_dpi(size: tuple[float, float], requested: int) -> int:
+    """Bound Poppler's ceil-rounded raster before allocating any pixel buffers."""
+    if requested < 1 or any(not isfinite(value) or value <= 0 for value in size):
+        raise ValueError("Invalid PDF page geometry or rendering DPI")
+    # pdfinfo -box rounds each coordinate to two decimals. Account for both
+    # endpoints, including floating-point rounding, rather than underestimating.
+    width, height = (value + 0.02 for value in size)
+
+    def fits(dpi: int) -> bool:
+        return ceil(width * dpi / 72) * ceil(height * dpi / 72) <= MAX_PAGE_PIXELS
+
+    if not fits(1):
+        raise ValueError(f"PDF page exceeds {MAX_PAGE_PIXELS} pixels even at 1 DPI")
+    if fits(requested):
+        return requested
+    candidate = max(1, min(requested, floor(72 * sqrt(MAX_PAGE_PIXELS / width / height))))
+    # Integer pixel rounding matters particularly for extremely narrow pages.
+    # Binary search keeps the correction bounded even for extreme aspect ratios.
+    lower, upper = 1, candidate
+    while lower < upper:
+        middle = (lower + upper + 1) // 2
+        if fits(middle):
+            lower = middle
+        else:
+            upper = middle - 1
+    return lower
 
 
 @dataclass(frozen=True)
@@ -114,9 +144,14 @@ class PopplerDocument:
             publisher=None, isbn=None, authors=authors, editors=[], translators=[], modified=modified,
         )
 
-    def render_page(self, page_index: int, dpi: int) -> Image.Image:
+    def render_dpi(self, page_index: int, dpi: int) -> int:
+        """Effective DPI for the full MediaBox, including page rotation."""
         if dpi <= 0 or not 1 <= page_index <= self.pages_count:
             raise ValueError("Invalid PDF page or rendering DPI")
+        return _render_dpi(self.geometry(page_index).size, dpi)
+
+    def render_page(self, page_index: int, dpi: int) -> Image.Image:
+        dpi = self.render_dpi(page_index, dpi)
         output = self._run(self.command("pdftoppm"), "-f", str(page_index), "-l", str(page_index),
                            "-singlefile", "-r", str(dpi), str(self.source))
         with Image.open(BytesIO(output)) as image:

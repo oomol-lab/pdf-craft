@@ -99,6 +99,10 @@ class DefaultPDFDocument:
         except Exception as error:
             raise PDFError(f"Failed to get page size for page {page_index}.", page_index) from error
 
+    def render_dpi(self, page_index: int, dpi: int) -> int:
+        """Start PNG feedback from the built-in renderer's effective DPI."""
+        return self._document.render_dpi(page_index, dpi)
+
     def render_page(self, page_index: int, dpi: int) -> Image.Image:
         try:
             return self._document.render_page(page_index, dpi)

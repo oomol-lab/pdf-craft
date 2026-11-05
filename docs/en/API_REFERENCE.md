@@ -266,14 +266,21 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `on_metadata` | `None` | Receives one finalized `MetadataContent`, including an empty view when appropriate. |
 | `context` | `None` | Caller-owned `ExtractionContext` for page geometry and active resource reads. |
 
-With `max_page_image_file_size`, the requested DPI is tried first. Only an
+The built-in Poppler renderer limits each full-page raster to 80,000,000 pixels
+before rendering, using the rotated MediaBox. It lowers DPI when necessary,
+never increases the requested DPI, and leaves Pillow's safety limits unchanged.
+Pages that exceed this budget even at 1 DPI fail before rasterization.
+Custom PDF handlers retain responsibility for their own raster allocation limits.
+Downstream coordinates use the returned image's actual dimensions.
+
+With `max_page_image_file_size`, the pixel-bounded DPI is tried first. Only an
 actually oversized PNG triggers a lower DPI and another encoding, with at most
 five generations per image (including the first). Each adjustment uses the
-measured byte size; images already within the limit keep their requested DPI.
+measured byte size; images already within the limit keep that DPI.
 The final vendor request image is checked before URL resolution/upload, including
 the optional footnote pass. If the limit cannot be met, the operation reports a
 failure through the existing error policy rather than sending the oversized PNG.
-`None` disables the byte limit. No provider-specific byte limit is assumed.
+`None` disables only the byte limit. No provider-specific byte limit is assumed.
 
 Page refinement is independent of footnote extraction and uses explicit credentials:
 

@@ -379,10 +379,15 @@ narrative 与 metadata 固定翻译；`with_anchored` 和 `with_furniture` 只�
 | `on_metadata` | `None` | 一次性接收定稿后的 `MetadataContent` |
 | `context` | `None` | 调用方持有的 `ExtractionContext`，用于页面几何和活跃期间的资源访问 |
 
-设置 `max_page_image_file_size` 后，先按预设 DPI 生成 PNG，只有实际编码字节数超限
+内置 Poppler 渲染器在生成位图前，按旋转后的 MediaBox 将完整页面限制在 80,000,000
+像素以内；必要时降低 DPI，绝不提高请求 DPI，也不修改 Pillow 的安全阈值。
+即使降至 1 DPI 仍超预算的页面会在生成位图前报错。自定义 PDF handler 负责自己的
+位图分配限制。下游坐标使用返回位图的实际宽高。
+
+设置 `max_page_image_file_size` 后，先按像素预算约束后的 DPI 生成 PNG，只有实际编码字节数超限
 才降低 DPI 并重新生成；每张图片最多生成 5 次，包含首次。调整幅度依据每轮实测大小，
 已达标的页面不提前降 DPI。最终供应商请求图片（包括脚注第二轮）在 URL 解析或上传前
-再次检查；无法满足上限时沿用现有错误策略报告失败，不发送超限图片。`None` 表示不限制，
+再次检查；无法满足上限时沿用现有错误策略报告失败，不发送超限图片。`None` 只取消字节限制，
 库不假定所有供应商共有固定的 10 MB 上限。
 
 页面渲染和 OCR 的降级通过门面或单次操作的 `error_policy` 配置，不属于
