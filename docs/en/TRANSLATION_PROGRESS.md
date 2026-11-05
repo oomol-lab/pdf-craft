@@ -26,7 +26,7 @@ out-of-order EPUB state can live on temporary disk across existing batch barrier
 | Extraction | PAGE | One selected source page, through local processing and necessary validation. |
 | Extraction | TOC | One directory analysis, including statistical analysis/cache reuse. |
 | Extraction | METADATA | One book-metadata extraction: native PDF fields, or OCR evidence with native fallback. |
-| Translation | CONTENT | PCEX flow/footnote entry with narrative words; EPUB body task. |
+| Translation | CONTENT | PCEX flow/footnote entry with narrative content; EPUB body task. |
 | Translation | ASSET | One independent image/table asset, including its title/content/caption fields. |
 | Translation | FURNITURE | One independent pattern position, or ordinary sections on one page. |
 | Translation | METADATA | Zero or one aggregate of book metadata. |
@@ -34,6 +34,9 @@ out-of-order EPUB state can live on temporary disk across existing batch barrier
 
 PCEX headings are ordinary CONTENT units. Their final results release dependent
 furniture immediately; reuse creates no additional units, words or LLM calls.
+The standard streaming PCEX translator also counts symbol-only narrative entries
+as CONTENT units, even when their source-word count is zero. Blank entries and
+standalone image/table assets do not create narrative tasks.
 PCEX TOC is derived from headings and is not a separate translation. EPUB XHTML
 `head/title` fields belong to NAVIGATION, even without a TOC or OPF metadata.
 Only OPF book fields belong to the METADATA aggregate. Native-only PDF extraction

@@ -19,6 +19,7 @@ from .word_count import count_xml_words
 def scan(paths, transformer=None, *, metadata, with_anchored, with_furniture):
     from .narrative_xml import NarrativeXMLTransformer
     count_words = transformer.source_word_count if transformer is not None else NarrativeXMLTransformer.source_word_count
+    streaming = transformer is None or transformer.supports_stream
     counts, total = Counter(), 0
 
     def add(kind, words, *, include_empty=False):
@@ -30,7 +31,10 @@ def scan(paths, transformer=None, *, metadata, with_anchored, with_furniture):
     for path in chapter_paths(paths.chapters):
         sources = (_unit(item) for item in file_content(path) if item.value is not None) if transformer is None or transformer.supports_stream else (decode(read_xml(path)),)
         for source in sources:
-            add(UnitKind.CONTENT, count_words(source))
+            # Symbol-only narrative tasks still settle a unit even when they
+            # contribute no words. Use the execution adapter's task predicate.
+            add(UnitKind.CONTENT, count_words(source), include_empty=(
+                streaming and NarrativeXMLTransformer.has_translatable_content(source)))
             if with_anchored:
                 for slot in _asset_slots(source):
                     if _asset_has_text(slot.asset):
