@@ -118,6 +118,7 @@ class SourceMathIdentityTests(IsolatedAsyncioTestCase):
     async def test_missing_duplicate_unknown_and_invented_references_never_reach_fill(self):
         for response in ('<source-math key="s2"/>', '<source-math key="s1"/><source-math key="s1"/>',
                          'no formula', '<source-math key="s1"/> plus $x=0$',
+                         '<source-math key="s1"/> <SOURCE-MATH key="s2"/>',
                          '<source-math key="s1">$x=0$</source-math>',
                          '<source-math key="s1">$x=1$'):
             with self.subTest(response=response):

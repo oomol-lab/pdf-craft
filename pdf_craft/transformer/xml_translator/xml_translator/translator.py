@@ -31,7 +31,7 @@ from .hill_climbing import HillClimbing
 from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
 from .submitter import SubmitKind, submit
 from ...word_count import count_xml_words
-from ...source_math import SourceMathTranslation
+from ...source_math import SourceMathTranslation, validate_unbound_references
 from ...canonical_projection import MathProjectionError
 from ...progress import TranslationProgress, active_progress, selected_item, selected_assets
 from pdf_craft.progress import UnitOutcome
@@ -477,9 +477,10 @@ class XMLTranslator:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
         if not primary:
             return [None] * len(inline_segments)
-        if not any(text.text.strip(" \t\r\n") for segment in inline_segments for text in segment):
-            # Structural boundaries have no translation work, but must reach
-            # submission so empty block anchors retain their tails and parents.
+        if not any(text.text.strip() for segment in primary for text in segment):
+            # Unicode whitespace needs no translation. Clone rather than strip
+            # it so special spaces, inline nodes and empty block anchors survive;
+            # read-only context must not turn a blank primary unit into work.
             return [(segment.parent, [text.clone() for text in segment]) for segment in inline_segments]
         context_targets = segment_locations([segment for segment in inline_segments
                                              if getattr(segment, '_translation_context', False)])
@@ -544,7 +545,7 @@ class XMLTranslator:
 
     async def _translate_text_async(self, text: str, *, context: str = "",
                                     source_math: SourceMathTranslation | None = None) -> str:
-        if not text.strip(" \t\r\n") or _already_in_target_language(text, self._target_language):
+        if not text.strip() or _already_in_target_language(text, self._target_language):
             return text
         template = await self._translation_runtime.template("translate")
         messages = [Message(MessageRole.SYSTEM, template.render(
@@ -558,12 +559,14 @@ class XMLTranslator:
         class _TranslationProtocol:
             async def validate(self, response, state, attempt, max_attempts):
                 nonlocal last_error
-                if source_math is not None:
-                    try:
+                try:
+                    if source_math is not None:
                         source_math.resolve(response)
-                    except MathProjectionError as error:
-                        last_error = error
-                        return ProtocolRetry(str(error), state)
+                    else:
+                        validate_unbound_references(text, response)
+                except MathProjectionError as error:
+                    last_error = error
+                    return ProtocolRetry(str(error), state)
                 return ProtocolSuccess(response, state)
 
             async def empty(self, state, attempt, max_attempts):
@@ -579,10 +582,10 @@ class XMLTranslator:
             async def request(_current_messages, index, maximum):
                 nonlocal last_error, envelope_error
                 try:
-                    # Unbound envelopes resend the original source. Only the
-                    # explicitly protected formula protocol accepts repair
-                    # feedback, retaining its original text and read-only table.
-                    request_messages = _current_messages if source_math is not None and not envelope_error else messages
+                    # Unbound envelopes resend the original source. Formula
+                    # protocol repairs retain the original text and read-only
+                    # table, including when that table is empty.
+                    request_messages = _current_messages if not envelope_error else messages
                     response = await translator._requests.request(ctx, runtime=translator._translation_runtime,
                         stage='translation', messages=request_messages, retry_index=index, retry_max=maximum)
                     envelope_error = False

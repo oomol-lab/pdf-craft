@@ -8,6 +8,19 @@ from .canonical_projection import MathProjectionError, SourceMath, bind_source_m
 from .xml_translator.segment import TextSegment
 
 _REFERENCE = re.compile(r'<source-math\b[^>]*?/\s*>|<source-math\b[^>]*>.*?</source-math\s*>', re.DOTALL)
+_MARKUP = re.compile(r'</?source-math\b[^>]*(?:>|$)', re.IGNORECASE)
+
+
+def validate_unbound_references(source: str, response: str) -> None:
+    """No formula table grants no new reference identities.
+
+    Literal markup already present in source prose (e.g. protocol documentation)
+    may survive unchanged; it does not grant permission to invent other markers.
+    """
+    if Counter(_MARKUP.findall(response)) - Counter(_MARKUP.findall(source)):
+        raise MathProjectionError(
+            'No source formula table was provided. Do not invent source-math references; '
+            'translate the original prose without adding formula markup.')
 
 
 class SourceMathTranslation:
@@ -40,7 +53,7 @@ class SourceMathTranslation:
         """Accept source identities or recover an unambiguous, unchanged literal reply."""
         references = list(_REFERENCE.finditer(response))
         if not references:
-            if re.search(r'</?source-math\b', response, re.IGNORECASE):
+            if _MARKUP.search(response):
                 raise MathProjectionError('Use complete, empty source-math references with their original keys.')
             self.bindings = bind_source_math(response, self.sources)
             return response
@@ -65,7 +78,7 @@ class SourceMathTranslation:
                 f'Preserve every source-math identity exactly once. Missing keys: {missing}; '
                 f'duplicate keys (occurrence counts): {duplicates}.')
         ordinary = _REFERENCE.sub('', response)
-        if re.search(r'</?source-math\b', ordinary) or CanonicalMath.matches(ordinary):
+        if _MARKUP.search(ordinary) or CanonicalMath.matches(ordinary):
             raise MathProjectionError('Do not invent or retype formulas; use only the original source-math references.')
         bindings = [[self.values[key]] for key in keys]
         iterator = iter(keys)
