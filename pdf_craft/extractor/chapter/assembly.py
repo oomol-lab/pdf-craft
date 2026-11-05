@@ -207,33 +207,39 @@ class PageAssembly:
         for identifier in list(self.notes):
             self._close_note(identifier)
 
-    def _atomic(self, operation):
+    def _atomic(self, operation, *, probe=False):
         body = deepcopy(self.body.pending)
         unresolved = {key: deepcopy(flow.pending) for key, flow in self.unresolved.items()}
         notes = {key: (deepcopy(ref), deepcopy(flow.pending)) for key, (ref, flow) in self.notes.items()}
         active = self.active_note
         self._events = []
+        succeeded = False
         try:
             with closing(sqlite3.connect(self.database)) as db:
                 with db:
                     self._transaction = db
                     operation()
-        except BaseException:
-            self.body.pending = body
-            self.unresolved = {}
-            for key, pending in unresolved.items():
-                flow = _Paragraphs(self._body, self._references)
-                flow.pending = pending
-                self.unresolved[key] = flow
-            self.notes = {}
-            for key, (ref, pending) in notes.items():
-                flow = self._note_paragraphs(ref)
-                flow.pending = pending
-                self.notes[key] = ref, flow
-            self.active_note = active
-            raise
+                    if probe:
+                        db.rollback()
+            succeeded = True
         finally:
             self._transaction = None
+            if probe or not succeeded:
+                self.body.pending = body
+                self.unresolved = {}
+                for key, pending in unresolved.items():
+                    flow = _Paragraphs(self._body, self._references)
+                    flow.pending = pending
+                    self.unresolved[key] = flow
+                self.notes = {}
+                for key, (ref, pending) in notes.items():
+                    flow = self._note_paragraphs(ref)
+                    flow.pending = pending
+                    self.notes[key] = ref, flow
+                self.active_note = active
+                self._events = []
+        if probe:
+            return
         # User callbacks observe only committed units and may abort the entire
         # operation. They never participate in rollback or source recovery.
         for callback, value in self._events:
@@ -241,38 +247,96 @@ class PageAssembly:
         self._events = []
         self._deliver_bodies()
 
-    def append(self, page, *, refined=False):
+    def _commit_page(self, page, refined=False):
         page = self._bind_incoming(page, refined)
-        def commit():
-            # Record the semantic dependency closure as scalars, not a book DOM.
-            pending_streams = {None: {item.page_index for item in self.body.pending}}
-            pending_streams.update({key: {item.page_index for item in flow.pending}
-                                    for key, flow in self.unresolved.items()})
-            unresolved = {citation.citation_id for citation in page.citations if citation.state == 'unresolved'}
-            for layout in page.layouts:
-                linked = {ref.citation_page_index for ref in layout.references}
-                if layout.ownership == 'paragraph' or layout.citation_id in unresolved:
-                    key = layout.citation_id if layout.citation_id in unresolved else None
-                    pending_pages = pending_streams.setdefault(key, set())
-                    if layout.source_order is None:
-                        if getattr(layout.source, 'ref', None) == 'formula':
-                            pending_pages.clear()
-                        else:
-                            pending_pages.add(layout.page_index)
-                    elif layout.continues_from_previous:
-                        linked.update(pending_pages)
-                        pending_pages.add(layout.page_index)
-                    else:
+        # Record the semantic dependency closure as scalars, not a book DOM.
+        pending_streams = {None: {item.page_index for item in self.body.pending}}
+        pending_streams.update({key: {item.page_index for item in flow.pending}
+                                for key, flow in self.unresolved.items()})
+        unresolved = {citation.citation_id for citation in page.citations if citation.state == 'unresolved'}
+        for layout in page.layouts:
+            linked = {ref.citation_page_index for ref in layout.references}
+            if layout.ownership == 'paragraph' or layout.citation_id in unresolved:
+                key = layout.citation_id if layout.citation_id in unresolved else None
+                pending_pages = pending_streams.setdefault(key, set())
+                if layout.source_order is None:
+                    if getattr(layout.source, 'ref', None) == 'formula':
                         pending_pages.clear()
+                    else:
                         pending_pages.add(layout.page_index)
-                for index in linked:
-                    self._run('INSERT OR IGNORE INTO edges VALUES (?,?)', (index, page.page_index))
-            for citation in page.citations:
-                if citation.origin_page_index is not None:
-                    self._run('INSERT OR IGNORE INTO edges VALUES (?,?)', (citation.origin_page_index, page.page_index))
-            self._append(page)
-            self._run('INSERT INTO adopted VALUES (?,?)', (page.page_index, pickle.dumps(page)))
-        self._atomic(commit)
+                elif layout.continues_from_previous:
+                    linked.update(pending_pages)
+                    pending_pages.add(layout.page_index)
+                else:
+                    pending_pages.clear()
+                    pending_pages.add(layout.page_index)
+            for index in linked:
+                self._run('INSERT OR IGNORE INTO edges VALUES (?,?)', (index, page.page_index))
+        for citation in page.citations:
+            if citation.origin_page_index is not None:
+                self._run('INSERT OR IGNORE INTO edges VALUES (?,?)', (citation.origin_page_index, page.page_index))
+        self._append(page)
+        self._run('INSERT INTO adopted VALUES (?,?)', (page.page_index, pickle.dumps(page)))
+
+    def validate(self, page, following=None, *, refined=False, initial=None):
+        """Prove adoption, the next raw fallback, and EOF before publication.
+
+        The next page is immutable primary evidence, never another model result.
+        Checking it before committing this page prevents repaired/raw mixtures
+        from invalidating a predecessor that has already reached the consumer.
+        """
+        def frontier(layouts):
+            result = None
+            for layout in layouts:
+                if layout.source_order is not None:
+                    result = layout.paragraph_role, layout.paragraph_level
+                elif getattr(layout.source, 'ref', None) == 'formula':
+                    result = None
+            return result
+
+        def pending():
+            streams: dict[str | None, list] = {None: self.body.pending}
+            streams.update({key: flow.pending for key, flow in self.unresolved.items()})
+            streams.update({key: flow.pending for key, (_ref, flow) in self.notes.items()})
+            return streams
+
+        contracts = {}
+        if following is not None and initial is not None:
+            # Only deferred tail metadata is needed. Trial-adopting all raw
+            # streams here would reject a valid repair of an unrelated raw defect.
+            expected = {key: frontier(layouts) for key, layouts in pending().items()}
+            for layout in sorted(materialize_asset_text(initial).layouts, key=lambda item: item.document_order):
+                if layout.ownership != 'ignored':
+                    key = None if layout.ownership == 'paragraph' else layout.citation_id
+                    if layout.source_order is not None:
+                        expected[key] = layout.paragraph_role, layout.paragraph_level
+                    elif getattr(layout.source, 'ref', None) == 'formula':
+                        expected[key] = None
+            following_streams = {None, *(citation.citation_id for citation in following.citations)}
+            visible = set()
+            for layout in materialize_asset_text(following).layouts:
+                if layout.ownership != 'ignored' and (layout.source_order is not None or
+                        getattr(layout.source, 'ref', None) == 'formula'):
+                    visible.add(None if layout.ownership == 'paragraph' else layout.citation_id)
+            contracts = {key: value for key, value in expected.items()
+                         if value is not None and key in following_streams - visible}
+
+        def check():
+            self._commit_page(page, refined)
+            if following is not None:
+                self._commit_page(following)
+            # Across arbitrarily many transparent asset pages the next text is
+            # outside the request window. Preserve each raw stream's contract
+            # instead of waiting for that text or replaying published content.
+            actual = pending()
+            for key, value in contracts.items():
+                if frontier(actual.get(key, ())) != value:
+                    raise PageStructureError('Candidate changes deferred continuation metadata', page.page_index)
+            self._finish()
+        self._atomic(check, probe=True)
+
+    def append(self, page, *, refined=False):
+        self._atomic(lambda: self._commit_page(page, refined))
 
     def finish(self):
         self._atomic(self._finish)
