@@ -20,13 +20,15 @@
 | extraction | PAGE | 所选源页各一个，直到该页处理及必要校验结束。 |
 | extraction | TOC | 一次目录分析，包含统计分析或缓存复用。 |
 | extraction | METADATA | 一次书籍元信息提取：原生 PDF 字段，或 OCR 证据加原生 fallback。 |
-| translation | CONTENT | PCEX 中含 narrative words 的 flow/脚注条目；EPUB 的正文任务。 |
+| translation | CONTENT | PCEX 中含 narrative 内容的 flow/脚注条目；EPUB 的正文任务。 |
 | translation | ASSET | 独立的图片或表格，包含该资产的 title/content/caption 字段。 |
 | translation | FURNITURE | 独立 pattern position，或同一页的普通 sections。 |
 | translation | METADATA | 书籍元信息聚合为 0 或 1 个单元。 |
 | translation | NAVIGATION | EPUB 导航及文档标题聚合为 0 或 1 个单元。 |
 
 PCEX 标题是普通 CONTENT 单元；定稿立即释放对应 furniture 依赖，复用不重复计 unit、words 或 LLM 请求。
+标准流式 PCEX 翻译器也将仅含符号的正文条目计入 CONTENT，即使其原文词数为 0。
+空白条目与独立图片/表格资产不创建 narrative 任务。
 PCEX 目录从标题派生，不单独翻译计数。EPUB XHTML 的 head/title 始终属于 NAVIGATION，
 即使没有目录或 OPF 元信息；只有 OPF 书籍字段归入 METADATA。原生 PDF 元信息也在 OCR 前创建并完成 METADATA 单元；空结果或允许的 fallback 同样结清。
 排除页不在 PAGE 总数中；所选页命中缓存仍要完成一个 PAGE。
