@@ -91,7 +91,9 @@ def apply_metadata(root, fields, target_language):
                 elem.text = fields_by_tag[tag][counter]
                 counters[tag] = counter + 1
     if not has_language and target_language is not None:
-        language = Element("{http://purl.org/dc/elements/1.1/}language")
+        # XMLLikeNode serializes cleaned names and restores its own declarations.
+        # A local default namespace also works when the input has no DC fields.
+        language = Element("language", {"xmlns": "http://purl.org/dc/elements/1.1/"})
         language.text = target_language
         metadata_elem.append(language)
 
