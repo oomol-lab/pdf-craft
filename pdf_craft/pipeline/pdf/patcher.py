@@ -708,12 +708,13 @@ def _check_ignore_error(checker: ErrorPolicyInput, error: Exception, *, replacem
     targets = []
     for value in values:
         regions = tuple(SourceRegion(PageGeometry(region.page_index, region.page_pixel_size[0],
-                                     region.page_pixel_size[1], region.dpi), region.reading_order, region.bbox)
+                                     region.page_pixel_size[1], region.dpi), region.reading_order, region.bbox,
+                                     fragment_id=region.fragment_id)
                         for region in value.source_regions())
         pages = tuple(dict.fromkeys(region.page.page_index for region in regions))
         first = regions[0] if regions else None
         targets.append(FailureLocation('regions', page_indexes=pages, regions=regions,
-            unit_id=f'paragraph:{first.page.page_index}:{first.source_order_in_page}' if first else None,
+            unit_id=f'paragraph:{first.page.page_index}:{first.identity_order}' if first else None,
             original=value.text))
     if not page_indexes:
         page_indexes = tuple(dict.fromkeys(index for target in targets for index in target.page_indexes))

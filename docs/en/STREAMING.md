@@ -179,6 +179,9 @@ translation retains its existing EpubFragmentContent contract. PDF extraction XM
 
 SourceRegion contains immutable PageGeometry, source_order_in_page (the PCEX source_order identity,
 not an array index), and the original integer OCR-pixel bbox `(left, top, right, bottom)`.
+Its optional keyword-only `fragment_id` identifies a logical slice. Slices may share
+the original source ordinal and bbox. `identity_order` returns the fragment identity,
+or the source ordinal when `fragment_id` is unspecified.
 The origin is top-left, with x increasing rightward and y downward. Its map_bbox(target_size) returns floats using
 actual image width/height ratios. render_dpi is the requested DPI; page-image limits can reduce effective DPI.
 Mapping assumes the same crop/orientation and does not infer rotation, cropping, or padding.
