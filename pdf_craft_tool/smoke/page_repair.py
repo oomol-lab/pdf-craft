@@ -63,7 +63,7 @@ async def _run_page_repair_smoke(
         runtime = runtime_for(
             llm,
             ConcurrentExecutor(FixedCapacity(int(config.get("concurrency", 1)))),
-            protocol_version="page-repair-json-v1",
+            protocol_version="page-repair-json-v2",
         )
         raw_path = run_path / "llm-raw"
         raw_path.mkdir()
@@ -93,6 +93,11 @@ async def _run_page_repair_smoke(
         page_indexes=selection.page_indexes,
         retry_policy=RetryPolicy(**config.get("retry_policy", {})),
     )
+    evidence = config.get('printed_evidence')
+    if evidence is not None:
+        from .printed_evidence import recover_printed_evidence
+        ocr_path = recover_printed_evidence(ocr_path, run_path / 'printed-source' / 'ocr',
+                                           Path(evidence['pdf']), evidence['dpi'])
     analysis = prepare_chapter_analysis(ocr_path, TocInfo([], []))
     with report.stage("repair"):
         repaired = await processor(
@@ -128,6 +133,7 @@ async def _run_page_repair_smoke(
                 "result": str(result_path),
                 "review_page_indexes": actual["review_page_indexes"],
                 "attempts": attempts,
+                "printed_evidence": str(run_path / "printed-source" / "printed-evidence.json") if evidence else None,
             }
         },
     )

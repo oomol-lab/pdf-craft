@@ -390,3 +390,27 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await asyncio.wait_for(task, 3)
         self.assertEqual(translator._requests.pending, {})
+
+    @policy_operation
+    async def test_artist_receives_shared_background_once_outside_grouped_source(self):
+        from pdf_craft.transformer.structured_translation import StructuredTranslation
+        from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
+        translator, model = translator_fixture(max_group_score=2600)
+        original = model.answer
+        def answer(messages):
+            if messages[0]['content'].startswith('You are a translator.'):
+                return messages[1]['content'].split('Text to translate:\n', 1)[1].strip('\n')
+            return original(messages)
+        model.answer = answer
+        tasks = [TranslationTask(fromstring(f'<p>Paragraph {i}.</p>'), SubmitKind.REPLACE, i)
+                 for i in range(6)]
+        result = await translator._translate_elements(tasks,
+            **StructuredTranslation(context=lambda _segments: 'Background evidence only.').arguments(), window=1)
+        self.assertEqual(len(result), 6)
+        artists = [call for call in model.wire_calls if call[0].message.startswith('You are a translator.')]
+        self.assertEqual(len(artists), 1)
+        user = artists[0][1].message
+        self.assertEqual(user.count('Background evidence only.'), 1)
+        self.assertEqual(user.count('Text to translate:'), 1)
+        self.assertEqual(user.count('Paragraph '), 6)
+        assert_free_artist_prompts(self, model)

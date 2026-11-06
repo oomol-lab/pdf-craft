@@ -13,7 +13,7 @@ class SourceMathTranslation:
         self.values = {f's{index}': source for index, source in enumerate(self.sources, 1)}
         self.evidence = {}
         self.allocated = False
-        self.bindings: list[list[SourceMath]] = []
+        self.bindings: list[list[SourceMath | str]] = []
 
     def readable(self, segment: TextSegment) -> str:
         """Present original mathematical text without exposing engineering IDs."""

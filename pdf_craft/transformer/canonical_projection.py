@@ -5,6 +5,7 @@ the canonical text declares mathematical boundaries: replacing their contents
 with an unrelated source formula would invalidate the text just accepted.
 """
 from copy import deepcopy
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 import re
 import unicodedata
@@ -49,7 +50,8 @@ def _normalized(value: str) -> str:
 
 
 def project_canonical_math(
-    mappings: list[MathMapping | None], canonical: str, bindings: list[list[SourceMath]],
+    mappings: list[MathMapping | None], canonical: str, bindings: list[list[SourceMath | str]],
+    residual_factory: Callable[[str], Element] | None = None,
 ) -> list[MathMapping | None] | None:
     values = list(CanonicalMath(canonical).values.values())
     if not values:
@@ -93,7 +95,16 @@ def project_canonical_math(
                                           parent_stack=stack, block_depth=find_block_depth(stack)))
                 elif offset <= match.start():
                     for source in binding:
-                        node = deepcopy(source.element)
+                        if isinstance(source, str):
+                            if not source.strip(' \t\r\n'):
+                                output.append(replace(field, text=source, parent_stack=stack,
+                                                      block_depth=find_block_depth(stack)))
+                                continue
+                            if residual_factory is None:
+                                raise MathProjectionError('A format adapter must materialize residual mathematics.')
+                            node = residual_factory(source)
+                        else:
+                            node = deepcopy(source.element)
                         node.tail = None
                         for part in search_text_segments(node, normalize_whitespace=False):
                             parents = stack + part.parent_stack

@@ -42,7 +42,8 @@ def _response_from_message(message):
     return {
         "page_index": target["page_index"],
         "layouts": [
-            {key: value for key, value in {**layout, **layout["initial_proposal"]}.items() if key in layout_fields}
+            dict({key: value for key, value in {**layout, **layout["initial_proposal"]}.items() if key in layout_fields},
+                 paragraph_evidence="Fixture boundary decision.")
             for layout in target["layouts"]
         ],
         "citations": target["citations"],
@@ -68,6 +69,26 @@ def _page_with_reference(text_before="Body", text_after=" end"):
 
 
 class PageRepairTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_local_boundary_evidence_repairs_shape_without_semantic_audit(self):
+        page = _page_with_reference()
+        attempts = []
+        async def request(messages, index, _maximum):
+            attempts.append(index)
+            data = _response_from_message(messages[1])
+            for layout in data['layouts']:
+                if index == 0:
+                    layout.pop('paragraph_evidence')
+                else:
+                    # The program must not approve/reject semantic reasoning
+                    # by rereading old pages or neighboring source evidence.
+                    layout['paragraph_evidence'] = 'An uninterpreted model boundary finding.'
+            return json.dumps(data)
+        repaired = await repair_page_with_llm(previous_page=None, target_page=page, next_page=None,
+            previous_pass_probability=None, next_pass_probability=None, request=request)
+        self.assertEqual(attempts, [0, 1])
+        self.assertEqual(repaired.page_index, page.page_index)
+
+
     async def test_all_page_processor_skips_jev_and_hides_neighbor_scores(self):
         source_pages = [
             decode(fromstring(

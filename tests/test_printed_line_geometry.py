@@ -1,5 +1,6 @@
 """Pixel observations must survive decoding without becoming guessed text."""
 
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -12,6 +13,7 @@ from doc_page_extractor.types import Layout, LayoutKind, OCRPageResult
 from pdf_craft import DeepSeekOCRVendorConfig
 from pdf_craft.common import AssetHub
 from pdf_craft.extractor.chapter.primary import project_window
+from pdf_craft.extractor.chapter.page_repair import build_page_repair_messages
 from pdf_craft.extractor.chapter.reading_serials import _vertical_text
 from pdf_craft.pdf.line_geometry import first_line_inset, has_vertical_columns
 from pdf_craft.pdf.page_extractor import PageExtractorNode
@@ -107,6 +109,20 @@ class PrintedLineGeometryTests(TestCase):
         assert observed.first_line_inset is not None
         self.assertGreater(observed.first_line_inset, 1)
         self.assertFalse(observed.vertical_columns)
+
+    def test_repair_model_receives_measured_first_line_inset_without_a_boundary_verdict(self):
+        for inset in (None, 0.0, 1.25):
+            with self.subTest(inset=inset):
+                page = Page(1, None, [PageLayout('text', (0, 0, 100, 70),
+                            '第一句。接着解释这个概念。', 0, None, first_line_inset=inset)], [], 0, 0)
+                analysed = project_window([None, page, None], False)[1]
+                assert analysed is not None
+                messages = build_page_repair_messages(previous_page=None, target_page=analysed,
+                    next_page=None, previous_pass_probability=None, next_pass_probability=None)
+                observation = json.loads(messages[1].message)['target_page']['layouts'][0]
+                self.assertEqual(observation['first_line_extra_indent_vs_later_lines_in_same_box'], inset)
+                self.assertIn('initial_proposal', observation)
+                self.assertNotIn('continues_from_previous', observation)
 
     def test_optional_observation_roundtrips_and_old_cache_remains_unknown(self):
         for inset in (None, 0.0, 1.25):
