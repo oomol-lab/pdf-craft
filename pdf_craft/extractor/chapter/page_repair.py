@@ -355,6 +355,13 @@ def _repair_packet(page):
               'paragraph_role', 'paragraph_level', 'citation_id', 'citation_index')
     for layout in packet['layouts']:
         layout['initial_proposal'] = {key: layout.pop(key) for key in fields}
+    text = [layout for layout in packet['layouts'] if layout['source_type'] == 'text']
+    # Raw adjacency evidence, not approved paragraph/ownership decisions.
+    # The model may reorder sources; no validator consumes this catalog.
+    packet['source_text_seams'] = [dict(
+        left_id=left['layout_id'], left_end=left['text'][-120:],
+        right_id=right['layout_id'], right_start=right['text'][:120],
+    ) for left, right in zip(text, text[1:])]
     return packet
 
 
