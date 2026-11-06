@@ -329,7 +329,7 @@ def _text_by_reference(chapters_path: Path) -> dict[tuple[int, int], str]:
                 continue
             for fragment in item.children:
                 if isinstance(fragment, SourceTextFragment):
-                    result[(fragment.page_index, fragment.source_order)] = _block_text(fragment)
+                    result[(fragment.page_index, fragment.identity_order)] = _block_text(fragment)
     return result
 
 

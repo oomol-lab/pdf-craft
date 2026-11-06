@@ -23,14 +23,14 @@ from pdf_craft.transformer.xml_translator.xml_translator.validation import (
 
 def _chapter(fragments: list[str]) -> Element:
     slots = ''.join(
-        f'<fragment page_index="1" source_order="{index}" bbox="0,0,100,20">'
+        f'<fragment page_index="1" source_order="{index}" fragment_id="{index}" source_start="0" bbox="0,0,100,20">'
         f'{content}</fragment>'
         for index, content in enumerate(fragments, start=1)
     )
     return fromstring(
         '<chapter><flow><text role="body">' + slots + '</text></flow>'
         '<references><ref id="1-1"><mark>1</mark><flow><text role="body">'
-        '<fragment page_index="1" source_order="3" bbox="0,30,100,50">Footnote</fragment>'
+        '<fragment page_index="1" source_order="3" fragment_id="3" source_start="0" bbox="0,30,100,50">Footnote</fragment>'
         '</text></flow></ref><ref id="1-2"><mark>2</mark><flow/></ref></references></chapter>'
     )
 

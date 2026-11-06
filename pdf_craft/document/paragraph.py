@@ -11,6 +11,11 @@ class SourceRegion:
     page: PageGeometry
     source_order_in_page: int
     bbox: tuple[int, int, int, int]
+    fragment_id: int | None = field(default=None, kw_only=True)
+
+    @property
+    def identity_order(self) -> int:
+        return self.source_order_in_page if self.fragment_id is None else self.fragment_id
 
     def map_bbox(self, target_size: tuple[int, int]) -> tuple[float, float, float, float]:
         """Scale into an equally cropped/oriented image; never infer scale from DPI."""

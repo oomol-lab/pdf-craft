@@ -135,6 +135,20 @@ class PageAssembly:
                                   and layout.source_order is not None and id(layout) not in attached),
                                  key=lambda item: item.document_order)
                 incoming = citation.continues_previous or (members and members[0].continues_from_previous)
+                if citation.predecessor is not None:
+                    from .analysis_content import layout_reference_text
+                    prior_page, source_order, start, end = citation.predecessor
+                    rows = self._run('SELECT value FROM adopted WHERE page=?', (prior_page,))
+                    if not rows:
+                        raise PageStructureError('Incoming note source has not been adopted', page.page_index)
+                    prior = pickle.loads(rows[0][0])
+                    owners = {item.citation_id for item in prior.layouts
+                              if item.source_order == source_order and item.ownership == 'citation'
+                              and item.source.source_start <= start < end <= (
+                                  item.source.source_end if item.source.source_end is not None
+                                  else len(layout_reference_text(item)))}
+                    if len(owners) != 1 or next(iter(owners)) != self.active_note:
+                        raise PageStructureError('Incoming note range does not identify the active adopted definition', page.page_index)
                 if citation.index is None and citation.origin_page_index is None and incoming and self.active_note is not None:
                     alias = citation.citation_id
                     citation.citation_id = self.active_note

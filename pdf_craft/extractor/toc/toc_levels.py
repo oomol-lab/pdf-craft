@@ -136,7 +136,7 @@ def _extract_content_title_levels(
         for layout in page.body_layouts:
             if layout.ref not in TITLE_TAGS:
                 continue
-            ref = (page.index, layout.order)
+            ref = (page.index, layout.anchor_order)
             if ref2meta and ref not in ref2meta:
                 continue
             _, top, _, bottom = layout.det

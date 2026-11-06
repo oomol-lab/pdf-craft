@@ -168,7 +168,7 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
                         self.assertNotIn('citation_standard', question)
                         self.assertNotIn('reference_standard', question)
                 for messages in prompts:
-                    self.assertIn('本次关闭脚注', messages[0].message)
+                    self.assertIn('Footnote output is disabled', messages[0].message)
                     self.assertNotIn('ref 规则：', messages[0].message)
                     self.assertEqual(json.loads(messages[1].message)['target_page']['citations'], [])
 

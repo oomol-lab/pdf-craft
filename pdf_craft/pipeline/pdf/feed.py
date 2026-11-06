@@ -14,6 +14,7 @@ class _PreviewReplacement(PDFReplacement):
     preview: ParagraphContent[SourceRegion] | None = None
     preview_is_footnote: bool = False
     preview_index: int = -1
+    shared_previews: tuple = ()
 
     @classmethod
     def attach(cls, replacement: PDFReplacement, preview, is_footnote: bool, index: int):

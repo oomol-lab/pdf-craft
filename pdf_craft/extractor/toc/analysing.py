@@ -120,7 +120,10 @@ async def _do_analyse_toc(
     excluded = set(toc_page_indexes)
     ref2level = {key: level for key, level in ref2level.items() if key[0] not in excluded}
     return TocInfo(
-        content=_structure_toc_by_levels(ref2level),
+        content=_structure_toc_by_levels(ref2level, {
+            (page.index, layout.anchor_order): (page.index, layout.order)
+            for page in pages.read() for layout in page.body_layouts
+        }),
         page_indexes=toc_page_indexes,
     )
 
@@ -129,7 +132,7 @@ def detect_printed_pages(pages_path: Path) -> list[PageRef]:
     """Classify printed directories without assigning chapter identities."""
     pages = XMLReader(prefix="page", dir_path=pages_path, decode=decode_pdf)
     return find_toc_pages(
-        iter_titles=lambda: ((page.index, [(layout.order, _TITLE_HEAD_REGX.sub("", layout.text))
+        iter_titles=lambda: ((page.index, [(layout.anchor_order, _TITLE_HEAD_REGX.sub("", layout.text))
                                           for layout in page.body_layouts if layout.ref in TITLE_TAGS])
                              for page in pages.read()),
         iter_page_bodies=lambda: ((page.index, "".join(layout.text for layout in page.body_layouts))
@@ -137,7 +140,7 @@ def detect_printed_pages(pages_path: Path) -> list[PageRef]:
     )
 
 
-def _structure_toc_by_levels(ref2level: Ref2Level) -> list[Toc]:
+def _structure_toc_by_levels(ref2level: Ref2Level, positions=None) -> list[Toc]:
     # virtual root
     root = Toc(
         id=-1,
@@ -149,7 +152,7 @@ def _structure_toc_by_levels(ref2level: Ref2Level) -> list[Toc]:
     next_id: int = 1
     stack: list[Toc] = [root]
 
-    for (page_index, order), level in sorted(ref2level.items(), key=lambda x: x[0]):
+    for (page_index, order), level in sorted(ref2level.items(), key=lambda x: positions[x[0]] if positions is not None else x[0]):
         toc = Toc(
             id=next_id,
             page_index=page_index,

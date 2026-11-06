@@ -17,7 +17,7 @@ from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile, ZipInfo
 from epub_generator import BookMeta
 
 from .furniture import section_identity, coverage_identity
-from .migrations import CURRENT_VERSION, migrate_workspace
+from .migrations import CURRENT_VERSION, migrate_workspace, historical_chapter_view
 from ..common import indent, save_xml, safe_text
 from ..runtime import IO_DOMAIN, run_atomic_cancellable
 
@@ -427,8 +427,9 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             if not suffix.isdigit():
                 raise ValueError(f"invalid chapter filename: {path.name}")
         root = _require_xml_root(path, "chapter")
+        validation_root = historical_chapter_view(root) if manifest['format_version'] < 6 else root
         try:
-            chapter = decode_chapter(root, allow_legacy=manifest["format_version"] in {1, 2})
+            chapter = decode_chapter(validation_root, allow_legacy=manifest['format_version'] in {1, 2})
         except ValueError as error:
             raise ValueError(f"invalid chapter schema in {path.name}: {error}") from error
         chapter_identity = str(chapter.id) if chapter.id is not None else "head"
@@ -442,8 +443,8 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             raise ValueError(f"{path.name} has a duplicate chapter id")
         seen_chapter_ids.add(chapter_identity)
         fragment_identities: set[tuple[str, str]] = set()
-        for fragment in root.iter("fragment"):
-            identity = (fragment.get("page_index", ""), fragment.get("source_order", ""))
+        for fragment in validation_root.iter("fragment"):
+            identity = (fragment.get("page_index", ""), fragment.attrib["fragment_id"])
             if identity in fragment_identities:
                 raise ValueError(f"{path.name} contains duplicate fragment identity {identity}")
             fragment_identities.add(identity)
@@ -466,7 +467,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             identity = (
                 str(chapter.id) if chapter.id is not None else "head",
                 str(first.page_index),
-                str(first.source_order),
+                str(first.identity_order),
             )
             if identity in narrative_identities:
                 raise ValueError(f"{path.name} contains duplicate narrative paragraph identity")
@@ -523,7 +524,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
     for translation in translations:
         _validate_translation_layer(
             paths, translation, page_sizes, toc_ids, chapter_structures,
-            narrative_identities, anchored_identities,
+            narrative_identities, anchored_identities, manifest['format_version'],
         )
 
 
@@ -537,7 +538,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict) or set(payload) - _MANIFEST_FIELDS:
         raise ValueError("manifest.json contains unsupported fields")
     format_version = payload.get("format_version")
-    if format_version not in {1, 2, 3, 4, FORMAT_VERSION}:
+    if format_version not in {1, 2, 3, 4, 5, FORMAT_VERSION}:
         raise ValueError("unsupported PDFCraftExtraction format version")
     producer = payload.get("producer")
     if not isinstance(producer, dict) or set(producer) != {"name", "version"} or not all(
@@ -832,6 +833,7 @@ def _validate_translation_layer(
     ],
     narrative_identities: set[tuple[str, str, str]],
     anchored_identities: set[tuple[str, int, int]],
+    format_version: int,
 ) -> None:
     from ..extractor.chapter.chapter import decode as decode_chapter
 
@@ -863,11 +865,11 @@ def _validate_translation_layer(
     for name, path in chapter_paths.items():
         root = _require_xml_root(path, "chapter")
         try:
-            chapter = decode_chapter(root, allow_legacy=False)
+            chapter = decode_chapter(historical_chapter_view(root) if format_version < 6 else root, allow_legacy=False)
         except ValueError as error:
             raise ValueError(f"invalid translation chapter schema in {name}: {error}") from error
         source_root = _require_xml_root(paths.chapters / name, "chapter")
-        source_chapter = decode_chapter(source_root, allow_legacy=False)
+        source_chapter = decode_chapter(historical_chapter_view(source_root) if format_version < 6 else source_root, allow_legacy=False)
         expected_id = str(source_chapter.id) if source_chapter.id is not None else "head"
         actual_id = str(chapter.id) if chapter.id is not None else "head"
         if actual_id != expected_id:

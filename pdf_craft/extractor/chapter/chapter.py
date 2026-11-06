@@ -53,6 +53,29 @@ class SourceTextFragment:
     content: Content
     source: TextSource | None = field(default=None, compare=False, repr=False)
 
+    # Physical source identity is independent of the logical fragment identity.
+    fragment_id: int | None = None
+    source_start: int = field(default=0, compare=False)
+    source_end: int | None = field(default=None, compare=False)
+    source_text: str | None = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.fragment_id is None:
+            # Full sources and their first slice retain the original identity.
+            # Later slices occupy a disjoint, stable integer namespace.
+            n = self.source_order + self.source_start
+            self.fragment_id = (self.source_order if self.source_start == 0
+                                else -(n * (n + 1) // 2 + self.source_start + 1))
+        if self.source_start < 0 or (self.source_end is not None and self.source_end < self.source_start):
+            raise ValueError('Invalid source fragment range')
+        if self.source_text is not None and (self.source_end is None or self.source_end > len(self.source_text)):
+            raise ValueError('Source fragment range exceeds original text')
+
+    @property
+    def identity_order(self) -> int:
+        assert self.fragment_id is not None
+        return self.fragment_id
+
 @dataclass(frozen=True)
 class _AssetTextProjection:
     """Runtime provenance of independent OCR text associated with an asset.
@@ -235,7 +258,7 @@ def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference], *, al
         children = []
         for child in element:
             if child.tag == "fragment":
-                if not allow_legacy: _attributes(child, {"page_index", "source_order", "bbox"})
+                if not allow_legacy: _attributes(child, {"page_index", "source_order", "bbox", "fragment_id", "source_start", "source_end", "source_text"})
                 children.append(_fragment(child, refs, allow_legacy=allow_legacy))
             elif child.tag == "asset":
                 asset = _asset(child, refs, allow_legacy=allow_legacy)
@@ -309,7 +332,15 @@ def _legacy_paragraph(element: Element, refs: dict[tuple[int, int], Reference]) 
 
 
 def _fragment(element: Element, refs: dict[tuple[int, int], Reference], *, allow_legacy: bool = True) -> SourceTextFragment:
-    return SourceTextFragment(_integer(element, "page_index"), _integer(element, "source_order"), _bbox(element), _content(element, refs, "fragment", allow_legacy=allow_legacy))
+    fragment = SourceTextFragment(_integer(element, "page_index"), _integer(element, "source_order"), _bbox(element), _content(element, refs, "fragment", allow_legacy=allow_legacy))
+    if not allow_legacy or element.get('fragment_id') is not None:
+        fragment.fragment_id = _integer(element, 'fragment_id')
+        fragment.source_start = _integer(element, 'source_start')
+        end = element.get('source_end')
+        fragment.source_end = int(end) if end is not None else None
+        fragment.source_text = element.get('source_text')
+        fragment.__post_init__()
+    return fragment
 
 
 def _legacy_block(element: Element, refs: dict[tuple[int, int], Reference]) -> SourceTextFragment:
@@ -318,6 +349,12 @@ def _legacy_block(element: Element, refs: dict[tuple[int, int], Reference]) -> S
 
 def _encode_fragment(fragment: SourceTextFragment) -> Element:
     result = Element("fragment", {"page_index": str(fragment.page_index), "source_order": str(fragment.source_order), "bbox": _bbox_text(fragment.bbox)})
+    result.set('fragment_id', str(fragment.identity_order))
+    result.set('source_start', str(fragment.source_start))
+    if fragment.source_end is not None:
+        result.set('source_end', str(fragment.source_end))
+    if fragment.source_text is not None:
+        result.set('source_text', fragment.source_text)
     encode_content(result, fragment.content, _encode_member); return result
 
 

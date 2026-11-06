@@ -58,6 +58,59 @@ class TestPDFPatcher(unittest.TestCase):
     def patcher(self, *args, **kwargs) -> PDFPatcher:
         return PDFPatcher(*args, visual_base_compiler=self._compiler, **kwargs)
 
+    def test_shared_source_notes_draw_once_and_export_distinct_real_lines(self):
+        from pdf_craft.document.access import PageGeometry
+        from pdf_craft.document.paragraph import ParagraphContent, SourceRegion
+        from pdf_craft.extractor.chapter.chapter import SourceTextFragment
+        from pdf_craft.pipeline.pdf.shared_sources import SharedSources
+        from pdf_craft.pipeline.pdf.feed import read_record
+        from pdf_craft.pipeline.pdf.content import source_key
+        from pdf_craft.extractor.chapter.chapter import TextFlowItem
+        evidence = '6 First note.\n7 Second note.'
+        box = (10, 10, 190, 150)
+        first = SourceTextFragment(1, 3, box, ['First note.'], source_start=0,
+                                   source_end=14, source_text=evidence)
+        second = SourceTextFragment(1, 3, box, ['Second note.'], source_start=14,
+                                    source_end=len(evidence), source_text=evidence)
+        plan = SharedSources()
+        keys = [source_key(TextFlowItem('body', -1, [part])) for part in (first, second)]
+        values = [PDFReplacement(1, box, text, (200, 200), dpi=72, reading_order=part.identity_order)
+                  for part, text in ((first, '6 First translated note.'), (second, '7 Second translated note.'))]
+        geometry = PageGeometry(1, 200, 200, render_dpi=72)
+        contents = [ParagraphContent(value.text, None, [SourceRegion(geometry, 3, box, fragment_id=part.identity_order)])
+                    for part, value in zip((first, second), values)]
+        for key, part, value in zip(keys, (first, second), values):
+            plan.observe(key, [part], value)
+        plan.finish()
+        self.assertIsNone(plan.accept(keys[1], values[1], 1, contents[1], True))
+        writes = plan.accept(keys[0], values[0], 0, contents[0], True)
+        assert writes is not None
+        self.assertEqual(len([v for _, v, _, _ in writes if v is not None]), 1)
+        replacement = next(v for _, v, _, _ in writes if v is not None)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, target = root / 'source.pdf', root / 'target.pdf'
+            document = canvas.Canvas(str(source), pagesize=(200, 200))
+            document.showPage()
+            document.save()
+            previews = root / 'previews'
+            previews.mkdir()
+            patcher = self.patcher(dpi=72)
+            patcher._preview_path = previews
+            asyncio.run(patcher.patch(source, target, [replacement]))
+            extracted = pypdf.PdfReader(str(target)).pages[0].extract_text()
+            self.assertIn('First translated note.', ' '.join(extracted.split()))
+            self.assertIn('Second translated note.', ' '.join(extracted.split()))
+            first_preview = read_record(previews / '0')[1]
+            second_preview = read_record(previews / '1')[1]
+            lines = [''.join(line.text for region in content.regions for line in region.lines)
+                     for content in (first_preview, second_preview)]
+            self.assertIn('First translated note.', lines[0])
+            self.assertNotIn('Second', lines[0])
+            self.assertIn('Second translated note.', lines[1])
+            self.assertNotIn('First', lines[1])
+            self.assertLess(first_preview.regions[0].lines[0].baseline, second_preview.regions[0].lines[0].baseline)
+
     def test_independent_window_readiness_cannot_change_heading_layout(self):
         # The patch is entered and fully consumed within each loop iteration.
         # pylint: disable=cell-var-from-loop

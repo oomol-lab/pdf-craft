@@ -20,11 +20,12 @@ from .feed import _PreviewReplacement, ReplacementFeed, write_record, read_recor
 from .streaming import source_furniture_coverage, produce_furniture, deliver_previews, update_metadata
 from .pipeline import PDFTranslationPipeline, _to_pdf_patch_content, _replacement_source_order
 from .patcher import PDFPatcher
+from .shared_sources import SharedSources
 from .metadata import pdf_document_metadata
 
 
 def source_key(text):
-    return tuple((fragment.page_index, fragment.source_order, fragment.bbox)
+    return tuple((fragment.page_index, fragment.identity_order, fragment.bbox)
                  for fragment in text.children if isinstance(fragment, SourceTextFragment))
 
 
@@ -36,6 +37,7 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
     from .models import PDFReplacement
     entries, obstacles, translated_boxes = {}, [], set()
     channels = {}
+    shared = SharedSources()
     for path in chapter_paths(chapters):
         for item in file_content(path):
             reference = item.value if isinstance(item.value, Reference) else None
@@ -77,9 +79,11 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
                     # The planner also treats accepted source rectangles as
                     # obstacles, so this does not change their layout semantics.
                     obstacles.extend(regions)
+                shared.observe(key, fragments, replacement)
                 prototype = directory / ('prototype-' + str(len(entries)))
                 write_record(prototype, replacement)
                 entries[key] = (prototype, (first.page_index, first.reading_order, first.bbox[1], first.bbox[0]))
+    shared.finish()
     # Furniture is fixed metadata, independent of natural paragraph delivery.
     furniture_items = list(PDFTranslationPipeline()._iter_covered_replacements([], furniture, coverage, pages, dpi))
     for replacement in furniture_items:
@@ -91,7 +95,7 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
     for region in obstacles:
         obstacles_by_page.setdefault(region.page_index, []).append(region)
     ordered = sorted(entries, key=lambda key: entries[key][1])
-    return {key: (index, entries[key][0], entries[key][1]) for index, key in enumerate(ordered)}, obstacles_by_page, furniture_items, channels
+    return {key: (index, entries[key][0], entries[key][1]) for index, key in enumerate(ordered)}, obstacles_by_page, furniture_items, channels, shared
 
 
 def _with_page_obstacles(replacement, obstacles):
@@ -132,7 +136,7 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                     furniture_path = view.furnitures or patch_view.furnitures
                     initial_coverage = (await IO_DOMAIN.run(source_furniture_coverage, furniture_path, coverage)
                                         if dynamic_furniture else coverage)
-                    index, obstacles, furniture, source_channels = await IO_DOMAIN.run(
+                    index, obstacles, furniture, source_channels, shared = await IO_DOMAIN.run(
                         prepare_index, view.chapters, furniture_path, initial_coverage,
                         sizes, dpi, root, translator is not None)
                     # Furniture and narrative are sorted together by original geometry.
@@ -211,29 +215,34 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                                         if handler is not None:
                                             original = originals[number] if not missing and number < len(originals) else None
                                             preview = await IO_DOMAIN.run(notify.content, text, original, item.level)
-                                        if prototype is None:
-                                            await IO_DOMAIN.run(write_record, feed_root / str(slot), None)
-                                            empty = None if preview is None else (notes, PDFParagraphContent(
-                                                preview.text, preview.original, [PDFSourceRegion(
-                                                    r.page, r.source_order_in_page, r.bbox, None, []) for r in preview.regions]))
-                                            await IO_DOMAIN.run(write_record, previews / str(slot), empty)
-                                            continue
-                                        value = _with_page_obstacles(replace(
+                                        value = None if prototype is None else _with_page_obstacles(replace(
                                             prototype, text=patch_text.strip(), inline_formulas=formulas), obstacles)
-                                        if preview is not None:
-                                            value = _PreviewReplacement.attach(value, preview, notes, slot)
-                                        await IO_DOMAIN.run(write_record, feed_root / str(slot), value if value.text else None)
-                                        if preview is None:
-                                            await IO_DOMAIN.run(write_record, previews / str(slot), None)
-                                        elif not value.text:
-                                            empty = PDFParagraphContent(preview.text, preview.original, [
-                                                PDFSourceRegion(r.page, r.source_order_in_page, r.bbox, None, [])
-                                                for r in preview.regions])
-                                            await IO_DOMAIN.run(write_record, previews / str(slot), (notes, empty))
+                                        if value is not None and not value.text:
+                                            value = None
+                                        settled = shared.accept(key, value, slot, preview, notes)
+                                        if settled is None:
+                                            continue
+                                        for settled_slot, value, content, channel in settled:
+                                            if value is not None and content is not None:
+                                                value = _PreviewReplacement.attach(value, content, channel, settled_slot)
+                                            await IO_DOMAIN.run(write_record, feed_root / str(settled_slot), value)
+                                            if value is None and content is not None:
+                                                empty = PDFParagraphContent(content.text, content.original, [
+                                                    PDFSourceRegion(r.page, r.source_order_in_page, r.bbox, None, [],
+                                                                    fragment_id=r.fragment_id)
+                                                    for r in content.regions])
+                                                await IO_DOMAIN.run(write_record, previews / str(settled_slot), (channel, empty))
+                                            elif value is None or content is None and not isinstance(value, _PreviewReplacement):
+                                                # Shared previews are written only after the single group is composed.
+                                                is_shared_follower = settled_slot in shared.preview_slots
+                                                if not is_shared_follower:
+                                                    await IO_DOMAIN.run(write_record, previews / str(settled_slot), None)
                                 for key, (slot, _) in slots.items():
                                     if key not in written:
-                                        await IO_DOMAIN.run(write_record, feed_root / str(slot), None)
-                                        await IO_DOMAIN.run(write_record, previews / str(slot), None)
+                                        settled = shared.accept(key, None, slot, None, False)
+                                        for settled_slot, value, content, channel in settled or ():
+                                            await IO_DOMAIN.run(write_record, feed_root / str(settled_slot), value)
+                                            await IO_DOMAIN.run(write_record, previews / str(settled_slot), None)
                             except BaseException as error:
                                 await IO_DOMAIN.run(write_record, feed_root / 'error', str(error))
                                 raise
@@ -253,6 +262,7 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                         tasks = producers + ([delivery] if delivery is not None else [])
                         try:
                             await asyncio.gather(*tasks)
+                            shared.ensure_usable()
                             if schedule is not None:
                                 from ...document.render import _effective_metadata
                                 overlay = await schedule.header()

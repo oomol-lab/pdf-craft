@@ -119,16 +119,16 @@ def test_v3_codec_rejects_legacy_asset_attributes_when_strict():
 
 @pytest.mark.parametrize("source", [
     """<chapter unexpected="x"><flow><text role="body">
-      <fragment page_index="1" source_order="2" bbox="0,0,1,1">x</fragment>
+      <fragment page_index="1" source_order="2" fragment_id="2" source_start="0" bbox="0,0,1,1">x</fragment>
     </text></flow></chapter>""",
     """<chapter><flow unexpected="x"><text role="body">
-      <fragment page_index="1" source_order="2" bbox="0,0,1,1">x</fragment>
+      <fragment page_index="1" source_order="2" fragment_id="2" source_start="0" bbox="0,0,1,1">x</fragment>
     </text></flow></chapter>""",
     """<chapter><flow><text role="body" extra="x">
-      <fragment page_index="1" source_order="2" bbox="0,0,1,1">x</fragment>
+      <fragment page_index="1" source_order="2" fragment_id="2" source_start="0" bbox="0,0,1,1">x</fragment>
     </text></flow></chapter>""",
     """<chapter><flow><text role="body">
-      <fragment page_index="1" source_order="2" order="9" bbox="0,0,1,1" det="0,0,9,9">x</fragment>
+      <fragment page_index="1" source_order="2" fragment_id="2" source_start="0" order="9" bbox="0,0,1,1" det="0,0,9,9">x</fragment>
     </text></flow></chapter>""",
 ])
 def test_v3_codec_rejects_unknown_and_legacy_fragment_attributes(source):
@@ -146,7 +146,7 @@ def test_v3_codec_validates_reference_flow_attributes_when_strict():
 
 def test_v3_codec_rejects_text_level_inline_expression():
     source = fromstring("""<chapter><flow><text role="body">
-      <fragment page_index="1" source_order="0" bbox="0,0,10,10">before</fragment>
+      <fragment page_index="1" source_order="0" fragment_id="0" source_start="0" bbox="0,0,10,10">before</fragment>
       <inline_expr kind="inline_dollar">x</inline_expr>
     </text></flow></chapter>""")
     with pytest.raises(ValueError, match="unknown element: <inline_expr>"):

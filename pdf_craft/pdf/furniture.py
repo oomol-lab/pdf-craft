@@ -220,7 +220,7 @@ def _toc_headings(ocr_path: Path, toc: TocInfo) -> dict[int, str]:
         except ValueError:
             continue
         for layout in page.body_layouts:
-            toc_id = refs.get((page_index, layout.order))
+            toc_id = refs.get((page_index, layout.anchor_order))
             if toc_id is not None:
                 result[toc_id] = _headline_text(layout.text)
     return result

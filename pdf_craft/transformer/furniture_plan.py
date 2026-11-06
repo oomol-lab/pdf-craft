@@ -68,7 +68,7 @@ class FurniturePlan:
                 if isinstance(fragment, SourceTextFragment):
                     text = None if getattr(item, '_translation_missing', False) else _block_text(fragment)
                     self.queue.run('UPDATE titles SET resolved=1,value=? WHERE page=? AND source_order=?',
-                                   (text or None, fragment.page_index, fragment.source_order))
+                                   (text or None, fragment.page_index, fragment.identity_order))
 
     async def execute(self, payload, transformer):
         kind, *args = payload

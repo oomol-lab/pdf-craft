@@ -14,13 +14,13 @@ class PageRepairSmokeTests(unittest.TestCase):
 
     def test_already_correct_target_does_not_require_an_llm_change(self):
         expected = {'pages': [{'page_index': 20, 'layouts': {
-            'layout-118': {'ownership': 'paragraph', 'continues_from_previous': False},
+            'layout-85899345922': {'ownership': 'paragraph', 'continues_from_previous': False},
         }}]}
         self.assertEqual(_check_final_state(self.analysis.pages, expected), [])
 
     def test_incorrect_final_target_is_rejected(self):
         expected = {'pages': [{'page_index': 20, 'layouts': {
-            'layout-118': {'ownership': 'ignored'},
+            'layout-85899345922': {'ownership': 'ignored'},
         }}]}
         self.assertTrue(_check_final_state(self.analysis.pages, expected))
 
