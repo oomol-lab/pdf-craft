@@ -316,6 +316,7 @@ class PDFExtractionEngine:
 
     @asynccontextmanager
     async def _stream_refinement(self, options, kwargs):
+        from .jev import JEVInputLimitExceeded
         from .extractor.chapter.page_review import (
             IncompletePageReview, build_jev_review_states, review_page, review_threshold)
         includes_footnotes = kwargs['includes_footnotes']
@@ -352,13 +353,15 @@ class PDFExtractionEngine:
                             state, jev.evaluate_questions_many, includes_footnotes=includes_footnotes)
                         if probability is None:
                             return PageResult(target)
-                    except IncompletePageReview:
-                        return PageResult(target, refinement_status=RefinementStatus.FALLBACK)
+                    except IncompletePageReview as error:
+                        if not isinstance(error.__cause__, JEVInputLimitExceeded):
+                            return PageResult(target, refinement_status=RefinementStatus.FALLBACK)
+                        probability = None
                     except Exception as error:
                         await recover(error, FailureCategory.ANALYSIS, 'jev_review', 'algorithm_result',
                                       targets=(location,), context_locations=context)
                         return PageResult(target, refinement_status=RefinementStatus.FALLBACK)
-                    if probability > 1 - review_threshold(includes_footnotes):
+                    if probability is not None and probability > 1 - review_threshold(includes_footnotes):
                         return PageResult(target)
                     await page_stage(target.page_index, 6)
                     with UsageScope(provider=options.llm) as usage:

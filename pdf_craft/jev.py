@@ -57,6 +57,10 @@ class JEVRequestBudgetExceeded(RuntimeError):
     """A page cannot spend another provider request, including retries."""
 
 
+class JEVInputLimitExceeded(OperationError):
+    """The provider explicitly rejected the review input as too long."""
+
+
 @dataclass
 class _PageRequestBudget:
     limit: int
@@ -233,6 +237,9 @@ class JEVRuntime:
                         probability = task.result()
                         if not _valid_evaluation(probability):
                             raise ValueError('JEV pass probability must be between 0 and 1')
+                    except JEVInputLimitExceeded:
+                        # The page router can still use its configured LLM repair.
+                        raise
                     except Exception as error:
                         from ._policy import recover
                         from .policies import FailureCategory
@@ -274,8 +281,6 @@ class JEVRuntime:
                     questions=request["questions"],
                     **extra_header_arguments(),
                 )
-            except OperationError:
-                raise
             except Exception as error:
                 normalized = _provider_error(error)
                 if normalized is error:
@@ -371,7 +376,13 @@ async def create_jev_request(
 
 def _provider_error(error: Exception) -> OperationError:
     if isinstance(error, OperationError):
+        if not isinstance(error, (NonContinuableError, RateLimitedError, JEVInputLimitExceeded)) and isinstance(
+            error.__cause__, TypeSafeAPIError,
+        ) and _input_limit_exceeded(error.__cause__):
+            return JEVInputLimitExceeded(str(error), cause=error)
         return error
+    if isinstance(error, TypeSafeAPIError) and _input_limit_exceeded(error):
+        return JEVInputLimitExceeded(str(error), cause=error)
     status = getattr(error, "status", None)
     if isinstance(error, TypeSafeRateLimitError) or status == 429:
         retry_after_ms = getattr(error, "retry_after_ms", None)
@@ -384,6 +395,11 @@ def _provider_error(error: Exception) -> OperationError:
             "The JEV provider cannot continue serving requests.", cause=error,
         )
     return OperationError(str(error) or type(error).__name__, cause=error)
+
+
+def _input_limit_exceeded(error: TypeSafeAPIError) -> bool:
+    return (error.status == 400 and isinstance(error.body, dict)
+            and error.body.get('error_type') == 'max_tokens_exceeded')
 
 
 def _is_retryable(error: OperationError) -> bool:
