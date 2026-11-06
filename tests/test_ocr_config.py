@@ -80,12 +80,13 @@ class TestOCRConfig(unittest.TestCase):
         with patch(
             "doc_page_extractor.extractor.create_deepseek_ocr_page_extractor",
             return_value=extractor,
-        ) as factory:
+        ) as factory, patch.dict("sys.modules", {"deepseek_ocr_mlx.load": Mock()}):
             node = PageExtractorNode(
                 DeepSeekOCRLocalConfig(
                     models_cache_path="models",
                     local_only=True,
                     enable_devices_numbers=[0],
+                    runtime="mlx",
                 )
             )
             node.load_models()
@@ -97,6 +98,7 @@ class TestOCRConfig(unittest.TestCase):
             enable_devices_numbers=(0,),
         )
         extractor.load_ocr_model.assert_called_once_with()
+        self.assertIs(extractor._adapter._model.load, extractor._adapter._model._select_model)  # pylint: disable=W0212
 
     def test_local_deepseek_ocr2_uses_doc_page_extractor_factory(self):
         extractor = Mock()
