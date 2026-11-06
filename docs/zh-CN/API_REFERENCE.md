@@ -203,9 +203,11 @@ ExtractionOptions(
     includes_furniture=True,
     extract_book_metadata=False,
     metadata_llm=None,
+    metadata_executor=None,
     generate_plot=False,
     toc_assumed=False,
     toc_llm=None,
+    toc_executor=None,
     aborted=lambda: False,
     on_extraction_event=lambda event: None,
     on_body=None,
@@ -270,6 +272,27 @@ JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `ll
 | True | None | 脚注 OCR + 算法分析 |
 | False | Refinement(...) | 普通 OCR + JEV + 按需 LLM 页面精校 |
 | True | Refinement(...) | 脚注 OCR + JEV + 按需 LLM 页面精校 |
+
+供应商请求按角色配置 executor，与 LLM 凭据独立。`PDFCraft` 和 `AsyncPDFCraft`
+使用同一份 `ExtractionOptions`，一键转换也会透传这两个参数。高级组件
+`PDFExtractor.extract()` / `extract_with_metering()` 可通过关键字参数传入
+`toc_executor` 和 `metadata_executor`。
+
+| 供应商请求 | 公开 executor 配置 | 默认与覆盖规则 |
+| --- | --- | --- |
+| 标题 / 印刷目录分析 | `ExtractionOptions.toc_executor` | 为 `None` 时默认独立容量为 1。 |
+| 书目元数据 | `ExtractionOptions.metadata_executor` | 为 `None` 时默认独立容量为 1；所有追加页面轮次共用。 |
+| Vendor OCR（含脚注轮次与 Unlimited 提交、轮询、结果请求） | `PDFOptions.ocr_executor` | Vendor OCR 必须显式提供。 |
+| JEV 评分 / LLM 页面修复 | `Refinement.jev_executor` / `llm_executor` | 各角色的显式配置覆盖 `Refinement.executor`；两种角色都必须有 executor。 |
+| 翻译 / 填充（含元数据、家具和锚定内容） | `XMLTranslator.translation_executor` / `fill_executor`；`translate_epub()` 也暴露这些参数 | 各角色的显式配置覆盖 `executor`；两种角色都必须有 executor。 |
+| 高级 LLM / JEV 直接请求 | `runtime_for`、`create_llm_request`、`JEVRuntime`、`create_jev_request` 的 executor 参数 | 必须显式提供。 |
+
+为多个角色传入同一 executor 对象，可共享供应商容量与自定义恢复策略；不同供应商可传入独立对象。
+只有上表明确说明的通用参数会被继承，且仅在角色参数为 `None` 时继承。
+提取不会从 `Refinement` 或相同的 LLM 配置推断共享池。每次传输重试与协议修复请求都重新进入
+所选 executor；编排层不会持有容量运行整个业务阶段。普通 503 仍遵循有界重试与错误策略。
+文件 I/O、本地 OCR、渲染、原生子进程及同步桥接保留独立的本地执行域。
+外部 executor 在业务所属的异步事件循环中运行，不支持跨多个活动事件循环并发共享。
 
 页面精校使用库内部固定阈值，`Refinement` 不接受 `risk_threshold`。
 JEV 核验自然段入向和来源归属，开启脚注时还检查定义及引用关系。各项检查共享证据，

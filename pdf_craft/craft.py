@@ -109,6 +109,8 @@ class ExtractionOptions:
     on_footnote: Callable[[Element], object] | None = None
     context: ExtractionContext | None = None
     on_metadata: MetadataCallback | None = None
+    toc_executor: AsyncExecutor | None = None
+    metadata_executor: AsyncExecutor | None = None
 
     def __post_init__(self) -> None:
         from .pdf.png import validate_image_limit
@@ -252,8 +254,10 @@ class AsyncPDFCraft:
                 includes_furniture=options.includes_furniture,
                 extract_book_metadata=options.extract_book_metadata,
                 metadata_llm=options.metadata_llm,
+                metadata_executor=options.metadata_executor,
                 generate_plot=options.generate_plot,
                 toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
+                toc_executor=options.toc_executor,
                 refinement=options.refinement,
                 aborted=options.aborted,
                 on_extraction_event=options.on_extraction_event,
@@ -611,8 +615,10 @@ class AsyncPDFCraft:
                 includes_furniture=options.includes_furniture,
                 extract_book_metadata=options.extract_book_metadata,
                 metadata_llm=options.metadata_llm,
+                metadata_executor=options.metadata_executor,
                 generate_plot=options.generate_plot,
                 toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
+                toc_executor=options.toc_executor,
                 refinement=options.refinement,
                 aborted=options.aborted, on_extraction_event=options.on_extraction_event,
                 **({"context": options.context} if options.context is not None else {}),

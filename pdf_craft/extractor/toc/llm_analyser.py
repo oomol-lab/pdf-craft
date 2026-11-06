@@ -10,7 +10,7 @@ from json_repair import repair_json
 from pydantic import BaseModel, StrictInt, ValidationError, field_validator, model_validator
 
 from ...common import XMLReader, split_by_cv
-from ...concurrency import ConcurrentExecutor, FixedCapacity
+from ...concurrency import AsyncExecutor, ConcurrentExecutor, FixedCapacity
 from .config import MAX_LEVELS, MAX_TITLE_CV
 from ...runtime import IO_DOMAIN
 from ...llm import LLM, Message, MessageRole, runtime_for
@@ -28,7 +28,9 @@ class LLMAnalysisError(Exception):
         super().__init__(message)
 
 
-async def analyse_title_levels_by_llm(llm: LLM, pages: XMLReader[Page]) -> Ref2Level:
+async def analyse_title_levels_by_llm(
+    llm: LLM, pages: XMLReader[Page], *, executor: AsyncExecutor | None = None,
+) -> Ref2Level:
     titles = await IO_DOMAIN.run(_read_titles, pages)
 
     if not titles:
@@ -46,6 +48,7 @@ async def analyse_title_levels_by_llm(llm: LLM, pages: XMLReader[Page]) -> Ref2L
     )
     analyser = _LLMAnalyser(
         llm=llm,
+        executor=executor,
         validate=_validate_title_response,
     )
     levels = await analyser.request(
@@ -96,6 +99,7 @@ async def analyse_toc_levels_by_llm(
     llm: LLM,
     toc_page_refs: list[PageRef],
     toc_page_contents: list[Page],
+    *, executor: AsyncExecutor | None = None,
 ) -> Ref2Level:
     toc_entries = list(_extract_toc_entries(toc_page_contents))
     if not toc_entries:
@@ -113,6 +117,7 @@ async def analyse_toc_levels_by_llm(
 
     analyser = _LLMAnalyser(
         llm=llm,
+        executor=executor,
         validate=_validate_toc_response,
     )
     levels = await analyser.request(
@@ -572,12 +577,13 @@ class _LLMAnalyser(Generic[_P, _R]):
         self,
         llm: LLM,
         validate: Callable[[str, _P], tuple[_R | None, str | None]],
+        executor: AsyncExecutor | None = None,
     ) -> None:
         self._llm = llm
         self._validate: Callable[[str, _P], tuple[_R | None, str | None]] = validate
         self._runtime = runtime_for(
             llm,
-            ConcurrentExecutor(FixedCapacity(1)),
+            executor if executor is not None else ConcurrentExecutor(FixedCapacity(1)),
             protocol_version="toc-json-v1",
         ) if isinstance(llm, LLM) else None
 

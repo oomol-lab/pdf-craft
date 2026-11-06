@@ -166,7 +166,8 @@ class PDFExtractionEngine:
                     async with analysis_unit(UnitKind.METADATA):
                         value = kwargs.get("document_metadata") or await self._extract_book_metadata_async(
                             pdf_path=kwargs["pdf_path"], pages_path=kwargs["analysing_path"] / "ocr",
-                            enabled=True, metadata_llm=kwargs["metadata_llm"], front_pages=front)
+                            enabled=True, metadata_llm=kwargs["metadata_llm"], front_pages=front,
+                            metadata_executor=kwargs.get("metadata_executor"))
                         if on_metadata is not None:
                             await invoke_callback(on_metadata, MetadataContent(value or DocumentMetadata()))
                         return value
@@ -236,9 +237,11 @@ class PDFExtractionEngine:
             )
         if refinement is not None and not isinstance(refinement, Refinement):
             raise TypeError("refinement must be Refinement")
+        preparation = {key: value for key, value in kwargs.items()
+                       if key not in ("toc_executor", "metadata_executor")}
         draft = await run_cancellable(
             OCR_DOMAIN,
-            lambda aborted: self._prepare_extraction(**{**kwargs, "aborted": aborted}),
+            lambda aborted: self._prepare_extraction(**{**preparation, "aborted": aborted}),
             original_aborted=original_aborted,
         )
         if front_pages is not None:
@@ -260,6 +263,7 @@ class PDFExtractionEngine:
                 resolved_database=(live.database if live is not None and
                                    (refinement is not None or not draft.toc.page_indexes) else None),
                 aborted=original_aborted, toc_llm=kwargs["toc_llm"], toc_assumed=kwargs["toc_assumed"],
+                toc_executor=kwargs.get("toc_executor"),
             )
         except Exception as error:
             from .extractor.recovery import recover_chapters, recoverable_structure
@@ -276,11 +280,12 @@ class PDFExtractionEngine:
                 return await self._commit_extraction(
                     draft, analysed_pages=None, resolved_database=None,
                     prepared_chapters=recovered.chapters, aborted=original_aborted,
-                    toc_llm=kwargs["toc_llm"], toc_assumed=kwargs["toc_assumed"])
+                    toc_llm=kwargs["toc_llm"], toc_assumed=kwargs["toc_assumed"],
+                    toc_executor=kwargs.get("toc_executor"))
 
     async def _commit_extraction(self, draft, *, analysed_pages, resolved_database, aborted,
                                       refinement_usage=None, prepared_chapters=None,
-                                      toc_llm=None, toc_assumed=False):
+                                      toc_llm=None, toc_assumed=False, toc_executor=None):
         """Commit one adopted flow before deriving any final semantic consumers."""
         from .common import save_xml
         from .extractor.commit import project_adopted, partition_adopted
@@ -302,7 +307,7 @@ class PDFExtractionEngine:
             async with analysis_unit(UnitKind.TOC):
                 toc = await analyse_toc(
                     pages_path=projection, toc_path=directory / 'toc.xml',
-                    toc_llm=toc_llm, toc_assumed=toc_assumed,
+                    toc_llm=toc_llm, toc_assumed=toc_assumed, toc_executor=toc_executor,
                     printed_page_indexes=draft.toc.page_indexes)
             draft = replace(draft, toc=toc)
             await IO_DOMAIN.run(partition_adopted, adopted, draft.chapters_path, toc)
@@ -506,7 +511,8 @@ class PDFExtractionEngine:
             async with analysis_unit(UnitKind.METADATA):
                 metadata = draft.document_metadata or await self._extract_book_metadata_async(
                     pdf_path=draft.pdf_path, pages_path=draft.pages_path,
-                    enabled=True, metadata_llm=kwargs['metadata_llm'])
+                    enabled=True, metadata_llm=kwargs['metadata_llm'],
+                    metadata_executor=kwargs.get('metadata_executor'))
         else:
             metadata = draft.document_metadata
         if on_metadata is not None:
@@ -527,6 +533,7 @@ class PDFExtractionEngine:
         metadata_llm: LLM | None,
         error_policy: ErrorPolicyInput = OMITTED,
         front_pages: FrontPages | None = None,
+        metadata_executor: AsyncExecutor | None = None,
     ) -> DocumentMetadata | None:
         if not enabled:
             return None
@@ -534,7 +541,8 @@ class PDFExtractionEngine:
         ocr_metadata = None
         try:
             assert metadata_llm is not None
-            ocr_metadata = await extract_book_metadata_from_ocr(pages_path, metadata_llm, **({"front_pages": front_pages} if front_pages is not None else {}))
+            ocr_metadata = await extract_book_metadata_from_ocr(
+                pages_path, metadata_llm, executor=metadata_executor, front_pages=front_pages)
         except Exception as error:
             from ._policy import recover
             from .policies import FailureCategory

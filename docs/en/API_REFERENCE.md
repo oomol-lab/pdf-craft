@@ -255,9 +255,11 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `includes_furniture` | `True` | Include native page furniture in the extracted PCEX as `furnitures.xml`; it does not translate it. |
 | `extract_book_metadata` | `False` | Extract bibliographic metadata from the first OCR pages. It is persisted in PCEX and, when that PCEX is patched to PDF, corrects the output PDF's document metadata. |
 | `metadata_llm` | `None` | Required LLM for `extract_book_metadata=True`; it is independent of `toc_llm`. |
+| `metadata_executor` | `None` | Caller-owned executor for bibliographic LLM requests, including read-more turns and retries. Defaults to a private capacity of 1. |
 | `generate_plot` | `False` | Generate plot diagnostics in the analysis workspace (not in `.pcex`). |
 | `toc_assumed` | `False` | Treat the document as already having usable TOC information. |
 | `toc_llm` | `None` | LLM used when TOC analysis is needed. |
+| `toc_executor` | `None` | Caller-owned executor for title and printed-TOC LLM requests, including retries. Defaults to a private capacity of 1. |
 | `footnotes` | `False` | Enable footnote extraction, including the extra OCR pass where supported. |
 | `refinement` | `None` | Optional `Refinement` with both JEV and LLM plus explicit executors; independent of `footnotes`. |
 | `aborted` | a callback returning `False` | A callback checked during processing to request cancellation. |
@@ -281,6 +283,31 @@ The final vendor request image is checked before URL resolution/upload, includin
 the optional footnote pass. If the limit cannot be met, the operation reports a
 failure through the existing error policy rather than sending the oversized PNG.
 `None` disables only the byte limit. No provider-specific byte limit is assumed.
+
+Provider admission is configured by role, independently of the LLM credentials. Both
+`PDFCraft` and `AsyncPDFCraft` accept the same `ExtractionOptions`, including in
+one-shot conversions. Advanced `PDFExtractor.extract()` / `extract_with_metering()`
+accept `toc_executor` and `metadata_executor` as keyword arguments.
+
+| Provider requests | Public executor configuration | Default / override rule |
+| --- | --- | --- |
+| Title / printed TOC analysis | `ExtractionOptions.toc_executor` | Private capacity 1 when `None`. |
+| Bibliographic metadata | `ExtractionOptions.metadata_executor` | Private capacity 1 when `None`; the same executor covers every read-more turn. |
+| Vendor OCR (including footnote passes and Unlimited submit/poll/result I/O) | `PDFOptions.ocr_executor` | Required for vendor OCR. |
+| JEV scoring / LLM page repair | `Refinement.jev_executor` / `llm_executor` | Each explicit role value overrides `Refinement.executor`; both roles require an executor. |
+| Translation / fill (including metadata, furniture and anchored content) | `XMLTranslator.translation_executor` / `fill_executor`; also exposed by `translate_epub()` | Each explicit role value overrides `executor`; both roles require an executor. |
+| Direct advanced LLM / JEV requests | `runtime_for`, `create_llm_request`, `JEVRuntime`, `create_jev_request` executor argument | Explicit executor required. |
+
+Reuse the same executor object across roles to share provider capacity and custom
+recovery behavior, or pass distinct objects for independent providers. A role
+inherits only where documented above and only when its value is `None`; extraction
+does not infer a pool from `Refinement` or from matching LLM configurations.
+Transport retries and protocol repair attempts reenter the selected executor;
+orchestration does not acquire its capacity around a whole stage. Ordinary 503
+failures still follow bounded retries and the selected error policy. Disk I/O,
+local OCR, rendering, native subprocesses and synchronous bridges retain their
+separate local execution domains. External executors run on the owning async loop;
+sharing a live executor concurrently across different event loops is unsupported.
 
 Page refinement is independent of footnote extraction and uses explicit credentials:
 
