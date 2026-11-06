@@ -88,8 +88,8 @@ class XMLTranslator:
     ) -> None:
         self._retry_policy = retry_policy or RetryPolicy()
         self._error_policy = error_policy
-        translation_executor = translation_executor or executor
-        fill_executor = fill_executor or executor
+        translation_executor = translation_executor if translation_executor is not None else executor
+        fill_executor = fill_executor if fill_executor is not None else executor
         if translation_executor is None:
             raise ValueError("XML translation requires a translation executor")
         if fill_executor is None:

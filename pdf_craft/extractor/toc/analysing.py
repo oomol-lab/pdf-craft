@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 from ...common import XMLReader, save_xml
+from ...concurrency import AsyncExecutor
 from ...llm import LLM
 from ...runtime import IO_DOMAIN
 from ...pdf import TITLE_TAGS, Page
@@ -33,6 +34,7 @@ async def analyse_toc(
     toc_path: Path,
     toc_assumed: bool,
     toc_llm: LLM | None = None, *,
+    toc_executor: AsyncExecutor | None = None,
     retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     request_headers: Mapping[str, str] | None = None,
     usage: UsageCollector | None = None,
@@ -41,7 +43,7 @@ async def analyse_toc(
     # Derived TOCs are outputs, not reusable evidence. Old caches lack the
     # adopted-state/configuration identity, so recompute rather than trust them.
     await IO_DOMAIN.run(toc_path.parent.mkdir, parents=True, exist_ok=True)
-    toc_info = await _do_analyse_toc(pages_path, toc_llm, toc_assumed, printed_page_indexes)
+    toc_info = await _do_analyse_toc(pages_path, toc_llm, toc_assumed, printed_page_indexes, toc_executor)
     await IO_DOMAIN.run(save_xml, encode_toc(toc_info), toc_path)
 
     return toc_info
@@ -52,6 +54,7 @@ async def _do_analyse_toc(
     toc_llm: LLM | None,
     toc_assumed: bool,
     printed_page_indexes: list[int] | None = None,
+    toc_executor: AsyncExecutor | None = None,
 ) -> TocInfo:
     pages: XMLReader[Page] = await IO_DOMAIN.run(XMLReader,
         prefix="page",
@@ -70,6 +73,7 @@ async def _do_analyse_toc(
             try:
                 ref2level = await analyse_toc_levels_by_llm(
                     llm=toc_llm,
+                    executor=toc_executor,
                     toc_page_refs=toc_pages,
                     toc_page_contents=await IO_DOMAIN.run(lambda: list(
                         pages.read(
@@ -98,7 +102,7 @@ async def _do_analyse_toc(
     else:
         if toc_llm is not None:
             try:
-                ref2level = await analyse_title_levels_by_llm(toc_llm, pages)
+                ref2level = await analyse_title_levels_by_llm(toc_llm, pages, executor=toc_executor)
             except LLMAnalysisError as error:
                 from ..._policy import recover
                 from ...policies import FailureCategory

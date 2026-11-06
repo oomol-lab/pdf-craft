@@ -17,7 +17,7 @@ from xml.etree import ElementTree
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..document import DocumentAuthor, DocumentMetadata
-from ..concurrency import ConcurrentExecutor, FixedCapacity
+from ..concurrency import AsyncExecutor, ConcurrentExecutor, FixedCapacity
 from ..llm import LLM, Message, MessageRole, runtime_for
 from ..llm.guaranteed import GuaranteedOptions, request_guaranteed_json
 from ..pdf import PDFDocumentMetadata
@@ -170,6 +170,7 @@ class FrontPages:
 
 async def extract_book_metadata_from_ocr(
     pages_path: Path, metadata_llm: LLM, *, front_pages: FrontPages | None = None,
+    executor: AsyncExecutor | None = None,
 ) -> DocumentMetadata:
     """Read committed front pages, waiting only for requested evidence."""
     async def load(count):
@@ -186,7 +187,7 @@ async def extract_book_metadata_from_ocr(
         Message(MessageRole.USER, _render_pages_message(loaded, remaining=available - len(loaded))),
     ]
     runtime = runtime_for(
-        metadata_llm, ConcurrentExecutor(FixedCapacity(1)),
+        metadata_llm, executor if executor is not None else ConcurrentExecutor(FixedCapacity(1)),
         protocol_version="book-metadata-json-v1",
     ) if isinstance(metadata_llm, LLM) else None
     while True:

@@ -30,11 +30,11 @@ class Refinement:
             raise ValueError("Page refinement requires an LLM executor")
 
     def resolved_jev_executor(self) -> AsyncExecutor:
-        executor = self.jev_executor or self.executor
+        executor = self.jev_executor if self.jev_executor is not None else self.executor
         assert executor is not None
         return executor
 
     def resolved_llm_executor(self) -> AsyncExecutor:
-        executor = self.llm_executor or self.executor
+        executor = self.llm_executor if self.llm_executor is not None else self.executor
         assert executor is not None
         return executor
