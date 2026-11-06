@@ -399,6 +399,16 @@ If the metadata dialogue cannot be validated after its bounded repair loop, the 
 Recovery must be allowed by ErrorPolicy (for example ignore_analysis_errors=True); it then uses
 the PDF-file metadata fallback and continues.
 
+Evidence matching applies the existing table-of-contents `normalize_text` rule equally to the
+loaded page's OCR text, the cited evidence, and the extracted value: normalized evidence must
+be contained in normalized OCR, and the normalized value in normalized evidence. Both value
+and evidence must remain nonempty. This permits Unicode whitespace and line-break differences,
+the TOC rule's hyphen handling, defined punctuation removal, and Latin case/accent differences;
+it does not use fuzzy similarity. Page references must still identify loaded pages. Normalization
+is only for comparison: original OCR, evidence, and extracted values are preserved. Independent
+schema, duplicate-entry, and ISBN checksum checks still apply. A failed dialogue discards the
+entire OCR metadata result under the existing fallback policy, rather than retaining partial fields.
+
 ### OCR configurations
 
 All OCR configuration objects are immutable dataclasses and are passed to `PDFOptions(ocr=...)`.

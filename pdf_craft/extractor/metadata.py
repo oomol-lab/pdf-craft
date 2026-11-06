@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from xml.etree import ElementTree
 
+from jinja2 import Environment, PackageLoader, StrictUndefined
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..document import DocumentAuthor, DocumentMetadata
@@ -22,6 +23,7 @@ from ..llm import LLM, Message, MessageRole, runtime_for
 from ..llm.guaranteed import GuaranteedOptions, request_guaranteed_json
 from ..pdf import PDFDocumentMetadata
 from ..common import safe_text
+from .toc.text import normalize_text
 
 
 _INITIAL_PAGE_COUNT = 3
@@ -279,12 +281,14 @@ def _validate_metadata_evidence(metadata: _MetadataResponse, page_text: dict[int
         source = page_text.get(evidence.page_index)
         if source is None:
             raise ValueError(f"evidence references unloaded page {evidence.page_index}")
-        printed_source = _printed_form(source)
-        printed_evidence = _printed_form(evidence.evidence)
-        printed_value = _printed_form(evidence.value)
-        if printed_evidence not in printed_source:
+        normalized_source = normalize_text(source)
+        normalized_evidence = normalize_text(evidence.evidence)
+        normalized_value = normalize_text(evidence.value)
+        if not normalized_evidence or not normalized_value:
+            raise ValueError("value and evidence must not be empty after TOC normalization")
+        if normalized_evidence not in normalized_source:
             raise ValueError(f"evidence for {evidence.value!r} is not present on page {evidence.page_index}")
-        if printed_value not in printed_evidence:
+        if normalized_value not in normalized_evidence:
             raise ValueError(f"value {evidence.value!r} is not supported by its evidence")
 
     author_names = [_printed_form(author.name.value) for author in metadata.authors]
@@ -377,7 +381,7 @@ def _render_pages_message(pages: list[_OCRPage], *, remaining: int) -> str:
 
 
 def _printed_form(value: str) -> str:
-    """Allow only Unicode canonical equivalence, never editorial rewriting."""
+    """Preserve the existing canonical-equivalence rule for duplicate entries."""
     return unicodedata.normalize("NFC", value)
 
 
@@ -425,28 +429,8 @@ def _unique_nonempty(values: Iterable[str]) -> list[str]:
     return result
 
 
-_SYSTEM_PROMPT = """You extract bibliographic facts from raw OCR pages of a book.
-
-Return complete JSON only. Your response must be either:
-{"action":"read_more","page_count":2}
-or:
-{"action":"complete","metadata":{...}}
-
-`read_more.page_count` must be an integer from 2 through 4. You may request more front pages
-conservatively, without explaining why, until no more pages are available or the twelve-page
-limit is reached.
-
-For `complete`, metadata may contain only these fields: title, original_title, description,
-publisher, isbn, authors, editors, translators, publication_date, edition, subjects, rights,
-and language. A scalar field is either null or {"value", "page_index", "evidence"}. A list
-field is a list of those evidence objects. Each author is
-{"name": evidence, "original_name": evidence-or-null, "nationality": evidence-or-null}.
-
-Use only facts explicitly present in the supplied OCR pages. Do not infer, translate, correct
-from world knowledge, or invent any field. Names, titles, publishers, and ISBNs must preserve
-the printed form. `description` is allowed only for an explicitly printed blurb or description;
-do not summarize the book. Set `language` only when a literal language identifier such as `en` or
-`zh` is printed; do not turn a printed language name such as `English` into a code. Every non-null
-value must cite the page containing it and a literal evidence string that contains the value.
-Transcribe capitalization and internal whitespace exactly as printed. Use null or [] when no
-evidence exists."""
+_SYSTEM_PROMPT = Environment(
+    loader=PackageLoader("pdf_craft.extractor", "data"),
+    undefined=StrictUndefined,
+    autoescape=False,
+).get_template("book_metadata.jinja").render().strip()

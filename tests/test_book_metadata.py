@@ -17,6 +17,8 @@ from pdf_craft.document import DocumentAuthor, DocumentMetadata, PDFCraftExtract
 from pdf_craft.document.package import write_manifest, write_pages
 from pdf_craft.extractor.metadata import (
     _looks_like_isbn,
+    _MetadataResponse,
+    _validate_metadata_evidence,
     extract_book_metadata_from_ocr,
     merge_ocr_and_pdf_metadata,
 )
@@ -196,21 +198,85 @@ class TestBookMetadata(unittest.IsolatedAsyncioTestCase):
             self.assertIn("page_count", llm.calls[1][-1].message)
             self.assertEqual(llm.calls[1][-2].role.name, "ASSISTANT")
 
-    async def test_evidence_rejects_case_and_internal_whitespace_rewrites(self):
-        with TemporaryDirectory() as directory:
-            pages_path = self._write_pages(Path(directory) / "ocr", ["PDF Craft", "", ""])
-            llm = _ScriptedLLM([
-                _title_complete("pdfcraft", "PDF Craft"),
-                _title_complete("PDF  Craft", "PDF Craft"),
-                _title_complete("PDF Craft", "PDF Craft"),
-            ])
+    async def test_evidence_uses_toc_normalization_and_preserves_values(self):
+        cases = [
+            ("PDF Craft", "pdf craft", "PDF  Craft"),
+            ("  PDF\t\nCraft  ", " PDF\u00a0Craft ", " PDF\u2003  Craft "),
+            ("Café RÉSUMÉ", "cafe resume", "Café Résumé"),
+            ("《目录：测试》", "目录测试", "目录：测试"),
+            ("Hyper—\ntext", "Hypertext", "HYPERTEXT"),
+            ("Under-\nstanding", "Understanding", "UNDERSTANDING"),
+        ]
+        for source, evidence, value in cases:
+            with self.subTest(source=source), TemporaryDirectory() as directory:
+                pages_path = self._write_pages(Path(directory) / "ocr", [source])
+                response = _title_complete(value, evidence)
+                model = _MetadataResponse.model_validate(json.loads(response)["metadata"])
+                _validate_metadata_evidence(model, {1: source})
+                assert model.title is not None
+                self.assertEqual(model.title.evidence, evidence)
+                self.assertEqual(model.title.value, value)
+                original_ocr = (pages_path / "page_1.xml").read_bytes()
+                llm = _ScriptedLLM([response])
 
+                metadata = await extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+
+                self.assertEqual(metadata.title, value)
+                self.assertEqual(len(llm.calls), 1)
+                self.assertEqual((pages_path / "page_1.xml").read_bytes(), original_ocr)
+
+    async def test_subject_and_isbn_layout_differences_accept_first_complete(self):
+        with TemporaryDirectory() as directory:
+            pages_path = self._write_pages(Path(directory) / "ocr", [
+                "Technical\nStudies- Management.\nISBN 978 1 4028 9462 6", "RENE AUTHOR",
+            ])
+            llm = _ScriptedLLM([json.dumps({
+                "action": "complete",
+                "metadata": {
+                    "subjects": [{"value": "Technical Studies- Management", "page_index": 1,
+                                  "evidence": "Technical\nStudies- Management."}],
+                    "isbn": {"value": "9781402894626", "page_index": 1,
+                             "evidence": "ISBN 978-1-4028-9462-6"},
+                    "authors": [{"name": {"value": "René Author", "page_index": 2,
+                                          "evidence": "RENE AUTHOR"}}],
+                },
+            })])
             metadata = await extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
 
-            self.assertEqual(metadata.title, "PDF Craft")
-            self.assertEqual(len(llm.calls), 3)
-            self.assertIn("not supported by its evidence", llm.calls[1][-1].message)
-            self.assertIn("not supported by its evidence", llm.calls[2][-1].message)
+            self.assertEqual(metadata.subjects, ("Technical Studies- Management",))
+            self.assertEqual(metadata.isbn, "9781402894626")
+            self.assertEqual(metadata.authors, (DocumentAuthor("René Author"),))
+            self.assertEqual(len(llm.calls), 1)
+
+    async def test_unfounded_or_empty_normalized_evidence_requires_repair(self):
+        cases = [
+            ("...", "PDF Craft", 1, "empty after TOC normalization"),
+            ("PDF Craft", "...", 1, "empty after TOC normalization"),
+            ("...", "...", 1, "empty after TOC normalization"),
+            ("Other Book", "PDF Craft", 1, "not supported by its evidence"),
+            ("Other Book", "Other Book", 1, "not present on page"),
+            ("PDF Craft", "PDF Craft", 2, "not present on page"),
+            ("PDF Craft", "PDF Craft", 3, "not present on page"),
+            ("PDF Craft", "PDF Craft", 4, "unloaded page"),
+            ("PDF Craft", "PDF Craft", 99, "unloaded page"),
+        ]
+        for value, evidence, page, error in cases:
+            with self.subTest(value=value, evidence=evidence, page=page), TemporaryDirectory() as directory:
+                pages_path = self._write_pages(Path(directory) / "ocr", [
+                    "PDF Craft", "Different Page", "...", "PDF Craft",
+                ])
+                llm = _ScriptedLLM([
+                    json.dumps({"action": "complete", "metadata": {"title": {
+                        "value": value, "page_index": page, "evidence": evidence,
+                    }}}),
+                    _title_complete("PDF Craft", "PDF Craft"),
+                ])
+
+                metadata = await extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+
+                self.assertEqual(metadata.title, "PDF Craft")
+                self.assertEqual(len(llm.calls), 2)
+                self.assertIn(error, llm.calls[1][-1].message)
 
     async def test_invalid_isbn_checksum_reenters_repair_loop_and_accepts_fix(self):
         with TemporaryDirectory() as directory:
@@ -246,11 +312,15 @@ class TestBookMetadata(unittest.IsolatedAsyncioTestCase):
 
         with TemporaryDirectory() as directory:
             pages_path = self._write_pages(Path(directory) / "ocr", [
-                "ISBN 978-1-4028-9462-0", "", "",
+                "Printed Title\nISBN 978-1-4028-9462-0", "", "",
             ])
             engine = PDFExtractionEngine.__new__(PDFExtractionEngine)
             engine._ocr = _OCR()  # type: ignore[assignment]
-            llm = _ScriptedLLM([_isbn_complete("978-1-4028-9462-0")] * 4)
+            response = json.loads(_isbn_complete("978-1-4028-9462-0"))
+            response["metadata"]["title"] = {
+                "value": "Printed Title", "page_index": 1, "evidence": "Printed Title",
+            }
+            llm = _ScriptedLLM([json.dumps(response)] * 4)
 
             metadata = await engine._extract_book_metadata_async(  # pylint: disable=protected-access
                 pdf_path=Path("book.pdf"), pages_path=pages_path, enabled=True,

@@ -319,6 +319,14 @@ PAGE 完成事件通过 `refinement_status`（包顶层导出的 `RefinementStat
 PDF 文件自身的 metadata 只补充 OCR 未得到的字段，绝不覆盖 OCR 结果；得到的 PCEX metadata 会同时供
 EPUB 渲染与 PDF 回填使用，后者会将其写入输出 PDF 的 document metadata。元信息请求最终失败默认抛异常；只有 ErrorPolicy 允许分析降级时才使用 PDF metadata fallback 并继续。
 
+证据比较对已加载页的 OCR 原文、引用 evidence 和提取 value 统一复用目录的 `normalize_text`
+规则：标准化 evidence 必须包含于标准化 OCR，标准化 value 必须包含于标准化 evidence；
+value 和 evidence 标准化后都不得为空。该规则允许 Unicode 空白与换行差异、目录现有的
+断行连字符处理、指定标点移除以及拉丁字母大小写与重音差异，不使用模糊相似度。
+引用页仍须实际存在且已加载。标准化仅用于比较，保留原始 OCR、证据和提取值；独立的
+schema、重复项和 ISBN 校验码检查保持原行为。对话失败仍按现有策略丢弃整份 OCR 元数据后
+回退，不保留部分字段。
+
 `aborted` 返回 `True` 时请求中止当前任务。`on_extraction_event` 接收统一工作单元进度，见[协议与 stage 编号](TRANSLATION_PROGRESS.md)。`ErrorPolicy.ignore_pdf_render_errors` 和 `ErrorPolicy.ignore_ocr_errors` 接受布尔值，也接受
 根据 FailureContext 返回布尔值的 callable；它们只影响页面级错误是否继续处理。
 
