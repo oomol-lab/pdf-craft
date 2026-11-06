@@ -82,6 +82,28 @@ class OnlineFormulaAllocationTests(IsolatedAsyncioTestCase):
         self.assertEqual(allocations, [raw, raw])
         self.assertEqual(len(model.wire_calls), 4)
 
+    async def test_complete_partition_ids_are_adopted_without_an_empty_math_node(self):
+        source = chapter([expression(r'\chi(n)='), ' ', expression(r"\chi'(n)")])
+        raw = r"\(\chi(n)= \chi'(n)\)"
+        translator, model = translator_fixture()
+        def answer(messages):
+            if messages[0]['content'].startswith('You are a translator.'):
+                return raw
+            if messages[0]['content'].startswith('You are the structural fill engineer.'):
+                # This is the real rejected response shape: all source keys
+                # are explicit in parts, while the outer shorthand names s1.
+                return json.dumps([dict(id='0', text=raw, formulas=[dict(key='s1', target='t1', parts=[
+                    dict(keys=['s1'], text=r'\chi(n)='), dict(text=' '),
+                    dict(keys=['s2'], text=r"\chi'(n)")])])])
+            return '<xml><fragment id="1"><expression id="2"><math-ref key="m1"/></expression><expression id="3"/></fragment></xml>'
+        model.answer = answer
+        target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+        self.assertEqual(content_of(target), [expression(r'\chi(n)='), ' ', expression(r"\chi'(n)")])
+        patch_text, formulas = _to_pdf_patch_content(content_of(target))
+        self.assertEqual([formula.latex for formula in formulas], [r'\chi(n)=', r"\chi'(n)"])
+        self.assertNotIn('\\(', patch_text)
+        self.assertEqual(len(model.wire_calls), 3)
+
     async def test_native_epub_mathml_restoration_preserves_endpoint_outside_source_node(self):
         source = fromstring('<body><p>A zero satisfies <math id="original"><mi>x</mi><mo>=</mo></math>1.</p></body>')
         raw = r'零点满足 \(x=1\)。'

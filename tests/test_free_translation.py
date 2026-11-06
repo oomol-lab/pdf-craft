@@ -171,6 +171,14 @@ class FreeTranslationTests(TestCase):
         self.assertEqual(allocate(json.dumps([dict(id='0', text=raw, formulas=[dict(formula, parts=parts)])]), calls, raw),
                          {'0': raw})
         self.assertEqual(math.bindings, [[math.values['s1'], r'\(1;\)', math.values['s2'], r'\(2\)']])
+        for shorthand in ({'key': 's1'}, {}):
+            result = allocate(json.dumps([dict(id='0', text=raw, formulas=[
+                dict(shorthand, target='t1', parts=parts)])]), calls, raw)
+            self.assertEqual(result, {'0': raw})
+        with self.assertRaisesRegex(ValueError, 'Outer source keys'):
+            allocate(json.dumps([dict(id='0', text=raw, formulas=[
+                dict(key='unknown', target='t1', parts=parts)])]), calls, raw)
+
 
     def test_feedback_collects_errors_across_units_without_partial_bindings(self):
         calls = [SimpleNamespace(source_math=SourceMathTranslation([

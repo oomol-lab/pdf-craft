@@ -17,6 +17,7 @@ from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
 from pdf_craft.llm import Message, MessageRole
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer.request_batch import RequestBatcher, MAX_BATCH_UNITS, request_window
+from pdf_craft.transformer.group_requests import GroupRequests
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask, SubmitKind
 from pdf_craft.usage import UsageCollector, UsageScope, shared_request_usage, usage_context, request_attempt
@@ -200,19 +201,30 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
         translator, _ = translator_fixture()
         batcher = translator._requests
         entered, release, closed = asyncio.Event(), asyncio.Event(), asyncio.Event()
-        async def blocked(*_args, **_kwargs):
+        async def blocked(messages, *_args, **_kwargs):
+            # Encoding/template IO can reverse arrival order. IDs belong
+            # to actual envelope members, never task creation order.
+            if messages[0].role == MessageRole.SYSTEM:
+                units = json.loads(messages[-1].message)
+                self.assertEqual(len(units), 2)
+                answer = json.dumps([dict(id=unit['id'], text={
+                    'first': 'a', 'second': 'b'}[unit['messages'][-1]['content']]) for unit in units])
+            else:
+                answer = 'last'
             entered.set()
             try:
                 await release.wait()
-                return '[{"id":"0","text":"a"},{"id":"1","text":"b"}]'
+                return answer
             finally:
                 closed.set()
         translator._translation_runtime.__dict__['_invoke'] = blocked
-        async def request():
-            async with translator._translation_runtime.context() as context:
-                return await batcher.request(context, [Message(MessageRole.USER, 'source')],
-                                             runtime=translator._translation_runtime, stage='fill')
-        first, second = asyncio.create_task(request()), asyncio.create_task(request())
+        async def request(text, group):
+            with group.member():
+                async with translator._translation_runtime.context() as context:
+                    return await batcher.request(context, [Message(MessageRole.USER, text)],
+                                                 runtime=translator._translation_runtime, stage='fill')
+        group = GroupRequests(2)
+        first, second = asyncio.create_task(request('first', group)), asyncio.create_task(request('second', group))
         await entered.wait()
         first.cancel()
         with self.assertRaises(asyncio.CancelledError):
@@ -224,7 +236,7 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
         entered.clear()
         release.clear()
         closed.clear()
-        last = asyncio.create_task(request())
+        last = asyncio.create_task(request('last', GroupRequests(1)))
         await entered.wait()
         last.cancel()
         with self.assertRaises(asyncio.CancelledError):

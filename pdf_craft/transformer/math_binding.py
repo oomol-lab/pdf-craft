@@ -52,7 +52,7 @@ def partition_math(original: str, sources: list[SourceMath], parts: object, *, r
             # Preserve artist math as ordinary canonical text, with mathematical
             # delimiters retained for downstream renderers; invent no rich node.
             opening, closing = ('\\(', '\\)') if inline else ('\\[', '\\]')
-            bound.append(opening + part['text'] + closing)
+            bound.append(opening + part['text'] + closing if part['text'].strip(' \t\r\n') else part['text'])
     if sorted(seen) != list(range(len(sources))):
         raise ValueError('Each selected source identity must occur exactly once in mathematical parts.')
     return bound

@@ -96,6 +96,10 @@ def project_canonical_math(
                 elif offset <= match.start():
                     for source in binding:
                         if isinstance(source, str):
+                            if not source.strip(' \t\r\n'):
+                                output.append(replace(field, text=source, parent_stack=stack,
+                                                      block_depth=find_block_depth(stack)))
+                                continue
                             if residual_factory is None:
                                 raise MathProjectionError('A format adapter must materialize residual mathematics.')
                             node = residual_factory(source)

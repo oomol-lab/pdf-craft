@@ -11,6 +11,26 @@ def _prose(value):
     return normalize(value, trim=True)
 
 
+def _source_keys(item):
+    declared = item.get('keys', [] if item.get('preserve') is True or 'parts' in item else [item.get('key')])
+    if not isinstance(declared, list) or any(not isinstance(key, str) for key in declared):
+        raise ValueError('Source keys must be an array of strings.')
+    if 'parts' not in item:
+        return declared
+    parts = item['parts']
+    if not isinstance(parts, list) or not parts or any(not isinstance(part, dict) for part in parts):
+        raise ValueError('Math parts must be a nonempty array of objects.')
+    if any(not isinstance(part.get('keys', []), list)
+           or any(not isinstance(key, str) for key in part.get('keys', [])) for part in parts):
+        raise ValueError('Each mathematical part needs an array of source keys.')
+    keys = [key for part in parts for key in part.get('keys', [])]
+    # Parts are the complete submitted correspondence, not an incremental
+    # change to the outer shorthand. Never ignore a nested source identity.
+    if any(key not in keys for key in declared) or ('key' in item and item['key'] not in keys):
+        raise ValueError('Outer source keys must agree with identities explicitly assigned in parts.')
+    return keys
+
+
 def allocate_math(unit, math, targets):
     text = unit['text']
     values = math.values if math is not None else {}
@@ -18,9 +38,9 @@ def allocate_math(unit, math, targets):
     if not isinstance(formulas, list) or any(not isinstance(item, dict) for item in formulas):
         raise ValueError('Formula allocations must be an array of objects.')
     for item in formulas:
-        if item.get('preserve') is True and ('key' in item or 'keys' in item):
+        if item.get('preserve') is True and (_source_keys(item) or 'key' in item or 'keys' in item):
             raise ValueError('Additional translated math must not claim a source identity.')
-        keys = item.get('keys', [] if item.get('preserve') is True else [item.get('key')])
+        keys = _source_keys(item)
         if not isinstance(keys, list) or (not keys and item.get('preserve') is not True) or any(not isinstance(key, str) for key in keys):
             raise ValueError('Each formula allocation must specify nonempty source keys.')
         if 'target' in item:
@@ -28,7 +48,7 @@ def allocate_math(unit, math, targets):
                 raise ValueError('Formula target must be a translated occurrence id.')
         elif any(not isinstance(item.get(field), str) for field in ('text', 'before', 'after')):
             raise ValueError('Formula text and before/after context must be strings.')
-    assigned = [key for item in formulas for key in item.get('keys', [] if item.get('preserve') is True else [item.get('key')])]
+    assigned = [key for item in formulas for key in _source_keys(item)]
     if sorted(assigned) != sorted(values):
         raise ValueError(f'Assign each source identity once. Missing: {sorted(set(values)-set(assigned))}; duplicated: {sorted({key for key in assigned if assigned.count(key)>1})}; unknown: {sorted(set(assigned)-set(values))}. Additional mathematical occurrences must use preserve=true instead of reusing a source key.')
     selected_targets = [item['target'] for item in formulas if 'target' in item]
@@ -36,7 +56,7 @@ def allocate_math(unit, math, targets):
         raise ValueError('Formula allocations cannot overlap; combine source keys for one target.')
     edits, bound, issues = [], [], []
     for item in formulas:
-        keys = item.get('keys', [] if item.get('preserve') is True else [item.get('key')])
+        keys = _source_keys(item)
         if 'target' in item:
             entry = targets.get(item['target'])
             if entry is None or entry[0] != unit['id']:
