@@ -157,7 +157,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
         assert isinstance(paragraph, TextFlowItem)
         self.assertIs(paragraph.children[0].content[1], restored.citations[0])
 
-    async def test_cross_page_origin_deletion_retries_and_preserves_tail(self):
+    async def test_local_reclassification_keeps_unbound_neighbor_content(self):
         note = Reference(1, 1, '①', [TextFlowItem('body', -1, [
             fragment(1, 2, 'START'), fragment(2, 2, 'TAIL')])])
         pages = analyse_pages([1, 2], [], [note])
@@ -175,15 +175,14 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
             return json.dumps(proposed)
 
         result = await AllPageLlmRepairProcessor(request, page_indexes=[1], retry_policy=RetryPolicy(analysis=1))([], pages, {})
-        self.assertEqual(attempts, [0, 1])
-        note_text = restore_streams(result).citations[0].flow_items[0]
-        assert isinstance(note_text, TextFlowItem)
-        self.assertEqual([child.content for child in note_text.children], [['START'], ['TAIL']])
-        # Removing an origin in local deterministic code is an algorithm error.
-        with self.assertRaisesRegex(ValueError, 'no origin'):
-            restore_streams([pages[1]])
+        self.assertEqual(attempts, [0])
+        restored = restore_streams(result)
+        self.assertEqual(restored.citations, [])
+        self.assertEqual([child.content for item in restored.paragraphs
+                          if isinstance(item, TextFlowItem) for child in item.children], [['START'], ['TAIL']])
+        self.assertIn('TAIL', str(restore_streams([pages[1]])))
 
-    async def test_ignored_predecessor_requires_correcting_successor_connection(self):
+    async def test_ignored_predecessor_does_not_veto_successor_content(self):
         pages = analyse_pages([1, 2], [TextFlowItem('body', -1, [
             fragment(1, 0, '207'), fragment(2, 0, 'Body.')])], [])
 
@@ -195,11 +194,10 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
                           paragraph_role=None, paragraph_level=None)
             return json.dumps(proposed)
 
-        # The successor's incoming edge must be explicitly corrected too; an
-        # ignored predecessor is not a valid continuation. Candidate is rejected.
-        from pdf_craft.llm.guaranteed import GuaranteedBusinessError
-        with self.assertRaises(GuaranteedBusinessError):
-            await AllPageLlmRepairProcessor(request, page_indexes=[1], retry_policy=RetryPolicy(analysis=0))([], pages, {})
+        result = await AllPageLlmRepairProcessor(
+            request, page_indexes=[1], retry_policy=RetryPolicy(analysis=0))([], pages, {})
+        self.assertEqual(len(restore_streams(result).paragraphs), 1)
+        self.assertIn('Body.', str(restore_streams(result)))
 
     async def test_ignored_layout_does_not_inherit_a_derived_outgoing_edge(self):
         page = analyse_pages([1], [TextFlowItem('body', -1, [
@@ -270,7 +268,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
 
         async def request(_messages, _index, _maximum):
             proposed = response(pages[1])
-            proposed['citations'][0].update(citation_id=previous_id)
+            proposed['citations'][0].update(citation_id=previous_id, continues_previous=True)
             proposed['layouts'][0].update(citation_id=previous_id, continues_from_previous=True)
             proposed['layouts'][0].pop('continues_to_next')
             return json.dumps(proposed)

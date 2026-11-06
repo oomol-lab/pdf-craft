@@ -200,7 +200,7 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
                     assets = [item for item in json.loads(messages[1].message)['target_page']['layouts']
                               if item['source_type'] in ('formula', 'image', 'table')]
                     self.assertEqual(len(assets), 3)
-                    self.assertTrue(all(item['ocr_stream'] == 'footnote' and item['ownership'] == 'ignored'
+                    self.assertTrue(all(item['ocr_stream'] == 'footnote' and item['initial_proposal']['ownership'] == 'ignored'
                                         for item in assets))
             self.assertEqual(len(prompts), 0 if pass_review else 6)
             with ZipFile(root/'book.pcex') as archive:

@@ -85,10 +85,10 @@ class JEVInputLimitTests(IsolatedAsyncioTestCase):
                 return json.dumps(result)
 
         validate = PageAssembly.validate
-        def validate_candidate(assembly, page, following=None, *, refined=False, initial=None):
-            if page.page_index == 1 and refined and failure == 'commit':
+        def validate_candidate(page):
+            if page.page_index == 1 and page.layouts[1].ownership == 'ignored' and failure == 'commit':
                 raise PageStructureError('candidate rejected by assembly', 1)
-            return validate(assembly, page, following, refined=refined, initial=initial)
+            return validate(page)
 
         client = client_with(system_one)
         with TemporaryDirectory() as folder:
@@ -99,7 +99,7 @@ class JEVInputLimitTests(IsolatedAsyncioTestCase):
             engine._ocr = ocr
             with patch('pdf_craft.jev.AsyncTypeSafeClient', return_value=client), patch(
                     'pdf_craft.transform.runtime_for', return_value=SimpleNamespace(request=request)), patch.object(
-                    PageAssembly, 'validate', validate_candidate), patch(
+                    PageAssembly, 'validate', staticmethod(validate_candidate)), patch(
                     'pdf_craft.pdf.page_ref.pdf_pages_count', return_value=6):
                 await AsyncPDFCraft.from_engine(engine).extract_pdf(
                     root/'source.pdf', root/'book.pcex', ExtractionOptions(

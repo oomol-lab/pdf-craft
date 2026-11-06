@@ -9,7 +9,7 @@ from unittest import TestCase
 from xml.etree.ElementTree import fromstring
 
 from pdf_craft.extractor.chapter.assembly import PageAssembly
-from pdf_craft.extractor.chapter.page_repair import _validate_shared_citations, _validate_reading_boundary
+from pdf_craft.extractor.chapter.page_repair import validate_page
 from pdf_craft.extractor.chapter.primary import PrimaryPages
 from pdf_craft.extractor.chapter.page_analysis import _restore_fragment
 from pdf_craft.extractor.chapter.analysis_content import project_definition_mark
@@ -44,7 +44,7 @@ class CitationRefinementQualityTests(TestCase):
         with TemporaryDirectory() as directory:
             assembly = PageAssembly(Path(directory)/'content.sqlite')
             assembly.append(first)
-            assembly.append(second, refined=True)
+            assembly.append(second)
             ref, _ = next(iter(assembly.notes.values()))
             assembly.finish()
             self.assertEqual(len(ref.flow_items), 2)
@@ -99,14 +99,6 @@ class CitationRefinementQualityTests(TestCase):
             self.assertEqual(occurrence.flow_items, [])
             self.assertIsInstance(next(items).value, Reference)
 
-    def test_known_shared_origin_remains_protected(self):
-        page = _page_with_reference()
-        page.citations[0].origin_page_index = None  # An indexed definition is known without this derived hint.
-        candidate = deepcopy(page)
-        candidate.citations.clear()
-        with self.assertRaisesRegex(ValueError, 'CROSS_PAGE_IDENTITY'):
-            _validate_shared_citations(page, candidate, {page.citations[0].citation_id})
-
     def test_formula_wrapped_printed_mark_is_projected_once_and_reversible(self):
         page = PrimaryPages().append(decode(fromstring(
             '<page index="1"><body><layout ref="text" det="0,0,100,20">'
@@ -119,26 +111,6 @@ class CitationRefinementQualityTests(TestCase):
         self.assertEqual(restored.source.content, source.source.content)
         self.assertEqual(len(_restore_fragment(restored, {}).content), 2)
 
-    def test_bracketed_main_flow_cannot_detour_through_a_recognized_note_band(self):
-        primary = PrimaryPages()
-        first = primary.append(decode(fromstring(
-            '<page index="1"><body>'
-            '<layout ref="text" det="0,0,100,20">The argument (including</layout>'
-            '<layout ref="text" det="0,40,100,50">① An explanatory note.</layout>'
-            '<layout ref="text" det="0,50,100,70">Another way to explain that note.</layout>'
-            '</body><footnotes/></page>')))
-        second = primary.append(decode(fromstring(
-            '<page index="2"><body><layout ref="text" det="0,0,100,20">'
-            'this conclusion) continues.</layout></body><footnotes/></page>')))
-        first.layouts[1] = replace(first.layouts[1], annotations=replace(
-            first.layouts[1].annotations, ownership='ignored'))
-        with self.assertRaisesRegex(ValueError, 'READING_FLOW'):
-            _validate_reading_boundary(first, second)
-        first.layouts[2] = replace(first.layouts[2], annotations=replace(
-            first.layouts[2].annotations, ownership='ignored'))
-        _validate_reading_boundary(first, second)
-        _validate_reading_boundary(first, None)
-
     def test_unresolved_shared_guess_can_be_removed(self):
         page = _page_with_reference()
         page.citations[0].index = None
@@ -148,15 +120,15 @@ class CitationRefinementQualityTests(TestCase):
         candidate.layouts = [replace(item, annotations=replace(
             item.annotations, ownership='paragraph', citation_id=None,
             citation_index=None, references=[])) for item in candidate.layouts]
-        _validate_shared_citations(page, candidate, {page.citations[0].citation_id})
+        validate_page(candidate)
 
     def test_ordered_assembly_binds_unresolved_incoming_note_to_adopted_origin(self):
         first = _page_with_reference()
-        identifier = first.citations[0].citation_id
+        identifier = 'citation-1-1'
         second = deepcopy(first)
         second.page_index = 2
         second.citations = [replace(first.citations[0], citation_id='local-unknown',
-                                    page_index=2, index=None, mark=None, origin_page_index=None)]
+                                    page_index=2, index=None, mark=None, origin_page_index=None, continues_previous=True)]
         second.layouts = [replace(item, source=replace(item.source, page_index=2),
                                   annotations=replace(item.annotations, citation_id='local-unknown',
                                                       citation_index=None, references=[],
@@ -178,14 +150,14 @@ class CitationRefinementQualityTests(TestCase):
 
     def test_validated_unmarked_note_does_not_fall_back_into_body(self):
         page = _page_with_reference()
-        page.citations[0].index = None
+        page.citations[0].index = 1
         page.citations[0].mark = None
         page.citations[0].origin_page_index = None
-        page.layouts = [replace(item, annotations=replace(item.annotations, citation_index=None))
+        page.layouts = [replace(item, annotations=replace(item.annotations, citation_index=1))
                         for item in page.layouts if item.ownership == 'citation']
         with TemporaryDirectory() as directory:
             assembly = PageAssembly(Path(directory)/'content.sqlite')
-            assembly.append(page, refined=True)
+            assembly.append(page)
             self.assertEqual(len(assembly.notes), 1)
             ref, _ = next(iter(assembly.notes.values()))
             self.assertEqual(ref.mark, '')

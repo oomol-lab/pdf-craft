@@ -149,7 +149,7 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
                     await asyncio.wait_for(body_ready.wait(), 2)
                     self.assertFalse(task.done())
                     first = next(p for p in prompts if p['target_page']['page_index'] == 1)
-                    self.assertAlmostEqual(first['target_page']['jev_p_pass'], 0.1)
+                    self.assertNotIn('jev_p_pass', first['target_page'])
                     for key in ('previous_page', 'next_page'):
                         if first[key] is not None:
                             self.assertNotIn('jev_p_pass', first[key])
@@ -314,7 +314,7 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             replace_layout_references(layout, [ReferenceSpan(7, 9, 1, 1, '33')])
 
-    async def test_local_candidate_fallback_preserves_previously_adopted_repairs(self):
+    async def test_cross_page_metadata_change_is_not_a_candidate_failure(self):
         from contextlib import asynccontextmanager
         from pathlib import Path
         from tempfile import TemporaryDirectory
@@ -341,7 +341,7 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
                 root/'source.pdf', root/'book.pcex', ExtractionOptions(
                     includes_furniture=False, footnotes=True, refinement=refinement()),
                 analysing_path=root/'analysis', error_policy=lambda event: decisions.append(event) or True)
-            self.assertEqual([event.stage for event in decisions], ['footnote_commit'])
+            self.assertEqual([event.stage for event in decisions], [])
             with ZipFile(root/'book.pcex') as archive:
                 text = b''.join(archive.read(p) for p in archive.namelist() if p.startswith('chapters/'))
             self.assertNotIn(b'Second chapter', text)
@@ -361,7 +361,7 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
             async def process(_previous, target, _following):
                 if target.page_index == 1:
                     await entered.wait()
-                    target.layouts[0].annotations.continues_from_previous = True
+                    target.layouts[0].annotations.paragraph_role = None
                 elif target.page_index == 2:
                     entered.set()
                     try:

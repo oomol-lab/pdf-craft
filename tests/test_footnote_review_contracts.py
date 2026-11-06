@@ -13,7 +13,6 @@ from pdf_craft.extractor.chapter.page_analysis import analyse_pages, restore_str
 from pdf_craft.extractor.chapter.page_repair import (
     AllPageLlmRepairProcessor, RepairedPage, _compile_repaired_page,
 )
-from pdf_craft.llm.guaranteed import GuaranteedBusinessError
 from pdf_craft.pdf import decode
 from tests.test_footnote_contracts import fragment, response
 
@@ -94,55 +93,21 @@ class FootnoteReviewContractsTests(unittest.IsolatedAsyncioTestCase):
             ['Left A.'], ['Left C.'], ['① Left last.'],
             ['Right D.'], ['Right F.'], ['Full width.']])
 
-    async def test_shared_member_cannot_be_ignored(self):
-        await self.assert_shared_member_rejected('ignored')
-
-    async def test_shared_member_cannot_be_moved_to_body(self):
-        await self.assert_shared_member_rejected('paragraph')
-
-    async def test_shared_member_cannot_be_regrouped_to_another_definition(self):
-        await self.assert_shared_member_rejected('citation')
-
-    async def assert_shared_member_rejected(self, ownership):
-        pages = shared_definition_pages()
-        original = deepcopy(pages)
-
-        async def request(_messages, _index, _maximum):
-            return json.dumps(move_shared_member(pages[0], ownership))
-
-        with self.assertRaises(GuaranteedBusinessError) as caught:
-            await AllPageLlmRepairProcessor(request, page_indexes=[1], retry_policy=RetryPolicy(analysis=0))(
-                [], pages, {})
-        self.assertIn('[CROSS_PAGE_MEMBERSHIP]', str(caught.exception.__cause__))
-        self.assertEqual(pages, original)
-        text = restore_streams(pages).citations[0].flow_items[0]
-        assert isinstance(text, TextFlowItem)
-        self.assertEqual([child.content for child in text.children],
-                         [['START'], ['LOST'], ['TAIL']])
-
-    async def test_shared_member_rejection_feedback_allows_valid_retry(self):
-        pages = shared_definition_pages()
-        original = deepcopy(pages)
-        attempts = []
-
-        async def request(messages, index, _maximum):
-            attempts.append(index)
-            self.assertEqual(pages, original)
-            if index == 0:
-                return json.dumps(move_shared_member(pages[0], 'ignored'))
-            self.assertIn('[CROSS_PAGE_MEMBERSHIP]', messages[-1].message)
-            return json.dumps(response(pages[0]))
-
-        repaired = await AllPageLlmRepairProcessor(request, page_indexes=[1], retry_policy=RetryPolicy(analysis=1))(
-            [], pages, {})
-        self.assertEqual(attempts, [0, 1])
-        self.assertEqual(pages, original)
-        restored = restore_streams(repaired)
-        self.assertEqual(len(restored.citations), 1)
-        text = restored.citations[0].flow_items[0]
-        assert isinstance(text, TextFlowItem)
-        self.assertEqual([child.content for child in text.children],
-                         [['START'], ['LOST'], ['TAIL']])
+    async def test_local_member_edits_are_not_frozen_by_neighbor_membership(self):
+        for ownership in ('ignored', 'paragraph', 'citation'):
+            with self.subTest(ownership=ownership):
+                pages = shared_definition_pages()
+                original = deepcopy(pages)
+                attempts = []
+                async def request(_messages, index, _maximum, attempts=attempts, pages=pages, ownership=ownership):  # pylint: disable=dangerous-default-value
+                    attempts.append(index)
+                    return json.dumps(move_shared_member(pages[0], ownership))
+                repaired = await AllPageLlmRepairProcessor(
+                    request, page_indexes=[1], retry_policy=RetryPolicy(analysis=0))([], pages, {})
+                self.assertEqual(attempts, [0])
+                self.assertEqual(pages, original)
+                self.assertEqual(repaired[0].layouts[1].ownership, ownership)
+                self.assertIn('TAIL', str(restore_streams(repaired)))
 
     async def test_shared_definition_allows_correcting_internal_paragraph_boundary(self):
         pages = shared_definition_pages()

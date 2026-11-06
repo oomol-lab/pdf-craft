@@ -125,6 +125,8 @@ def check_reading_flows(output, footnotes):
     body, notes, furniture = '', '', ''
     joined = set()
     definitions = 0
+    printed_definitions = {}
+    note_pages = {}
     first_page_paragraphs = []
     with ZipFile(output/'book.pcex') as archive:
         for name in archive.namelist():
@@ -148,16 +150,27 @@ def check_reading_flows(output, footnotes):
                 if references is not None:
                     notes += text(references)
                     definitions += len(references)
+                    for definition in references.findall('ref'):
+                        identity = definition.attrib['id']
+                        mark = normalize('NFKC', definition.findtext('mark', '')).strip()
+                        if mark:
+                            printed_definitions[identity] = mark
+                        note_pages.setdefault(identity, set()).update(
+                            int(fragment.attrib['page_index']) for fragment in definition.iter('fragment'))
         furniture = text(ET.fromstring(archive.read('furnitures.xml')))
     phrases = ('我不会在本书', '对拉康来说', '我们可以说', '试着泛化', '米勒', '主人话语')
     leaked = [phrase for phrase in phrases if phrase in body or phrase in furniture]
     missing = [phrase for phrase in phrases if footnotes and phrase not in notes]
+    expected_marks = {'1-1': '1', '1-2': '2', '1-3': '3', '3-1': '1'}
+    printed_passed = all(printed_definitions.get(key) == mark for key, mark in expected_marks.items())
+    continued_note = {1, 2} <= note_pages.get('1-3', set())
     return {'body_note_leaks': leaked, 'missing_note_content': missing,
             'first_page_paragraphs': first_page_paragraphs,
             'cross_page_body_paragraphs': sorted(joined), 'definitions': definitions,
+            'printed_definitions': printed_definitions, 'note_3_continues_to_page_2': continued_note,
             'passed': not leaked and not missing and joined == {'1-2','2-3'}
                       and first_page_paragraphs == [['0'], ['1'], ['2']]
-                      and (definitions >= 5 if footnotes else definitions == 0)}
+                      and (printed_passed and continued_note if footnotes else definitions == 0)}
 
 
 async def run(source: Path, output: Path, profile: str, *, footnotes=True):

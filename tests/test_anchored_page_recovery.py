@@ -19,7 +19,7 @@ from pdf_craft.extractor.chapter.chapter import (
 )
 from pdf_craft.extractor.chapter.generation import _resolve_pages, _generate_chapters
 from pdf_craft.extractor.chapter.page_analysis import analyse_pages, restore_streams, PageStructureError
-from pdf_craft.extractor.chapter.page_repair import AllPageLlmRepairProcessor, _compile_page_connections
+from pdf_craft.extractor.chapter.page_repair import AllPageLlmRepairProcessor
 from pdf_craft.extractor.recovery import affected_pages
 from pdf_craft.extractor.toc import TocInfo
 from pdf_craft.pdf import decode, encode as encode_page
@@ -92,7 +92,6 @@ class AnchoredPageTests(IsolatedAsyncioTestCase):
                         for order, layout in enumerate(page.body_layouts):
                             layout.order = order
                     analysed = project(pages)
-                    _compile_page_connections(analysed)
                     result = restore_streams(analysed)
                     self.assertEqual(len(result.paragraphs), 1)
                     paragraph = result.paragraphs[0]
@@ -111,7 +110,6 @@ class AnchoredPageTests(IsolatedAsyncioTestCase):
             page.footnotes_layouts, page.body_layouts = page.body_layouts, []
         pages[0].footnotes_layouts[0].text = '① ' + pages[0].footnotes_layouts[0].text
         analysed = project(pages)
-        _compile_page_connections(analysed)
         notes = restore_streams(analysed).citations
         self.assertEqual(len(notes), 1)
         paragraph = notes[0].flow_items[0]

@@ -5,13 +5,44 @@ prefix stripping, reference replacement or dehyphenation. Geometry belongs to
 that source; slicing never invents smaller rectangles.
 """
 from collections import defaultdict
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from .analysis_types import PageAnalysis, _AnalysedTextSource, _AnalysedHTMLTag
+from .analysis_types import (
+    PageAnalysis, AnalysedLayout, LayoutAnnotations, _AnalysedTextSource, _AnalysedAssetSource, _AnalysedHTMLTag,
+)
 from .analysis_content import layout_reference_text, _visible_content_text, _materialize_reference_text
+
+
+@dataclass(frozen=True)
+class RepairSources:
+    """Codec catalog with no initial decisions or citation definitions."""
+    page_index: int
+    layouts: tuple[AnalysedLayout, ...]
+
+
+def repair_sources(page: PageAnalysis | RepairSources) -> RepairSources:
+    """Transport original content/coordinates, without initial semantic decisions.
+
+    This catalog is a codec input, not an acceptance snapshot. Old reference
+    placeholders become their literal text; citation origins and ownership are
+    discarded. The validator never receives this catalog.
+    """
+    layouts = []
+    for layout in page.layouts:
+        source = layout.source
+        if isinstance(source, _AnalysedTextSource):
+            source = replace(source, content=_materialize_reference_text(source.content),
+                             citation_prefix=0, citation_prefix_parts=0)
+        elif isinstance(source, _AnalysedAssetSource):
+            source = replace(source, title=_materialize_reference_text(source.title),
+                             content=_materialize_reference_text(source.content),
+                             caption=_materialize_reference_text(source.caption))
+        layouts.append(replace(layout, source=source, annotations=LayoutAnnotations(
+            'ignored', False, False, keep_asset_attachment=layout.asset_text_target is not None)))
+    return RepairSources(page.page_index, tuple(layouts))
 
 
 class SourceBoundary(BaseModel):
@@ -143,5 +174,5 @@ def compile_source_ranges(source, response, layout_id, resolve_anchor):
                                                'mark': part_text[start-left:end-left],
                                                'after': part_text[end-left:]})
         references.append(ref.model_copy(update={'layout_id': ident, 'anchor': anchor}))
-    return (PageAnalysis(source.page_index, expanded, source.citations),
+    return (PageAnalysis(source.page_index, expanded, []),
             response.model_copy(update={'layouts': proposals, 'references': references}))

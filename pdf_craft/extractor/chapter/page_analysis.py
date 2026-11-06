@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Iterable
 
+from ...markdown.paragraph import HTMLTag
+
 from .chapter import (
     DisplayFormula,
     Reference,
@@ -47,12 +49,10 @@ from .analysis_content import (
     _project_fragment_content,
     _restore_content,
     _analyse_mark,
-    _restore_mark,
     analyse_text_source,
 )
 from .asset_text import (
     active_asset_text,
-    materialize_asset_text,
     analyse_asset_source,
     expand_asset_sources,
 )
@@ -273,6 +273,7 @@ def _get_citation_segment(
         mark=citation_mark if is_origin else None,
         stream_order=stream_order,
         origin_page_index=origin_page_index if citation_index is not None else None,
+        continues_previous=not is_origin,
     )
     _get_page(pages, page_index).citations.append(segment)
     segments[page_index] = segment
@@ -282,76 +283,46 @@ def _get_citation_segment(
 def restore_streams(pages: Iterable[PageAnalysis]) -> RestoredStreams:
     """Restore paragraph and citation streams from editable page annotations."""
 
-    page_list = [materialize_asset_text(page) for page in pages]
-    _validate_pages(page_list)
-    citation_annotations = [
-        citation for page in page_list for citation in page.citations
-        if citation.index is not None
-    ]
-    citation_annotations.sort(key=lambda citation: (citation.page_index, citation.index or 0))
-
-    citation_layouts = [
-        layout
-        for page in page_list
-        for layout in page.layouts
-        if layout.ownership == "citation"
-    ]
-    citation_layouts.sort(key=lambda layout: layout.document_order)
-
-    references: list[Reference] = []
-    reference_map: dict[tuple[int, int], Reference] = {}
-    for annotation in citation_annotations:
-        if annotation.index is None or annotation.mark is None:
-            raise ValueError("Indexed citation is missing its index or mark")
-        key = (annotation.page_index, annotation.index)
-        if key in reference_map:
-            raise ValueError(f"Duplicate citation index: {key}")
-        owned_layouts = [
-            layout
-            for layout in citation_layouts
-            if layout.citation_id == annotation.citation_id
-        ]
-        raw_items = _restore_layouts(owned_layouts, {})
-        flow_items = []
-        for item in raw_items:
-            if isinstance(item, SourceAsset):
-                flow_items.append(
-                    DisplayFormula(item)
-                    if item.ref == "formula"
-                    else StandaloneAsset(item)
-                )
-            else:
-                flow_items.append(item)
-        reference = Reference(
-            page_index=annotation.page_index,
-            order=annotation.index,
-            mark=_restore_mark(annotation.mark),
-            flow_items=flow_items,
-        )
-        references.append(reference)
-        reference_map[key] = reference
-
-    paragraph_layouts = [
-        layout
-        for page in page_list
-        for layout in page.layouts
-        if layout.ownership == "paragraph"
-    ]
-    paragraph_layouts.sort(key=lambda layout: layout.document_order)
-    paragraphs = _restore_layouts(paragraph_layouts, reference_map)
-    # Unresolved source is explicit (origin_page_index=None), and is preserved
-    # in narrative rather than silently discarded or guessed onto a definition.
-    indexed_ids = {citation.citation_id for citation in citation_annotations}
-    for citation_id in dict.fromkeys(layout.citation_id for layout in citation_layouts):
-        if citation_id not in indexed_ids:
-            paragraphs.extend(_restore_layouts([
-                layout for layout in citation_layouts if layout.citation_id == citation_id
-            ], {}))
-    positions = {_source_position_key(layout.source): layout.document_order
-                 for page in page_list for layout in page.layouts}
-    paragraphs.sort(key=lambda item: positions[_source_position_key(
-        item.children[0] if isinstance(item, TextFlowItem) else item)])
-    return RestoredStreams(paragraphs=paragraphs, citations=references)
+    import pickle
+    import sqlite3
+    from tempfile import TemporaryDirectory
+    from pathlib import Path
+    from contextlib import closing
+    from .assembly import PageAssembly
+    with TemporaryDirectory(prefix='pdf-craft-restore-') as directory:
+        database = Path(directory) / 'streams.sqlite'
+        assembly = PageAssembly(database)
+        for page in pages:
+            assembly.append(page)
+        assembly.finish()
+        with closing(sqlite3.connect(database)) as db:
+            paragraphs = [pickle.loads(row[0]) for row in db.execute(
+                'SELECT value FROM bodies ORDER BY document_order,rowid')]
+            citations = [pickle.loads(row[0]) for row in db.execute(
+                'SELECT value FROM refs ORDER BY page,number')]
+        paragraphs = [item.asset if isinstance(item, (StandaloneAsset, DisplayFormula)) else item
+                      for item in paragraphs]
+        # Bodies contain serialized references captured before the last note
+        # fragment closed. Restore the final output entities by stable key.
+        references = {item.id: item for item in citations}
+        def resolve(content):
+            for index, part in enumerate(content):
+                if isinstance(part, Reference):
+                    content[index] = references[part.id]
+                elif isinstance(part, HTMLTag):
+                    resolve(part.children)
+        def hydrate(item):
+            if isinstance(item, TextFlowItem):
+                for child in item.children:
+                    hydrate(child)
+            elif isinstance(item, SourceTextFragment):
+                resolve(item.content)
+            elif isinstance(item, SourceAsset):
+                for content in (item.title, item.content, item.caption):
+                    resolve(content)
+        for item in paragraphs:
+            hydrate(item)
+        return RestoredStreams(paragraphs, citations)
 
 
 def _source_position_key(source) -> tuple:
@@ -430,8 +401,6 @@ def _validate_pages(pages: list[PageAnalysis]) -> None:
                     f"increasing from 1; expected {expected_index}, "
                     f"got {citation.index} on page {page.page_index}"
                 )
-            if citation.mark is None:
-                raise ValueError("Indexed citation must have a mark")
             if citation.citation_id in indexed_segments:
                 raise ValueError(
                     f"Citation identity has multiple indexes: {citation.citation_id}"
@@ -452,12 +421,6 @@ def _validate_pages(pages: list[PageAnalysis]) -> None:
                 if identity in source_identities:
                     raise ValueError(f"Duplicate fragment source identity: {identity}")
                 source_identities.add(identity)
-
-    for segment in segments.values():
-        if segment.origin_page_index is not None:
-            origin = indexed_segments.get(segment.citation_id)
-            if origin is None or origin.page_index != segment.origin_page_index:
-                raise ValueError(f"Citation continuation has no origin: {segment.citation_id}")
 
     for page in pages:
         for layout in page.layouts:
@@ -497,6 +460,7 @@ def _validate_pages(pages: list[PageAnalysis]) -> None:
 def _restore_layouts(
     layouts: list[AnalysedLayout],
     references: dict[tuple[int, int], Reference],
+    *, check_connections: bool = True,
 ) -> list[TextFlowItem | SourceAsset]:
     result: list[TextFlowItem | SourceAsset] = []
     pending: list[SourceTextFragment | SourceAsset] = []
@@ -548,7 +512,7 @@ def _restore_layouts(
             result.extend(assets)
             pending_role = layout.paragraph_role
             pending_level = layout.paragraph_level
-        elif (
+        elif check_connections and (
             layout.paragraph_role != pending_role
             or layout.paragraph_level != pending_level
         ):

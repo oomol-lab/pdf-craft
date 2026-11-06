@@ -218,7 +218,7 @@ class PageAnalysisTests(unittest.TestCase):
         self.assertEqual(restored.paragraphs, [paragraph])
         self.assertEqual(restored.citations, [first, second])
 
-    def test_round_trip_preserves_cross_page_citation_and_empty_citation(self):
+    def test_round_trip_preserves_cross_page_citation_and_rejects_empty_definition(self):
         mark = transform2mark("①")
         empty_mark = transform2mark("②")
         assert mark is not None
@@ -246,13 +246,16 @@ class PageAnalysisTests(unittest.TestCase):
             for layout in pages[0].layouts
             if layout.ownership == "citation"
         )
+        with self.assertRaisesRegex(ValueError, 'CITATION_WITHOUT_LAYOUT'):
+            restore_streams(pages)
+        pages[1].citations = [item for item in pages[1].citations if item.index is None]
         restored = restore_streams(pages)
 
         self.assertEqual(continuation.citation_id, origin.citation_id)
         self.assertIsNone(continuation.citation_index)
         self.assertIsNone(pages[1].citations[0].index)
         self.assertTrue(continuation.continues_from_previous)
-        self.assertEqual(restored.citations, [continued, empty])
+        self.assertEqual(restored.citations, [continued])
 
     def test_unindexed_citation_is_preserved_as_unresolved_narrative(self):
         orphaned = TextFlowItem(
@@ -350,6 +353,7 @@ class PageAnalysisTests(unittest.TestCase):
         moved.annotations.ownership = "paragraph"
         moved.annotations.citation_id = None
         moved.annotations.citation_index = None
+        pages[0].citations.clear()
 
         restored = restore_streams(pages)
 
