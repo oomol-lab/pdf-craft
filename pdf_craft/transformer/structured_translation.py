@@ -24,6 +24,7 @@ class FormulaProjection(Protocol):
     def interrupt_translated_text_segments(self, segments: Iterable[TextSegment], /) -> Iterable[TextSegment]: ...
     def interrupt_block_element(self, element: Element) -> Element: ...
     def source_math(self, segments: Iterable[TextSegment]) -> list[SourceMath]: ...
+    def residual_math(self, canonical: str) -> Element: ...
 
 
 class StructuredTranslation:
@@ -123,7 +124,8 @@ class StructuredTranslation:
                      math: SourceMathTranslation | None, owner: Element | None = None) -> list[MathMapping | None] | None:
         if math is None:
             return None
-        projected = project_canonical_math(mappings, canonical, math.bindings)
+        projected = project_canonical_math(mappings, canonical, math.bindings,
+                                           self.formulas.residual_math if self.formulas is not None else None)
         if projected is not None and self._record_math_units and owner is not None:
             self.projected_math_units.add(self.key(owner))
         return projected

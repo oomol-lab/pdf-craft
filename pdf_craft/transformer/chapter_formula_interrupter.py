@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 
 from pdf_craft.expression import decode_expression_kind, to_markdown_string
-from .canonical_projection import SourceMath
+from .canonical_projection import SourceMath, formula_content
 from pdf_craft.transformer.xml_translator.segment import TextPosition, TextSegment
 from pdf_craft.transformer.xml_translator.xml import (
     DISPLAY_ATTRIBUTE,
@@ -89,6 +89,14 @@ class ChapterFormulaInterrupter:
                     element.attrib.pop(DISPLAY_ATTRIBUTE, None)
                 else:
                     element.set(DISPLAY_ATTRIBUTE, display)
+
+    def residual_math(self, canonical: str) -> Element:
+        """Materialize additional artist math, without a source identity."""
+        content, inline = formula_content(canonical)
+        node = Element('inline_expr', {'kind': '\\(' if inline else '\\[',
+                       DISPLAY_ATTRIBUTE: 'inline', _INLINE_DISPLAY_KEY: json.dumps(None)})
+        node.text = content
+        return node
 
     def release(self, root: Element) -> None:
         """Release a settled root's projection tables in a shared stream."""

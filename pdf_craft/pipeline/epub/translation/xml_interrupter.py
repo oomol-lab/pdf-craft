@@ -1,6 +1,6 @@
 from collections.abc import Generator, Iterable
 from typing import cast
-from xml.etree.ElementTree import Element, tostring
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 from bs4 import BeautifulSoup
 from mathml2latex.mathml import process_mathml  # pyright: ignore[reportMissingImports]
@@ -8,7 +8,8 @@ from mathml2latex.mathml import process_mathml  # pyright: ignore[reportMissingI
 from pdf_craft.transformer.xml_translator.segment import TextSegment, combine_text_segments, find_block_depth
 from pdf_craft.transformer.xml_translator.utils import ensure_list, normalize_whitespace
 from pdf_craft.transformer.xml_translator.xml import DISPLAY_ATTRIBUTE, clone_element, is_inline_element
-from pdf_craft.transformer.canonical_projection import SourceMath
+from pdf_craft.transformer.canonical_projection import SourceMath, formula_content
+from pdf_craft.formula import latex_to_plain_text
 
 _ID_KEY = "__XML_INTERRUPTER_ID"
 _MATH_TAG = "math"
@@ -30,6 +31,20 @@ class XMLInterrupter:
         """No temporary projection identity belongs in the final XHTML."""
         for node in root.iter():
             node.attrib.pop(_ID_KEY, None)
+
+    def residual_math(self, canonical: str) -> Element:
+        """Readable MathML fallback, retaining exact artist TeX as annotation.
+
+        Residuals have no source MathML to copy. Keep their TeX rather than
+        borrowing a source identity or printing transport delimiters in XHTML.
+        """
+        content, inline = formula_content(canonical)
+        node = Element('math', {'xmlns': 'http://www.w3.org/1998/Math/MathML',
+                               'display': 'inline' if inline else 'block'})
+        semantics = SubElement(node, 'semantics')
+        SubElement(semantics, 'mtext').text = latex_to_plain_text(content)
+        SubElement(semantics, 'annotation', {'encoding': 'application/x-tex'}).text = content
+        return node
 
     def source_math(self, segments: Iterable[TextSegment]) -> list[SourceMath]:
         identities = {node.get(_ID_KEY): node for segment in segments for node in segment.parent_stack

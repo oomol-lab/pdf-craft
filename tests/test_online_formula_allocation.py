@@ -16,6 +16,7 @@ from tests.test_canonical_math_projection import content_of
 from tests.test_canonical_math_projection import chapter, expression
 from tests.translation_model import translator_fixture
 from pdf_craft import SubmitKind
+from pdf_craft.pipeline.pdf.pipeline import _to_pdf_patch_content
 from pdf_craft.transformer.free_translation import fill_translation_group
 from pdf_craft.transformer.source_math import SourceMathTranslation
 from pdf_craft.transformer.canonical_projection import SourceMath
@@ -72,13 +73,12 @@ class OnlineFormulaAllocationTests(IsolatedAsyncioTestCase):
         model.answer = answer
         target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
         content = content_of(target)
-        self.assertEqual([part for part in content if isinstance(part, InlineExpression)],
-                         [expression(r'0<\Re(s)<')])
-        residual = ''.join(part for part in content if isinstance(part, str))
-        if before:
-            self.assertIn(r'\(' + before + r'\)', residual)
-        if after:
-            self.assertIn(r'\(' + after + r'\)', residual)
+        expected = ([before] if before else []) + [r'0<\Re(s)<'] + ([after] if after else [])
+        self.assertEqual([part.content for part in content if isinstance(part, InlineExpression)], expected)
+        patch_text, formulas = _to_pdf_patch_content(content)
+        self.assertNotIn(r'\(', patch_text)
+        self.assertNotIn(r'\)', patch_text)
+        self.assertEqual([formula.latex for formula in formulas], expected)
         self.assertEqual(allocations, [raw, raw])
         self.assertEqual(len(model.wire_calls), 4)
 
@@ -97,10 +97,13 @@ class OnlineFormulaAllocationTests(IsolatedAsyncioTestCase):
         target, _ = await StructuredTranslation(formulas=XMLInterrupter()).translate(
             translator, TranslationTask(source, SubmitKind.REPLACE, None))
         restored = target.findall('.//math')
-        self.assertEqual(len(restored), 1)
+        self.assertEqual(len(restored), 2)
         self.assertEqual(restored[0].get('id'), 'original')
         self.assertEqual(''.join(restored[0].itertext()), 'x=')
-        self.assertEqual(restored[0].tail, r'\(1\)。')
+        self.assertIsNone(restored[1].get('id'))
+        self.assertEqual(restored[1].find('semantics/mtext').text, '1')
+        self.assertEqual(restored[1].find('semantics/annotation').text, '1')
+        self.assertEqual(restored[1].tail, '。')
         self.assertEqual(len(model.wire_calls), 3)
 
     async def test_context_only_formula_has_unique_owner_even_for_an_empty_answer(self):
