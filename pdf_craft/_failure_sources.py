@@ -40,7 +40,8 @@ def chapter_locations(chapter) -> tuple[FailureLocation, ...]:
         if not fragments:
             continue
         regions = tuple(
-            SourceRegion(pages[part.page_index], part.source_order, part.bbox)
+            SourceRegion(pages[part.page_index], part.source_order, part.bbox,
+                         fragment_id=part.identity_order)
             for part in fragments
             if part.page_index in pages
         )
@@ -57,7 +58,7 @@ def chapter_locations(chapter) -> tuple[FailureLocation, ...]:
                 "regions",
                 source=current().source,
                 member_path=f"chapters/chapter_{chapter.id if chapter.id is not None else 'head'}.xml",
-                unit_id=f"{channel}:{first.page_index}:{first.source_order}",
+                unit_id=f"{channel}:{first.page_index}:{first.identity_order}",
                 channel=channel,
                 page_indexes=tuple(
                     dict.fromkeys(part.page_index for part in fragments)
@@ -87,6 +88,7 @@ def element_locations(element) -> tuple[FailureLocation, ...]:
                 PageGeometry(**region["page"]),
                 region["source_order_in_page"],
                 tuple(region["bbox"]),
+                fragment_id=region["fragment_id"],
             )
             for region in raw.pop("regions", [])
         )
@@ -126,10 +128,13 @@ def segment_locations(segments) -> tuple[FailureLocation, ...]:
             (parent for parent in segment.head.parent_stack if parent.tag == "text"),
             None,
         )
-        if owner is not None:
+        # Generic XML can also contain <text>/<fragment>. Only PCEX narrative
+        # provenance establishes the logical fragment contract used here.
+        if owner is not None and any(value.scope == 'regions' and value.channel in {'body', 'footnote'}
+                                     for value in candidates):
             fragment = owner.find("fragment")
             if fragment is not None:
-                suffix = f":{fragment.get('page_index')}:{fragment.get('source_order')}"
+                suffix = f":{fragment.get('page_index')}:{fragment.attrib['fragment_id']}"
                 candidates = (
                     tuple(
                         value
@@ -145,18 +150,19 @@ def segment_locations(segments) -> tuple[FailureLocation, ...]:
 
 
 def analysis_location(page) -> FailureLocation:
+    from .extractor.chapter.analysis_types import _AnalysedTextSource
+
     pages = _pages.get()
     geometry = pages.get(page.page_index)
     regions = tuple(
         SourceRegion(
             geometry,
-            layout.source_order
-            if layout.source_order is not None
-            else layout.document_order,
+            layout.source.source_order,
             layout.bbox,
+            fragment_id=layout.source.fragment_id,
         )
         for layout in page.layouts
-        if geometry is not None and layout.source_order is not None
+        if geometry is not None and isinstance(layout.source, _AnalysedTextSource)
     )
     return FailureLocation(
         "regions" if regions else "page",

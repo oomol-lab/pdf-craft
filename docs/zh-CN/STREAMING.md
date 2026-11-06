@@ -158,7 +158,9 @@ EPUB 回调的 Markdown 是展示支路，不参与 EPUB 生成，也不包含 C
 
 `SourceRegion(page: PageGeometry, source_order_in_page: int, bbox: tuple[int,int,int,int])`
 统一使用 `PageGeometry` 的来源坐标空间。区域数组按自然段阅读顺序排列，空译文片段也保留。
-`source_order_in_page` 对应 PCEX XML 的 `source_order`，是原页面 fragment 身份，**不是数组下标**。
+`source_order_in_page` 对应 PCEX XML 的 `source_order`，是原 OCR 来源编号，**不是数组下标**。
+可选的关键字字段 `fragment_id` 对应逻辑片段身份；同框多个片段可共享来源编号与 bbox。
+`identity_order` 返回可用于区分片段的身份，未指定 `fragment_id` 时使用来源编号。
 
 bbox 为原 OCR 位图中的整数像素边界 `(left, top, right, bottom)`，原点左上，x 向右、y 向下。
 `map_bbox(target_size)` 按实际页面宽高比例返回浮点坐标，不取整，也不根据 DPI 比值猜测尺寸。
