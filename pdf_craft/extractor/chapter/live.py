@@ -9,8 +9,8 @@ from ...common import XMLReader, read_xml
 from ...common.stream import DiskDelivery, DiskStream
 from ...pdf import Page, decode
 from ...pdf.ocr import OCREventKind
-from ...runtime import IO_DOMAIN, ExecutionDomain, callback_bridge
-from .stream import resolve_to_disk
+from ...runtime import IO_DOMAIN
+from .traditional import TraditionalAssembly
 from ..refinement import MAX_INPUT_LEAD
 
 
@@ -41,10 +41,6 @@ class LiveExtraction:
         self._page_indexes = page_indexes
         self._expected_order = None
         self._capacity = asyncio.Event()
-        # A blocking stream consumer must never occupy the pool that feeds it.
-        # One owned worker per live stream; joined before its workspace is freed.
-        self._analysis_domain = ExecutionDomain("live-analysis", 1)
-        loop = asyncio.get_running_loop()
 
         def callback(kind, handler):
             if handler is None:
@@ -58,14 +54,13 @@ class LiveExtraction:
                     raise
             delivery = DiskDelivery(path / kind, notify)
             self.deliveries.append(delivery)
-            return callback_bridge(loop, delivery.append)
+            return delivery.write
 
         body = callback("body", on_body)
         footnote = callback("footnote", on_footnote)
-        self.task = asyncio.create_task(self._refine(refinement, on_body, on_footnote)) if refinement is not None else asyncio.create_task(self._analysis_domain.run(
-            resolve_to_disk, self.pages.read, self.database,
-            includes_footnotes=includes_footnotes, on_body=body, on_footnote=footnote,
-        ))
+        self.task = asyncio.create_task(
+            self._refine(refinement, body, footnote) if refinement is not None
+            else self._traditional(body, footnote))
 
         self.task.add_done_callback(lambda _task: self._capacity.set())
 
@@ -76,21 +71,15 @@ class LiveExtraction:
     async def _refine(self, factory, on_body, on_footnote):
         from .assembly import PageAssembly
         from ..refinement import refine_ready
-        # Reuse the owned delivery queues, but never route callback coroutines
-        # through a blocking worker when the producer already runs on the loop.
-        body = self.deliveries[0].append if on_body is not None else None
-        note = self.deliveries[-1].append if on_footnote is not None else None
-        loop = asyncio.get_running_loop()
         assembly = await IO_DOMAIN.run(lambda: PageAssembly(
-            self.database, on_body=callback_bridge(loop, body) if body else None,
-            on_footnote=callback_bridge(loop, note) if note else None))
+            self.database, on_body=on_body, on_footnote=on_footnote))
         async with factory() as process, aclosing(refine_ready(
                 self.pages.aread(), process, self.pages.path / 'refinement',
                 self._refinement_order, includes_footnotes=self.includes_footnotes)) as results:
             async for result in results:
                 try:
-                    await self._analysis_domain.run(assembly.validate, result.page, result.following,
-                                                    refined=result.initial is not None, initial=result.initial)
+                    await IO_DOMAIN.run(assembly.validate, result.page, result.following,
+                                        refined=result.initial is not None, initial=result.initial)
                 except Exception as error:
                     if result.usage is not None:
                         result.usage.settle(False)
@@ -101,7 +90,7 @@ class LiveExtraction:
                     from ...policies import FailureCategory, FailureLocation
                     await recover(error, FailureCategory.ANALYSIS, 'footnote_commit', 'algorithm_result',
                                   targets=(FailureLocation('page', page_indexes=(result.page.page_index,)),))
-                    await self._analysis_domain.run(assembly.validate, result.initial, result.following)
+                    await IO_DOMAIN.run(assembly.validate, result.initial, result.following)
                     result.page = result.initial
                     result.initial = None
                     result.usage = None
@@ -110,7 +99,7 @@ class LiveExtraction:
                         result.usage.settle(False)
                     raise
                 try:
-                    await self._analysis_domain.run(assembly.append, result.page, refined=result.initial is not None)
+                    await IO_DOMAIN.run(assembly.append, result.page, refined=result.initial is not None)
                 except BaseException:
                     if result.usage is not None:
                         result.usage.settle(False)
@@ -119,7 +108,15 @@ class LiveExtraction:
                     result.usage.settle(True)
                 self._consumed += 1
                 self._capacity.set()
-        await self._analysis_domain.run(assembly.finish)
+        await IO_DOMAIN.run(assembly.finish)
+
+    async def _traditional(self, on_body, on_footnote):
+        assembly = await IO_DOMAIN.run(
+            TraditionalAssembly, self.database, includes_footnotes=self.includes_footnotes,
+            on_body=on_body, on_footnote=on_footnote)
+        async for page in self.pages.aread():
+            await IO_DOMAIN.run(assembly.append, page)
+        await IO_DOMAIN.run(assembly.finish)
 
     def _refinement_order(self):
         if self._expected_order is None:
@@ -299,7 +296,4 @@ class LiveExtraction:
             for delivery in self.deliveries:
                 await delivery.cancel()
         finally:
-            try:
-                await settle_tasks([self.task] + ([self._finishing] if self._finishing is not None else []))
-            finally:
-                self._analysis_domain.close()
+            await settle_tasks([self.task] + ([self._finishing] if self._finishing is not None else []))

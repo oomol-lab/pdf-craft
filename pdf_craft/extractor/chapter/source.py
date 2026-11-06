@@ -2,7 +2,7 @@
 from copy import deepcopy
 
 from ...pdf import Page, PageLayout
-from .chapter import TextSource
+from .chapter import TextSource, SourceTextFragment, TextFlowItem
 from .content import _parse_block_content
 
 
@@ -71,3 +71,9 @@ def capture_sources(pages: list[Page]) -> dict[tuple[int, int], tuple[int, TextS
 def _is_empty_text_layout(layout: PageLayout) -> bool:
     """An empty text observation is evidence, not a paragraph separator."""
     return layout.ref == "text" and not layout.text.strip()
+
+def _position(item):
+    first = item.children[0] if isinstance(item, TextFlowItem) else item
+    order = (first.source.reading_order if isinstance(first, SourceTextFragment)
+             and first.source is not None else getattr(first, 'reading_order', 0))
+    return first.page_index, order or 0

@@ -42,6 +42,9 @@ class Jointer:
         self._current_page: int | None = None
         self._colophon_starts: set[tuple[int, int, int, int]] = set()
         self._equation_rows: dict[tuple[int, int, int, int], int] = {}
+        self._last_tail: _LastTail | None = None
+        self._last_page_index: int | None = None
+        self._closed_through = -1
 
     def execute(self) -> Generator[TextFlowItem | SourceAsset, None, None]:
         for item in self.execute_with_progress():
@@ -49,25 +52,27 @@ class Jointer:
                 yield item
 
     def execute_with_progress(self) -> Generator[TextFlowItem | SourceAsset | JoinedPageProgress, None, None]:
-        last_tail: _LastTail | None = None
-        last_page_index: int | None = None
-        closed_through = -1
+        for page_index, layouts in self._layouts:
+            yield from self.append(page_index, layouts)
+        yield from self.finish()
 
-        for page_index, raw_layouts in self._iter_layout_serials(with_progress=True):
-            last_page_index = page_index
+    def append(self, page_index: int, page_layouts: list[PageLayout]):
+        """Join one available page without reading or waiting for another."""
+        for page_index, raw_layouts in self._iter_layout_serials(((page_index, page_layouts),), with_progress=True):
+            self._last_page_index = page_index
             if raw_layouts is None:
                 safe_page = page_index
-                if last_tail is not None:
-                    safe_page = last_tail.page_para.children[0].page_index - 1
-                closed_through = max(closed_through, safe_page)
-                yield JoinedPageProgress(closed_through, page_index)
+                if self._last_tail is not None:
+                    safe_page = self._last_tail.page_para.children[0].page_index - 1
+                self._closed_through = max(self._closed_through, safe_page)
+                yield JoinedPageProgress(self._closed_through, page_index)
                 continue
             if not raw_layouts:
-                if last_tail:
-                    _normalize_paragraph_content(last_tail.page_para)
-                    yield last_tail.page_para
-                    yield from last_tail.override
-                    last_tail = None
+                if self._last_tail:
+                    _normalize_paragraph_content(self._last_tail.page_para)
+                    yield self._last_tail.page_para
+                    yield from self._last_tail.override
+                    self._last_tail = None
                 continue
 
             # 此处为完成如下业务要求：
@@ -77,9 +82,9 @@ class Jointer:
             head, body, tail = self._split_layouts(layouts)
 
             if not body:
-                if last_tail:
-                    last_tail.override.extend(head)
-                    last_tail.override.extend(tail)
+                if self._last_tail:
+                    self._last_tail.override.extend(head)
+                    self._last_tail.override.extend(tail)
                 else:
                     yield from head
                     yield from tail
@@ -89,60 +94,65 @@ class Jointer:
             # Assets retain their position between source text fragments.
             # Only display formulas block an author paragraph; images/tables
             # become children when the text on both sides is continuous.
-            if last_tail and any(asset.ref == "formula" for asset in [*last_tail.override, *head]):
-                _normalize_paragraph_content(last_tail.page_para)
-                yield last_tail.page_para
-                yield from last_tail.override
-                last_tail = None
-            if last_tail and self._can_merge_paragraphs(
-                last_tail.page_para, first_layout,
-                across_assets=[*last_tail.override, *head],
+            if self._last_tail and any(asset.ref == "formula" for asset in [*self._last_tail.override, *head]):
+                _normalize_paragraph_content(self._last_tail.page_para)
+                yield self._last_tail.page_para
+                yield from self._last_tail.override
+                self._last_tail = None
+            if self._last_tail and self._can_merge_paragraphs(
+                self._last_tail.page_para, first_layout,
+                across_assets=[*self._last_tail.override, *head],
             ):
                 # ``blocks`` is a compatibility projection.  Extend the real
                 # ordered v3 children so cross-page source fragments survive.
-                last_tail.page_para.children.extend(last_tail.override)
-                last_tail.page_para.children.extend(head)
-                last_tail.page_para.children.extend(first_layout.children)
-                last_tail.override = []
+                self._last_tail.page_para.children.extend(self._last_tail.override)
+                self._last_tail.page_para.children.extend(head)
+                self._last_tail.page_para.children.extend(first_layout.children)
+                self._last_tail.override = []
                 head = []
                 del body[0]
 
             if not body:
-                if last_tail:
-                    last_tail.override.extend(head)
-                    last_tail.override.extend(tail)
+                if self._last_tail:
+                    self._last_tail.override.extend(head)
+                    self._last_tail.override.extend(tail)
                 else:
                     yield from head
                     yield from tail
                 continue
 
             # 至此，连续吞并段落的流程遇阻而结束
-            if last_tail:
-                _normalize_paragraph_content(last_tail.page_para)
-                yield last_tail.page_para
-                yield from last_tail.override
-                last_tail = None
+            if self._last_tail:
+                _normalize_paragraph_content(self._last_tail.page_para)
+                yield self._last_tail.page_para
+                yield from self._last_tail.override
+                self._last_tail = None
 
             yield from head
             for i in range(len(body) - 1):
                 yield body[i]
 
-            last_tail = _LastTail(
+            self._last_tail = _LastTail(
                 page_para=cast(TextFlowItem, body[-1]),
                 override=list(tail),
             )
 
-        if last_tail:
-            _normalize_paragraph_content(last_tail.page_para)
-            yield last_tail.page_para
-            yield from last_tail.override
-        if last_page_index is not None and last_page_index > closed_through:
-            yield JoinedPageProgress(last_page_index, last_page_index)
+    def finish(self):
+        """Close the retained paragraph at input EOF."""
+        if self._last_tail:
+            _normalize_paragraph_content(self._last_tail.page_para)
+            yield self._last_tail.page_para
+            yield from self._last_tail.override
+        if self._last_page_index is not None and self._last_page_index > self._closed_through:
+            yield JoinedPageProgress(self._last_page_index, self._last_page_index)
+
+        self._last_tail = None
+        self._closed_through = self._last_page_index if self._last_page_index is not None else -1
 
     def _iter_layout_serials(
-        self, *, with_progress: bool = False,
+        self, pages, *, with_progress: bool = False,
     ) -> Generator[tuple[int, list[PageLayout] | None], None, None]:
-        for page_index, raw_layouts in self._layouts:
+        for page_index, raw_layouts in pages:
             self._reading_positions.clear()
             self._current_page = page_index
             self._indented_starts = indented_line_starts(raw_layouts)
