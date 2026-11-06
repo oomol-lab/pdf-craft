@@ -7,6 +7,15 @@ request.** Request correction when information is missing or multiple meaningful
 allocations remain possible. This principle applies to LLM operations generally;
 it does not authorize guessing wording or weakening final-result correctness.
 
+## No acceptance gate on translation output
+
+Translation prompts may guide translation, tone, style and terminology, but must
+not prescribe output formats, formula identities or placeholders. Every returned
+translation goes unchanged to fill, without prior programmatic or model review,
+rejection or requests to retranslate. The acceptance and repair rules below apply
+to structural recovery in fill. Batch wrappers must respect the same boundary.
+See the [translation/fill boundary](../../references/translation-fill-boundary.md).
+
 ## XML fill
 
 The first-stage translated paragraph is the trusted text. Original XML supplies

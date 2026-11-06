@@ -22,10 +22,13 @@ pdf-craft 是一个把扫描书籍 PDF 转换为 Markdown 或 EPUB 的 Python �
 - 当修改 PDF 提取调度、页精修或内容回调时，阅读[流式设计与取舍](docs/design/pdf-extraction-streaming.md)。
 - 当修改页精修协议、候选校验、采用、跨页组装或相关回归时，必须阅读[页精修验收的单页硬边界](references/page-refinement-validation.md)。
 
+- 当修改翻译提示、请求聚合、公式对应、XML fill 或翻译验收时，必须阅读[翻译与 fill 的职责硬边界](references/translation-fill-boundary.md)。
 - 当修改失败恢复、翻译缺失、错误定位或任务成功判断时，阅读[失败与有效成果](references/failure-and-completion.md)。
 - 当修改 PCEX schema、字段语义、格式版本或历史数据读取时，必须阅读 [PCEX Migration 边界](references/pcex-migrations.md)。
 
 ## 项目特有默认规则
+
+- 翻译 LLM 的输出不得经过任何内容审查或门禁，必须原样交给 fill 层。翻译提示只能约束翻译、语气、风格和术语，不得要求输出格式、XML/JSON、公式身份或占位符协议；外层批请求也不得绕过此限制。结构、公式对应和完整性验收及其修复循环全部属于 fill 层，失败不得反向要求翻译 LLM 重写。现存相反实现属于待移除偏移。细则见[翻译与 fill 的职责硬边界](references/translation-fill-boundary.md)。
 
 - 页精修的程序验收、纠错和采用只能拿到精修后的当前页完整结果，拿不到任何邻页，也拿不到精修前的当前页结构。精修前的页面结构只提供给 JEV/LLM；输入桥接层只负责运输，不授予程序语义验收权限。禁止以精修前结构、邻页原文/分类/评分/精修或采用结果及其派生语义来否决或改写当前页；模型请求不得依赖邻页评分或修复结果。组装只落实当前页连接声明，禁止以跨页一致性、试装后继、安全回退或保护已采用成果为名恢复邻页门禁，禁止跨页反馈重修。这是不可让步的架构约束；现存相反代码属于待移除偏移，不构成例外。细则见[单页硬边界](references/page-refinement-validation.md)。
 - 新增或修改的模型提示正文必须维护在 `.jinja` 模板中，不得内嵌在 Python 字符串里。提示说明统一使用英文，原始文档证据保留原语言；模板应是可直接阅读的正文，避免 JSON 拼装与宏函数库。Python 负责模板选择、上下文、请求编排和结果处理；JEV 模板的位置见[结构审核设计](docs/design/jev-structural-review.md)。
