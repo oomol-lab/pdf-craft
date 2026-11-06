@@ -41,7 +41,7 @@ def proposal(source) -> dict[str, Any]:
                                          previous_pass_probability=None, next_pass_probability=None)
     packet = json.loads(messages[1].message)['target_page']
     fields = set(RepairedLayout.model_fields)
-    return dict(page_index=1, layouts=[{k: v for k, v in item.items() if k in fields}
+    return dict(page_index=1, layouts=[{k: v for k, v in {**item, **item["initial_proposal"]}.items() if k in fields}
                                      for item in packet['layouts']], citations=packet['citations'], references=[])
 
 
@@ -174,7 +174,7 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
             chapters = list(_partition_chapters(items, toc, assembled=True))
             self.assertEqual([chapter.id for chapter in chapters], [1, 2])
 
-    async def test_cross_page_note_binds_to_adopted_range_in_a_shared_source(self):
+    async def test_cross_page_note_appends_to_cursor_after_a_shared_source(self):
         from pathlib import Path
         from tempfile import TemporaryDirectory
         from pdf_craft.extractor.chapter.assembly import PageAssembly
@@ -188,8 +188,7 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
         follow = proposal(second)
         follow['page_index'] = 2
         follow['citations'] = [dict(citation_id='tail', index=None, mark=None, stream_order=0,
-                                    continues_previous=True,
-                                    predecessor=dict(page_index=1, source_order=1, start=14, end=26))]
+                                    continues_previous=True)]
         follow['layouts'][-1].update(ownership='citation', citation_id='tail', citation_index=None,
                                     paragraph_role='body', paragraph_level=-1,
                                     continues_from_previous=False, continues_to_next=False)
@@ -197,8 +196,8 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
         with TemporaryDirectory() as directory:
             notes = []
             assembly = PageAssembly(Path(directory)/'assembly.sqlite', on_footnote=notes.append)
-            assembly.append(first, refined=True)
-            assembly.append(candidate, refined=True)
+            assembly.append(first)
+            assembly.append(candidate)
             assembly.finish()
             definitions = {node.attrib['id']: node for node in notes}
             self.assertEqual(len(definitions['1-2'].findall('./flow/text')), 2)
@@ -244,7 +243,6 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
         self.assertEqual(restored.citations[0].mark, '①')
 
     async def test_shared_note_identity_does_not_freeze_exclusive_box_ownership(self):
-        from pdf_craft.extractor.chapter.page_repair import _validate_shared_citations
         source = page(box('Body.'), box('6 First note.\n7 Second note.'))
         data, _ = split_notes(source)
         source.citations[0].index = 1
@@ -257,7 +255,6 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
         data['citations'][0]['citation_id'] = original
         data['layouts'][-2]['citation_id'] = original
         candidate = compiled(source, data)
-        _validate_shared_citations(source, candidate, {original})
         self.assertEqual([item.citation_id for item in candidate.layouts if item.ownership == 'citation'],
                          [original, 'new-1-2'])
 

@@ -10,8 +10,7 @@ from .chapter import Reference, SourceAsset, TextFlowItem, StandaloneAsset, Disp
 from .page_analysis import _restore_layouts
 from .analysis_content import _restore_mark
 from .analysis_types import PageStructureError
-from .asset_text import materialize_asset_text, active_asset_text
-from .source import _position
+from .asset_text import materialize_asset_text
 
 
 class _Paragraphs:
@@ -23,12 +22,6 @@ class _Paragraphs:
         is_text = layout.source_order is not None
         if is_text and not layout.continues_from_previous:
             self.finish()
-        elif is_text and not any(item.source_order is not None for item in self.pending):
-            raise PageStructureError('Continuation has no predecessor', layout.page_index)
-        if is_text and layout.continues_from_previous:
-            previous = next(item for item in reversed(self.pending) if item.source_order is not None)
-            if (previous.paragraph_role, previous.paragraph_level) != (layout.paragraph_role, layout.paragraph_level):
-                raise PageStructureError('Continued text layouts disagree on paragraph metadata', layout.page_index)
         if not is_text and getattr(layout.source, 'ref', None) == 'formula':
             self.finish()
             self.pending.append(deepcopy(layout))
@@ -43,10 +36,11 @@ class _Paragraphs:
         # never a competing edit from an earlier concurrently repaired page.
         texts = [item for item in self.pending if item.source_order is not None]
         for index, item in enumerate(texts):
+            item.annotations.continues_from_previous = index > 0
             item.annotations.continues_to_next = index + 1 < len(texts)
         references = self.references(self.pending)
         offset = 0
-        for item in _restore_layouts(self.pending, references):
+        for item in _restore_layouts(self.pending, references, check_connections=False):
             # Restoration preserves every text fragment/asset, including empty
             # fragments. Carry its source ordinal rather than inferring identity
             # from coordinates or the order in which independent streams close.
@@ -94,7 +88,8 @@ class PageAssembly:
         return result
 
     def _body(self, item, document_order):
-        page, position = _position(item.asset if isinstance(item, (StandaloneAsset, DisplayFormula)) else item)
+        source = item.asset if isinstance(item, (StandaloneAsset, DisplayFormula)) else item.children[0]
+        page, position = source.page_index, document_order
         self._run('INSERT INTO bodies VALUES (?,?,?,0,?)', (page, position, pickle.dumps(item), document_order))
 
     def _deliver_bodies(self):
@@ -121,52 +116,34 @@ class PageAssembly:
         if self.note_callback is not None:
             self._events.append((self.note_callback, _encode_reference(ref)))
 
-    def _bind_incoming(self, page, refined):
-        # Local jobs see only raw neighbours. A repaired predecessor may have
-        # introduced a definition absent from that raw window. Bind an explicit
-        # incoming continuation here, at the sole ordered adoption boundary.
-        if self.active_note is not None or refined:
-            page = deepcopy(page)
-            attached = active_asset_text(page.layouts)
-            next_index = max((citation.index or 0 for citation in page.citations), default=0) + 1
-            for citation in page.citations:
-                members = sorted((layout for layout in page.layouts
-                                  if layout.citation_id == citation.citation_id
-                                  and layout.source_order is not None and id(layout) not in attached),
-                                 key=lambda item: item.document_order)
-                incoming = citation.continues_previous or (members and members[0].continues_from_previous)
-                if citation.predecessor is not None:
-                    from .analysis_content import layout_reference_text
-                    prior_page, source_order, start, end = citation.predecessor
-                    rows = self._run('SELECT value FROM adopted WHERE page=?', (prior_page,))
-                    if not rows:
-                        raise PageStructureError('Incoming note source has not been adopted', page.page_index)
-                    prior = pickle.loads(rows[0][0])
-                    owners = {item.citation_id for item in prior.layouts
-                              if item.source_order == source_order and item.ownership == 'citation'
-                              and item.source.source_start <= start < end <= (
-                                  item.source.source_end if item.source.source_end is not None
-                                  else len(layout_reference_text(item)))}
-                    if len(owners) != 1 or next(iter(owners)) != self.active_note:
-                        raise PageStructureError('Incoming note range does not identify the active adopted definition', page.page_index)
-                if citation.index is None and citation.origin_page_index is None and incoming and self.active_note is not None:
-                    alias = citation.citation_id
-                    citation.citation_id = self.active_note
-                    citation.origin_page_index = self.notes[self.active_note][0].page_index
-                    for layout in page.layouts:
-                        if layout.citation_id == alias:
-                            layout.annotations.citation_id = self.active_note
-                elif refined and citation.index is None and citation.origin_page_index is None and members and not members[0].continues_from_previous:
-                    # A validated semantic decision can identify a standalone
-                    # note even when OCR missed its printed mark. Allocate an
-                    # internal identity; never invent a visible label or an
-                    # attachment to a preceding note.
-                    citation.index = next_index
-                    citation.origin_page_index = page.page_index
-                    next_index += 1
-                    for layout in page.layouts:
-                        if layout.citation_id == citation.citation_id:
-                            layout.annotations.citation_index = citation.index
+    def _bind_incoming(self, page):
+        """Bind local handles to output cursors, without opening adopted pages.
+
+        A missing cursor starts an explicitly unbound stream from the available
+        content. It does not claim a successful cross-page join or discard text.
+        Unbound tails stay in their own narrative stream, never in body prose.
+        """
+        page = deepcopy(page)
+        cursor = self.active_note or next(reversed(self.unresolved), None)
+        # Handles are output entities, independent of model/algorithm aliases.
+        aliases = {}
+        for citation in sorted(page.citations, key=lambda item: item.stream_order):
+            incoming = citation.continues_previous
+            alias = citation.citation_id
+            if citation.index is None and incoming and cursor is not None:
+                citation.citation_id = cursor
+                citation.origin_page_index = self.notes[cursor][0].page_index if cursor in self.notes else None
+            elif citation.index is not None:
+                citation.citation_id = f'citation-{page.page_index}-{citation.index}'
+                citation.origin_page_index = page.page_index
+            else:
+                citation.citation_id = f'unbound-{page.page_index}-{citation.stream_order}'
+                citation.origin_page_index = None
+            aliases[alias] = citation.citation_id, citation.index
+            cursor = citation.citation_id
+        for layout in page.layouts:
+            if layout.citation_id in aliases:
+                layout.annotations.citation_id, layout.annotations.citation_index = aliases[layout.citation_id]
         return page
 
     def _append(self, page):
@@ -176,7 +153,10 @@ class PageAssembly:
             if identifier not in unresolved:
                 self.unresolved.pop(identifier).finish()
         starts = {}
-        for identifier in unresolved - self.unresolved.keys():
+        for citation in sorted(page.citations, key=lambda item: item.stream_order):
+            identifier = citation.citation_id
+            if identifier not in unresolved or identifier in self.unresolved:
+                continue
             self.unresolved[identifier] = _Paragraphs(self._body, self._references)
             # An unresolved stream has no adopted predecessor at its first
             # appearance. Preserve its text without borrowing a body predecessor.
@@ -192,8 +172,6 @@ class PageAssembly:
                 ref = Reference(page.page_index, citation.index, _restore_mark(citation.mark), [])
                 self._run('INSERT INTO refs(page,number,value) VALUES (?,?,?)', (*ref.id, pickle.dumps(ref)))
                 self.notes[citation.citation_id] = ref, self._note_paragraphs(ref)
-            elif citation.origin_page_index is not None and citation.citation_id not in self.notes:
-                raise PageStructureError('Footnote continuation has no open definition', page.page_index)
         for layout in sorted(page.layouts, key=lambda item: item.document_order):
             if layout.ownership == 'ignored':
                 continue
@@ -221,7 +199,7 @@ class PageAssembly:
         for identifier in list(self.notes):
             self._close_note(identifier)
 
-    def _atomic(self, operation, *, probe=False):
+    def _atomic(self, operation):
         body = deepcopy(self.body.pending)
         unresolved = {key: deepcopy(flow.pending) for key, flow in self.unresolved.items()}
         notes = {key: (deepcopy(ref), deepcopy(flow.pending)) for key, (ref, flow) in self.notes.items()}
@@ -233,12 +211,10 @@ class PageAssembly:
                 with db:
                     self._transaction = db
                     operation()
-                    if probe:
-                        db.rollback()
             succeeded = True
         finally:
             self._transaction = None
-            if probe or not succeeded:
+            if not succeeded:
                 self.body.pending = body
                 self.unresolved = {}
                 for key, pending in unresolved.items():
@@ -252,8 +228,6 @@ class PageAssembly:
                     self.notes[key] = ref, flow
                 self.active_note = active
                 self._events = []
-        if probe:
-            return
         # User callbacks observe only committed units and may abort the entire
         # operation. They never participate in rollback or source recovery.
         for callback, value in self._events:
@@ -261,8 +235,8 @@ class PageAssembly:
         self._events = []
         self._deliver_bodies()
 
-    def _commit_page(self, page, refined=False):
-        page = self._bind_incoming(page, refined)
+    def _commit_page(self, page):
+        page = self._bind_incoming(page)
         # Record the semantic dependency closure as scalars, not a book DOM.
         pending_streams = {None: {item.page_index for item in self.body.pending}}
         pending_streams.update({key: {item.page_index for item in flow.pending}
@@ -292,65 +266,15 @@ class PageAssembly:
         self._append(page)
         self._run('INSERT INTO adopted VALUES (?,?)', (page.page_index, pickle.dumps(page)))
 
-    def validate(self, page, following=None, *, refined=False, initial=None):
-        """Prove adoption, the next raw fallback, and EOF before publication.
+    @staticmethod
+    def validate(page):
+        """The only semantic gate receives the complete current page."""
+        from .page_validation import validate_page
+        validate_page(page)
 
-        The next page is immutable primary evidence, never another model result.
-        Checking it before committing this page prevents repaired/raw mixtures
-        from invalidating a predecessor that has already reached the consumer.
-        """
-        def frontier(layouts):
-            result = None
-            for layout in layouts:
-                if layout.source_order is not None:
-                    result = layout.paragraph_role, layout.paragraph_level
-                elif getattr(layout.source, 'ref', None) == 'formula':
-                    result = None
-            return result
-
-        def pending():
-            streams: dict[str | None, list] = {None: self.body.pending}
-            streams.update({key: flow.pending for key, flow in self.unresolved.items()})
-            streams.update({key: flow.pending for key, (_ref, flow) in self.notes.items()})
-            return streams
-
-        contracts = {}
-        if following is not None and initial is not None:
-            # Only deferred tail metadata is needed. Trial-adopting all raw
-            # streams here would reject a valid repair of an unrelated raw defect.
-            expected = {key: frontier(layouts) for key, layouts in pending().items()}
-            for layout in sorted(materialize_asset_text(initial).layouts, key=lambda item: item.document_order):
-                if layout.ownership != 'ignored':
-                    key = None if layout.ownership == 'paragraph' else layout.citation_id
-                    if layout.source_order is not None:
-                        expected[key] = layout.paragraph_role, layout.paragraph_level
-                    elif getattr(layout.source, 'ref', None) == 'formula':
-                        expected[key] = None
-            following_streams = {None, *(citation.citation_id for citation in following.citations)}
-            visible = set()
-            for layout in materialize_asset_text(following).layouts:
-                if layout.ownership != 'ignored' and (layout.source_order is not None or
-                        getattr(layout.source, 'ref', None) == 'formula'):
-                    visible.add(None if layout.ownership == 'paragraph' else layout.citation_id)
-            contracts = {key: value for key, value in expected.items()
-                         if value is not None and key in following_streams - visible}
-
-        def check():
-            self._commit_page(page, refined)
-            if following is not None:
-                self._commit_page(following)
-            # Across arbitrarily many transparent asset pages the next text is
-            # outside the request window. Preserve each raw stream's contract
-            # instead of waiting for that text or replaying published content.
-            actual = pending()
-            for key, value in contracts.items():
-                if frontier(actual.get(key, ())) != value:
-                    raise PageStructureError('Candidate changes deferred continuation metadata', page.page_index)
-            self._finish()
-        self._atomic(check, probe=True)
-
-    def append(self, page, *, refined=False):
-        self._atomic(lambda: self._commit_page(page, refined))
+    def append(self, page):
+        self.validate(page)
+        self._atomic(lambda: self._commit_page(page))
 
     def finish(self):
         self._atomic(self._finish)

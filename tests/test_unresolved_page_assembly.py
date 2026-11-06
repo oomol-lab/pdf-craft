@@ -52,7 +52,7 @@ class UnresolvedPageAssemblyTests(TestCase):
         original = deepcopy(pages)
         assembly, events, path = self.open_assembly()
         assembly.append(pages[0])
-        assembly.append(pages[1], refined=True)
+        assembly.append(pages[1])
         self.assertEqual(fragments(events), [(14, 0, 'Earlier body.')])
         self.assertIn((14, 15), assembly._run('SELECT left_page,right_page FROM edges'))
         assembly.finish()
@@ -69,7 +69,7 @@ class UnresolvedPageAssemblyTests(TestCase):
         ], [UnindexedCitation(15, (text('heading', (15, 1, 'Detached heading')),))])
         assembly, events, path = self.open_assembly()
         assembly.append(pages[0])
-        assembly.append(pages[1], refined=True)
+        assembly.append(pages[1])
         self.assertFalse(events, 'An orphan must not overtake the earlier open body paragraph')
         # The closed orphan is already on disk while the body remains open.
         self.assertEqual(len(assembly._run('SELECT value FROM bodies')), 1)
@@ -115,24 +115,25 @@ class UnresolvedPageAssemblyTests(TestCase):
             UnindexedCitation(8, (text('body', (8, 1, 'Tail with an unknown origin.')),))])[0]
         orphan = next(item for item in page.layouts if item.ownership == 'citation')
         orphan.annotations.continues_from_previous = True
+        page.citations[0].continues_previous = True
         saved = deepcopy(page)
         assembly, events, _ = self.open_assembly()
-        assembly.append(page, refined=True)
+        assembly.append(page)
         assembly.finish()
         self.assertEqual([item.role for item in events], ['heading', 'body'])
         self.assertEqual(page, saved)
         self.assertFalse(assembly._run('SELECT * FROM refs'), 'Do not invent a numbered definition')
 
-    def test_true_metadata_conflict_within_the_same_orphan_stream_still_fails(self):
+    def test_cross_page_metadata_differences_do_not_veto_current_result(self):
         pages = analyse_pages([1, 2], [], [UnindexedCitation(1, (
             text('heading', (1, 0, 'Heading starts '), (2, 0, 'and continues.')),))])
         pages[1].layouts[0].annotations.paragraph_role = 'body'
         assembly, events, _ = self.open_assembly()
-        assembly.append(pages[0])
-        with self.assertRaisesRegex(PageStructureError, 'paragraph metadata'):
-            assembly.append(pages[1])
-        self.assertFalse(events)
-        self.assertEqual(assembly._run('SELECT page FROM adopted'), [(1,)])
+        for page in pages:
+            assembly.append(page)
+        assembly.finish()
+        self.assertEqual(fragments(events), [(1, 0, 'Heading starts '), (2, 0, 'and continues.')])
+        self.assertEqual(len(events), 1)
 
     def test_rejected_page_rolls_back_orphan_closure_new_streams_and_ready_callbacks(self):
         pages = analyse_pages([1, 2, 3], [
@@ -146,7 +147,7 @@ class UnresolvedPageAssemblyTests(TestCase):
         assembly, events, path = self.open_assembly()
         assembly.append(pages[0])
         saved_keys = set(assembly.unresolved)
-        with self.assertRaisesRegex(PageStructureError, 'paragraph metadata'):
+        with self.assertRaisesRegex(PageStructureError, 'GAP_PARAGRAPH_METADATA'):
             assembly.append(invalid)
         self.assertFalse(events)
         self.assertEqual(set(assembly.unresolved), saved_keys)

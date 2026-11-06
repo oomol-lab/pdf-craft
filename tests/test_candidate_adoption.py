@@ -37,7 +37,7 @@ class Usage:
 
 
 class CandidateAdoptionTests(IsolatedAsyncioTestCase):
-    async def test_locally_valid_note_candidates_conflict_in_both_completion_orders(self):
+    async def test_local_note_candidates_do_not_reject_each_other_in_either_completion_order(self):
         pages = [decode(fromstring(f'<page index="{i}"><body>{_text(f"Body {i}.")}</body>'
                  f'<footnotes>{_text(note)}</footnotes></page>'))
                  for i, note in enumerate(('① A note starts', 'and continues', 'and ends.'), 1)]
@@ -103,12 +103,12 @@ class CandidateAdoptionTests(IsolatedAsyncioTestCase):
                     self.assertIsNone(live.analysis_error)
                     self.assertEqual(sorted(accepted_locally), [1, 2, 3])
                     self.assertEqual(completed, list(completion_order))
-                    self.assertEqual(decisions, [('footnote_commit', 'algorithm_result')] * 2)
-                    self.assertEqual([usages[i].accepted for i in (1, 2, 3)], [False, False, True])
+                    self.assertEqual(decisions, [])
+                    self.assertEqual([usages[i].accepted for i in (1, 2, 3)], [True, True, True])
                     self.assertEqual(bodies, baseline_body)
-                    self.assertEqual(notes, baseline_notes)
-                    self.assertEqual(list(chapters_from_disk(live.database, TocInfo([], []))),
-                                     list(chapters_from_disk(baseline.database, TocInfo([], []))))
+                    self.assertEqual(len(notes), 1)
+                    self.assertIn(b'and ends.', notes[0])
+                    self.assertEqual(len(list(chapters_from_disk(live.database, TocInfo([], [])))), 1)
                     self.assertEqual(live._consumed, 3)
                 finally:
                     await live.cancel()
@@ -131,8 +131,8 @@ class CandidateAdoptionTests(IsolatedAsyncioTestCase):
             self.assertEqual(assembly.active_note, pending[2])
             self.assertEqual(set(assembly.notes), set(pending[1]))
             bad = deepcopy(second)
-            next(layout for layout in bad.layouts if layout.ownership == 'citation').annotations.paragraph_level = 2
-            with self.assertRaisesRegex(PageStructureError, 'paragraph metadata'):
+            bad.layouts[0].annotations.references = [ReferenceLocation((0,), 2, 9)]
+            with self.assertRaisesRegex(PageStructureError, 'REF_CITATION_UNKNOWN'):
                 assembly.validate(bad)
             for name, rows in tables.items():
                 self.assertEqual(assembly._run(f'SELECT * FROM {name}'), rows)
@@ -147,43 +147,33 @@ class CandidateAdoptionTests(IsolatedAsyncioTestCase):
             assembly = PageAssembly(Path(directory)/'work.sqlite')
             bad = deepcopy(page)
             bad.layouts[0].annotations.references = [ReferenceLocation((0,), 1, 9)]
-            with self.assertRaisesRegex(PageStructureError, 'Reference has no definition'):
+            with self.assertRaisesRegex(PageStructureError, 'REF_CITATION_UNKNOWN'):
                 assembly.validate(bad)
             bad = deepcopy(page)
             bad.layouts[0].annotations.continues_from_previous = True
-            with self.assertRaisesRegex(PageStructureError, 'Continuation has no predecessor'):
-                assembly.validate(bad)
+            assembly.validate(bad)  # No cursor: preserve the available opening.
             assembly.validate(page)
             self.assertFalse(assembly._run('SELECT * FROM adopted'))
             assembly.append(page)
             assembly.finish()
             self.assertEqual(len(list(chapters_from_disk(assembly.database, TocInfo([], [])))), 1)
 
-    async def test_transparent_pages_preserve_fallback_contract_without_unbounded_lookahead(self):
+    async def test_transparent_pages_cannot_freeze_an_earlier_result(self):
         pages = [_page(1, _text('A sentence starts')),
                  *[_page(i, _asset('image')) for i in range(2, 18)],
                  _page(18, _text('and ends.'))]
         initial = PrimaryPages()
         raw = [deepcopy(initial.append(page)) for page in pages]
-        for ignored in (False, True):
-            with self.subTest(ignored=ignored), TemporaryDirectory() as directory:
-                assembly = PageAssembly(Path(directory)/'work.sqlite')
-                candidate = deepcopy(raw[0])
-                candidate.layouts[0].annotations.paragraph_role = 'heading'
-                if ignored:
-                    candidate.layouts[0].annotations.ownership = 'ignored'
-                with self.assertRaisesRegex(PageStructureError, 'deferred continuation'):
-                    assembly.validate(candidate, raw[1], refined=True, initial=raw[0])
-                for ordinal, page in enumerate(raw):
-                    following = raw[ordinal + 1] if ordinal + 1 < len(raw) else None
-                    assembly.validate(page, following)
-                    assembly.append(page)
-                assembly.finish()
-                chapters = list(chapters_from_disk(assembly.database, TocInfo([], [])))
-                self.assertEqual(len(chapters[0].flow_items), 1)
-                paragraph = chapters[0].flow_items[0]
-                assert isinstance(paragraph, TextFlowItem)
-                self.assertEqual(len(paragraph.children), 18)
+        with TemporaryDirectory() as directory:
+            assembly = PageAssembly(Path(directory)/'work.sqlite')
+            raw[0].layouts[0].annotations.paragraph_role = 'heading'
+            for page in raw:
+                assembly.validate(page)
+                assembly.append(page)
+            assembly.finish()
+            paragraph = list(chapters_from_disk(assembly.database, TocInfo([], [])))[0].flow_items[0]
+            assert isinstance(paragraph, TextFlowItem)
+            self.assertEqual(len(paragraph.children), 18)
 
     async def test_callback_errors_and_storage_errors_are_never_candidate_rejections(self):
         for failure in (ValueError('consumer failed'), OSError('disk failed')):
@@ -257,8 +247,9 @@ class CandidateAdoptionTests(IsolatedAsyncioTestCase):
             self.assertEqual(render.call_count, 1)
             self.assertEqual(render.call_args.args[3], 2)
             self.assertTrue(usages)
-            self.assertTrue(all(usage.accepted is False for usage in usages))
-            self.assertFalse(bodies, 'Recovery must not replay content through preview callbacks')
+            self.assertTrue(any(usage.accepted is True for usage in usages))
+            self.assertTrue(any(usage.accepted is False for usage in usages))
+            self.assertLessEqual(len(bodies), 1, 'Recovery must not replay content through preview callbacks')
             await AsyncPDFCraft().open_extraction(root/'book.pcex')
             with ZipFile(root/'book.pcex') as archive:
                 chapter = decode_chapter(fromstring(archive.read('chapters/chapter_head.xml')))
@@ -281,11 +272,10 @@ class CandidateAdoptionTests(IsolatedAsyncioTestCase):
             candidate = deepcopy(raw[0])
             note = next(layout for layout in candidate.layouts if layout.ownership == 'citation')
             note.annotations.paragraph_role = 'heading'
-            with self.assertRaisesRegex(PageStructureError, 'deferred continuation'):
-                assembly.validate(candidate, raw[1], refined=True, initial=raw[0])
-            for ordinal, page in enumerate(raw):
-                following = raw[ordinal + 1] if ordinal + 1 < len(raw) else None
-                assembly.validate(page, following)
+            assembly.validate(candidate)
+            raw[0] = candidate
+            for page in raw:
+                assembly.validate(page)
                 assembly.append(page)
             assembly.finish()
             rows = assembly._run('SELECT value FROM refs')

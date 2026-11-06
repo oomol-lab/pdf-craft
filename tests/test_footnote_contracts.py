@@ -17,7 +17,7 @@ from pdf_craft.extractor.chapter.mark import transform2mark
 from pdf_craft.extractor.chapter.page_analysis import analyse_pages, restore_streams
 from pdf_craft.extractor.chapter.page_repair import (
     RepairedPage, _compile_repaired_page, _page_packet,
-    _compile_page_connections, repair_page_with_llm,
+    repair_page_with_llm,
 )
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.transformer.translation_coverage import TranslationCoverage, paragraph_identity
@@ -56,7 +56,7 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(identities), len(set(identities)))
         self.assertEqual(len(citations), 1)
 
-    async def test_f2_cross_page_identity_change_is_rejected_before_acceptance(self):
+    async def test_f2_local_identity_changes_do_not_depend_on_neighbor_aliases(self):
         note = Reference(1, 1, '①', [TextFlowItem('body', -1, [
             fragment(1, 2, 'START'), fragment(2, 2, 'TAIL')])])
         pages = analyse_pages([1, 2], [TextFlowItem('body', -1, [
@@ -78,8 +78,7 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
             previous_pass_probability=None, next_pass_probability=None,
             request=request, retry_policy=RetryPolicy(analysis=1),
         )
-        self.assertEqual(attempts, [0, 1])
-        _compile_page_connections(pages)
+        self.assertEqual(attempts, [0])
         restored = restore_streams(pages)
         self.assertEqual([f.content for t in restored.citations[0].flow_items
                           if isinstance(t, TextFlowItem) for f in t.children], [['START'], ['TAIL']])

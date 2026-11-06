@@ -137,7 +137,6 @@ class AnalysedCitation:
     stream_order: int
     origin_page_index: int | None = None
     continues_previous: bool = False
-    predecessor: tuple[int, int, int, int] | None = None
 
     @property
     def state(self) -> Literal["definition", "continuation", "unresolved"]:

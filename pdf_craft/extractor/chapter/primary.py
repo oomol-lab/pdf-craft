@@ -49,6 +49,7 @@ class PrimaryPages:
                                  ignored_sources=excluded_sources(pages.values(), sources, includes_footnotes=self.includes_footnotes))
         target = next(page for page in analyses if page.page_index == current.index)
         _canonicalize(target, analyses, self.previous_analysis)
+        _local_connections(target)
         if not self.includes_footnotes:
             target = _body_candidates(target)
         attached = active_asset_text(target.layouts)
@@ -86,10 +87,20 @@ def project_window(pages, includes_footnotes=True):
     previous = None
     for analysis in analyses:
         _canonicalize(analysis, initial, previous)
+        _local_connections(analysis)
         previous = analysis
     projected = {page.page_index: page if includes_footnotes else _body_candidates(page)
                  for page in analyses}
     return tuple(projected[page.index] if page is not None else None for page in pages)
+
+
+def _local_connections(page):
+    """Input projection: express the raw algorithm's local connection proposal."""
+    for citation in page.citations:
+        first = next((item for item in sorted(page.layouts, key=lambda item: item.document_order)
+                      if item.citation_id == citation.citation_id and item.source_order is not None), None)
+        citation.continues_previous = citation.index is None and bool(
+            citation.origin_page_index is not None or first and first.continues_from_previous)
 
 
 def _canonicalize(target, analyses, previous_analysis):
@@ -119,49 +130,6 @@ def _canonicalize(target, analyses, previous_analysis):
         if layout.citation_id is not None:
             layout.annotations.citation_id = aliases[layout.citation_id]
         target.layouts[index] = replace(layout, document_order=(target.page_index << 32) + index)
-
-
-def bind_local_result(candidate, local, previous, canonical, canonical_previous):
-    """Resolve window-local citation aliases only at the ordered boundary.
-
-    Initial projections are deterministic within an OCR neighborhood. A note
-    originating before that neighborhood still has a local unresolved alias;
-    source membership identifies it without depending on a refined neighbor.
-    The ordered initial stream, not an LLM outcome, supplies its canonical ID.
-    """
-    result = deepcopy(candidate)
-    _canonicalize(result, [page for page in (previous, result) if page is not None], canonical_previous)
-    canonical_by_order = {layout.document_order: layout for layout in canonical.layouts}
-    aliases = {}
-    for layout in local.layouts:
-        target = canonical_by_order[layout.document_order]
-        if layout.citation_id is not None and target.citation_id is not None:
-            aliases[layout.citation_id] = target.citation_id
-    # _canonicalize may already have resolved the alias using the preceding
-    # initial page. Bind unresolved origins by immutable target membership too.
-    canonical_citations = {citation.citation_id: citation for citation in canonical.citations}
-    for citation in result.citations:
-        citation.citation_id = aliases.get(citation.citation_id, citation.citation_id)
-        original = canonical_citations.get(citation.citation_id)
-        if citation.index is None and original is not None:
-            citation.origin_page_index = original.origin_page_index
-    for layout in result.layouts:
-        if layout.citation_id is not None:
-            layout.annotations.citation_id = aliases.get(layout.citation_id, layout.citation_id)
-    # A transparent neighboring asset page contains no text predecessor for the
-    # model to judge. Restore that deferred incoming edge from the ordered raw
-    # stream, without overwriting any visible, locally editable boundary.
-    if previous is not None and previous.layouts and all(
-            item.source_order is None and getattr(item.source, 'ref', None) != 'formula'
-            for item in previous.layouts if item.ownership == 'paragraph'):
-        local_by_order = {layout.source_order: layout for layout in local.layouts}
-        for layout in result.layouts:
-            if layout.ownership == 'paragraph' and layout.source_order is not None:
-                source = local_by_order[layout.source_order]
-                if source.ownership == 'paragraph' and layout.continues_from_previous == source.continues_from_previous:
-                    layout.annotations.continues_from_previous = next(item for item in canonical.layouts if item.source_order == layout.source_order).continues_from_previous
-                break
-    return result
 
 
 def _body_candidates(page):

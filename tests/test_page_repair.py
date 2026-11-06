@@ -16,7 +16,6 @@ from pdf_craft.extractor.chapter.page_analysis import analyse_pages, restore_str
 from pdf_craft.extractor.chapter.page_repair import (
     AllPageLlmRepairProcessor,
     JevLlmRepairProcessor,
-    _compile_page_connections,
     build_page_repair_messages,
     repair_page_with_llm,
 )
@@ -43,7 +42,7 @@ def _response_from_message(message):
     return {
         "page_index": target["page_index"],
         "layouts": [
-            {key: value for key, value in layout.items() if key in layout_fields}
+            {key: value for key, value in {**layout, **layout["initial_proposal"]}.items() if key in layout_fields}
             for layout in target["layouts"]
         ],
         "citations": target["citations"],
@@ -184,8 +183,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             page.layouts[0].annotations.continues_from_previous = True
             page.layouts[0].annotations.continues_to_next = True
 
-        with self.assertRaisesRegex(ValueError, "CONTINUATION_ORIGIN"):
-            _compile_page_connections(pages)
+        self.assertEqual(len(restore_streams(pages).citations), 2)
 
         for page in pages:
             self.assertTrue(page.layouts[0].continues_from_previous)
@@ -257,11 +255,11 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(llm_payloads), 1)
         payload = llm_payloads[0]
         self.assertEqual(payload["target_page"]["page_index"], 2)
-        self.assertAlmostEqual(payload["target_page"]["jev_p_pass"], probabilities[2])
+        self.assertNotIn("jev_p_pass", payload["target_page"])
         self.assertNotIn("jev_p_pass", payload["previous_page"])
         self.assertNotIn("jev_p_pass", payload["next_page"])
         self.assertEqual([page.page_index for page in repaired], [1, 2, 3])
-        self.assertTrue(repaired[0].layouts[-1].continues_to_next)
+        self.assertFalse(repaired[0].layouts[-1].continues_to_next)
         self.assertTrue(repaired[1].layouts[0].continues_from_previous)
 
     def test_neighbor_scores_are_never_disclosed_even_when_available(self):
@@ -288,12 +286,12 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("jev_p_pass", payload["target_page"])
         citation_layout = next(
             layout for layout in payload["target_page"]["layouts"]
-            if layout["ownership"] == "citation"
+            if layout["initial_proposal"]["ownership"] == "citation"
         )
         self.assertEqual(citation_layout["definition_mark"], "①")
         paragraph_layouts = [
             layout for layout in payload["target_page"]["layouts"]
-            if layout["ownership"] == "paragraph"
+            if layout["initial_proposal"]["ownership"] == "paragraph"
         ]
         self.assertIsNone(
             paragraph_layouts[0]["initial_stream_boundary_from_previous"]
@@ -314,7 +312,10 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             request=request,
         )
 
-        self.assertEqual(restore_streams([repaired]), restore_streams([page]))
+        expected = restore_streams([page])
+        for note in expected.citations:
+            note.mark = str(note.mark)
+        self.assertEqual(restore_streams([repaired]), expected)
 
     async def test_ambiguous_anchor_feedback_retries_without_cascade_error(self):
         page = _page_with_reference("Alpha① middle Alpha", "")

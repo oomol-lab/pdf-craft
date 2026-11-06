@@ -78,8 +78,7 @@ class LiveExtraction:
                 self._refinement_order, includes_footnotes=self.includes_footnotes)) as results:
             async for result in results:
                 try:
-                    await IO_DOMAIN.run(assembly.validate, result.page, result.following,
-                                        refined=result.initial is not None, initial=result.initial)
+                    await IO_DOMAIN.run(assembly.validate, result.page)
                 except Exception as error:
                     if result.usage is not None:
                         result.usage.settle(False)
@@ -90,7 +89,7 @@ class LiveExtraction:
                     from ...policies import FailureCategory, FailureLocation
                     await recover(error, FailureCategory.ANALYSIS, 'footnote_commit', 'algorithm_result',
                                   targets=(FailureLocation('page', page_indexes=(result.page.page_index,)),))
-                    await IO_DOMAIN.run(assembly.validate, result.initial, result.following)
+                    await IO_DOMAIN.run(assembly.validate, result.initial)
                     result.page = result.initial
                     result.initial = None
                     result.usage = None
@@ -99,7 +98,7 @@ class LiveExtraction:
                         result.usage.settle(False)
                     raise
                 try:
-                    await IO_DOMAIN.run(assembly.append, result.page, refined=result.initial is not None)
+                    await IO_DOMAIN.run(assembly.append, result.page)
                 except BaseException:
                     if result.usage is not None:
                         result.usage.settle(False)

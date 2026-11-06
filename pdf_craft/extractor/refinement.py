@@ -21,26 +21,24 @@ class PageResult:
     usage: Any = None
     initial: Any = None
     refinement_status: RefinementStatus = RefinementStatus.NOT_REQUIRED
-    following: Any = None
 
 
 async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS, includes_footnotes=True):
-    """Only raw neighbors gate requests; global identities are bound on delivery.
+    """Only raw neighbors gate requests; results are delivered without semantic rebinding.
 
     ``order`` supplies the complete selected sequence from OCR page count.
     An empty sequence also supports direct/cache streams in source order.
     Raw inputs and completed candidates are spooled, not retained by tasks.
     """
-    from .chapter.primary import PrimaryPages, bind_local_result
     if window < 1:
         raise ValueError('window must be positive')
     directory.mkdir(parents=True, exist_ok=True)
     arrived, scheduled, completed = set(), set(), set()
     discovered = []
+    body_boundaries = {}
     changed = asyncio.Event()
     running, usages = {}, {}
     position = 0
-    initial = PrimaryPages(includes_footnotes)
 
     def save(name, value):
         with (directory / name).open('wb') as file:
@@ -53,15 +51,35 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
     async def scan():
         async with aclosing(pages):
             async for page in pages:
-                await IO_DOMAIN.run(save, f'raw-{page.index}', page)
+                def store_input(page=page):
+                    save(f'raw-{page.index}', page)
+                    return _body_boundary(page, includes_footnotes)
+                body_boundaries[page.index] = await IO_DOMAIN.run(store_input)
                 discovered.append(page.index)
                 arrived.add(page.index)
                 changed.set()
 
     async def execute(previous, index, following):
         def context():
-            return _project_window(tuple(load(f'raw-{key}') if key is not None else None
-                                         for key in (previous, index, following)), includes_footnotes)
+            from .chapter.primary import PrimaryPages
+            raw = tuple(load(f'raw-{key}') if key is not None else None
+                        for key in (previous, index, following))
+            neighbors = _project_window(raw, includes_footnotes)
+            # Build the raw proposal before the job, never on result delivery.
+            # Scan scalar input identities backwards, holding at most the last
+            # body page and the adjacent page. Missing older OCR never delays
+            # a job whose immediate raw neighbours are ready.
+            primary = PrimaryPages(includes_footnotes)
+            primary.previous = raw[0]
+            sequence = order() or discovered
+            ordinal = sequence.index(index)
+            for key in reversed(sequence[:ordinal]):
+                if key not in arrived:
+                    break
+                if body_boundaries[key]:
+                    primary.body_tail = load(f'raw-{key}')
+                    break
+            return neighbors[0], primary.append(raw[1]), neighbors[2]
         neighbors = await IO_DOMAIN.run(context)
         result = await process(*deepcopy(neighbors))
         result = result if isinstance(result, PageResult) else PageResult(result)
@@ -70,7 +88,7 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
         usages[index] = result.usage
         result.usage = None
         try:
-            await IO_DOMAIN.run(save, f'result-{index}', (result, neighbors[:2]))
+            await IO_DOMAIN.run(save, f'result-{index}', result)
         except BaseException:
             if usages[index] is not None:
                 usages.pop(index).settle(False)
@@ -112,18 +130,7 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
                 scheduled.add(index)
             if position < len(sequence) and sequence[position] in completed:
                 index = sequence[position]
-                def bind(index=index):
-                    result, (previous, local) = load(f'result-{index}')
-                    canonical_previous = initial.previous_analysis
-                    canonical = initial.append(load(f'raw-{index}'))
-                    following = sequence[position + 1] if position + 1 < len(sequence) else None
-                    result.following = (deepcopy(initial).append(load(f'raw-{following}'))
-                                        if following is not None else None)
-                    result.page = bind_local_result(result.page, local, previous, canonical, canonical_previous)
-                    if result.initial is not None:
-                        result.initial = canonical
-                    return result
-                result = await IO_DOMAIN.run(bind)
+                result = await IO_DOMAIN.run(load, f'result-{index}')
                 result.usage = usages.pop(index)
                 try:
                     yield result
@@ -150,3 +157,12 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
 def _project_window(pages, includes_footnotes=True):
     from .chapter.primary import project_window
     return project_window(pages, includes_footnotes)
+
+
+def _body_boundary(page, includes_footnotes):
+    """Raw input routing only; this scalar is never used in acceptance."""
+    from .chapter.marginal_numbers import reading_body
+    from .chapter.source import _is_empty_text_layout
+    body = reading_body(page, includes_footnotes=includes_footnotes)
+    return (not body or not any(not _is_empty_text_layout(item) for item in body)
+            or any(not _is_empty_text_layout(item) and item.ref not in ('image', 'table') for item in body))

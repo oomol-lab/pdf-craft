@@ -187,29 +187,18 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
     if not targets:
         targets = set(content_indexes)
     analyses = list(analyses)
-    try:
-        affected = (affected_pages(targets, analyses) if analyses else await IO_DOMAIN.run(
-            source_dependencies, draft.pages_path, [index for index in indexes if index in content_indexes], targets, includes_footnotes)) & content_indexes
-    except Exception as scope_error:
-        if not recoverable_structure(scope_error):
-            raise
-        affected = set(content_indexes)  # The scope probe is optional, never another recovery prerequisite.
-    if adopted_database is not None and adopted_database.exists():
-        def expand_saved():
-            values = set(affected)
-            with closing(sqlite3.connect(adopted_database)) as db:
-                if not db.execute("SELECT 1 FROM sqlite_master WHERE name='edges'").fetchone():
-                    return values
-                frontier = list(values)
-                while frontier:
-                    index = frontier.pop()
-                    for left, right in db.execute('SELECT left_page,right_page FROM edges WHERE left_page=? OR right_page=?', (index, index)):
-                        for linked in (left, right):
-                            if linked in content_indexes and linked not in values:
-                                values.add(linked)
-                                frontier.append(linked)
-            return values
-        affected = await IO_DOMAIN.run(expand_saved)
+    if adopted_database is not None:
+        # A refined page is authoritative on its own. Recovery cannot use raw
+        # neighbour guesses or saved semantic edges to withdraw another page.
+        affected = targets
+    else:
+        try:
+            affected = (affected_pages(targets, analyses) if analyses else await IO_DOMAIN.run(
+                source_dependencies, draft.pages_path, [index for index in indexes if index in content_indexes], targets, includes_footnotes)) & content_indexes
+        except Exception as scope_error:
+            if not recoverable_structure(scope_error):
+                raise
+            affected = set(content_indexes)  # The scope probe is optional, never another recovery prerequisite.
     prepared = directory / 'chapters'
     prepared.mkdir(parents=True)
     degraded = set()

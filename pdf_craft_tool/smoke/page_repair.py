@@ -199,7 +199,7 @@ def _semantic_changes(
 
 
 def _layout_id(layout) -> str:
-    return f"layout-{layout.document_order}"
+    return layout.source_id or f"layout-{layout.document_order}"
 
 
 def _layout_semantics(layout) -> dict[str, Any]:
