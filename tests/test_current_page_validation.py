@@ -214,3 +214,32 @@ class CurrentPageValidationTests(IsolatedAsyncioTestCase):
                 self.assertEqual(len(events), 1)
             finally:
                 await live.cancel()
+
+    def test_note_stream_order_overrides_array_order(self):
+        page = PrimaryPages().append(_page(2, _text('First note.') + _text('Second note.')))
+        submitted = response(page)
+        submitted['citations'] = [dict(citation_id='second', index=2, mark='*', stream_order=1),
+                                  dict(citation_id='first', index=1, mark='*', stream_order=0)]
+        for layout, identifier, index in zip(submitted['layouts'], ['first', 'second'], [1, 2]):
+            layout.update(ownership='citation', citation_id=identifier, citation_index=index,
+                          continues_from_previous=False, continues_to_next=False)
+        result = _compile_repaired_page(page, RepairedPage.model_validate(submitted))
+        self.assertEqual([citation.index for citation in result.citations], [1, 2])
+        with TemporaryDirectory() as directory:
+            assembly = PageAssembly(Path(directory)/'streams.sqlite')
+            assembly.append(result)
+            assembly.finish()
+            self.assertEqual([len(pickle.loads(row[0]).flow_items) for row in assembly._run(
+                'SELECT value FROM refs ORDER BY number')], [1, 1])
+
+    def test_incoming_after_new_note_is_rejected_locally(self):
+        page = PrimaryPages().append(_page(2, _text('Incoming tail.') + _text('New note.')))
+        submitted = response(page)
+        submitted['citations'] = [dict(citation_id='tail', index=None, mark=None, stream_order=1,
+                                       continues_previous=True),
+                                  dict(citation_id='new', index=1, mark='*', stream_order=0)]
+        for layout, identifier, index in zip(submitted['layouts'], ['tail', 'new'], [None, 1]):
+            layout.update(ownership='citation', citation_id=identifier, citation_index=index,
+                          continues_from_previous=False, continues_to_next=False)
+        with self.assertRaisesRegex(ValueError, 'CITATION_ORDER'):
+            _compile_repaired_page(page, RepairedPage.model_validate(submitted))
