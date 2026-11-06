@@ -60,22 +60,23 @@ class EventStateConcurrencyTests(IsolatedAsyncioTestCase):
                 await live.cancel()
 
     async def test_waiting_analysis_does_not_exhaust_page_io(self):
-        domain = ExecutionDomain('event-test', 2)
-        loop = asyncio.get_running_loop()
+        domain = ExecutionDomain('event-test', 1)
         entered = asyncio.Event()
         readers = 0
-        original = DiskStream.read
-        def read(stream):
+        original = DiskStream.aread
+        async def read(stream):
             nonlocal readers
             readers += 1
             if readers == 2:
-                loop.call_soon_threadsafe(entered.set)
-            yield from original(stream)
+                entered.set()
+            async for value in original(stream):
+                yield value
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
             save_xml(encode(page(1)), root / 'page_1.xml')
-            with patch.object(live_module, 'IO_DOMAIN', domain), patch.object(DiskStream, 'read', read):
+            with patch.object(live_module, 'IO_DOMAIN', domain), patch.object(DiskStream, 'aread', read), patch.object(
+                    ExecutionDomain, '__init__', side_effect=AssertionError('private analysis pool')):
                 lives = [LiveExtraction(root / str(i), root, False) for i in range(2)]
                 pending = None
                 try:

@@ -242,7 +242,7 @@ class ExtractionRecoveryTests(IsolatedAsyncioTestCase):
     async def test_live_producer_failure_still_collects_later_ocr_pages(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            with patch('pdf_craft.extractor.chapter.live.resolve_to_disk',
+            with patch('pdf_craft.extractor.chapter.live.TraditionalAssembly',
                        side_effect=PageStructureError('live analysis failed', 2)):
                 await self.extract(root)
             self.assertTrue((root / 'analysis/ocr/page_3.xml').exists())

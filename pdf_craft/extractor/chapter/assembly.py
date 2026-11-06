@@ -11,7 +11,7 @@ from .page_analysis import _restore_layouts
 from .analysis_content import _restore_mark
 from .analysis_types import PageStructureError
 from .asset_text import materialize_asset_text, active_asset_text
-from .stream import _position
+from .source import _position
 
 
 class _Paragraphs:

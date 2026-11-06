@@ -356,8 +356,8 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
     def test_missing_pdf_callbacks_skip_xml_packaging_independently(self):
         from pdf_craft.extractor.chapter.stream import resolve_to_disk
         with tempfile.TemporaryDirectory() as directory:
-            with patch('pdf_craft.extractor.chapter.stream._encode_flow', side_effect=AssertionError('unused body')), patch(
-                'pdf_craft.extractor.chapter.stream._encode_reference', side_effect=AssertionError('unused note'),
+            with patch('pdf_craft.extractor.chapter.traditional._encode_flow', side_effect=AssertionError('unused body')), patch(
+                'pdf_craft.extractor.chapter.traditional._encode_reference', side_effect=AssertionError('unused note'),
             ):
                 resolve_to_disk(lambda: [page(1, 'Text①.', '① Note.')], Path(directory) / 'content.sqlite')
 
@@ -527,11 +527,20 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
                 await live.cancel()
 
     def test_footnote_progress_keeps_cross_page_tail_open(self):
-        from pdf_craft.extractor.chapter.jointer import JoinedPageProgress
-        from pdf_craft.extractor.chapter.stream import _joined
+        from pdf_craft.extractor.chapter.jointer import JoinedPageProgress, Jointer
+        from pdf_craft.extractor.chapter.marginal_numbers import reading_notes
+        from pdf_craft.extractor.chapter.source import capture_sources
         sources = [page(1, note='① This continues'), page(2, note='on the next page.'), page(3)]
         sources[2].footnotes_layouts = []
-        events = _joined(sources, True).execute_with_progress()
+        identities = {}
+        jointer = Jointer((), identities)
+        def joined():
+            for source in sources:
+                identities.clear()
+                identities.update(capture_sources([source]))
+                yield from jointer.append(source.index, reading_notes(source))
+            yield from jointer.finish()
+        events = joined()
         self.assertEqual(next(events), JoinedPageProgress(closed_through=0, processed_through=1))
         self.assertEqual(next(events), JoinedPageProgress(closed_through=0, processed_through=2))
         from pdf_craft.extractor.chapter.chapter import TextFlowItem
