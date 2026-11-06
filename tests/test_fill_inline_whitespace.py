@@ -66,7 +66,7 @@ class InlineWhitespaceTests(TestCase):
         response = ('<xml><fragment id="1">取<expression id="2"><math-ref key="m1"/></expression> '
                     '<expression id="3"><math-ref key="m2"/></expression>。</fragment></xml>')
         translator, runtime = _repairing_translator([response, response])
-        translator._translate_text_async = AsyncMock(return_value='取<source-math key="s1"/> <source-math key="s2"/>。')
+        translator._translate_text_async = AsyncMock(return_value=r'取\(x\) \(y\)。')
         target = asyncio.run(NarrativeXMLTransformer(translator).transform(source, error_policy=False))
         self.assertEqual(runtime.context_value.calls, 1)
         text = target.flow_items[0]
@@ -88,7 +88,7 @@ class InlineWhitespaceTests(TestCase):
         response = ('<xml><fragment id="1">取<expression id="2"><math-ref key="m1"/></expression> '
                     '<expression id="3"><math-ref key="m2"/></expression>。</fragment></xml>')
         translator, runtime = _repairing_translator([response, response.replace('</expression> ', '</expression>')])
-        translator._translate_text_async = AsyncMock(return_value='取<source-math key="s1"/><source-math key="s2"/>。')
+        translator._translate_text_async = AsyncMock(return_value=r'取\(x\)\(y\)。')
         asyncio.run(NarrativeXMLTransformer(translator).transform(source, error_policy=False))
         self.assertEqual(runtime.context_value.calls, 1)
 

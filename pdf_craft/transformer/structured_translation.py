@@ -61,12 +61,11 @@ class StructuredTranslation:
 
     def render(self, segments: list[InlineSegment], math: SourceMathTranslation | None = None) -> str:
         parts, previous = [], None
-        seen: set[str] = set()
         for segment in segments:
             owner = self.owner(segment) if self.owner is not None else segment
             if parts and owner is not previous:
                 parts.append('\n\n')
-            parts.extend(math.render(text, seen) if math is not None else text.text for text in segment)
+            parts.extend(math.readable(text) if math is not None else text.text for text in segment)
             previous = owner
         return ''.join(parts)
 
@@ -111,7 +110,11 @@ class StructuredTranslation:
         if self.formulas is None:
             return None
         sources = self.formulas.source_math(text for segment in segments for text in segment)
-        return SourceMathTranslation(sources) if sources else None
+        if not sources:
+            return None
+        math = SourceMathTranslation(sources)
+        math.capture(segments)
+        return math
 
     def project_math(self, mappings: list[MathMapping | None], canonical: str,
                      math: SourceMathTranslation | None, owner: Element | None = None) -> list[MathMapping | None] | None:

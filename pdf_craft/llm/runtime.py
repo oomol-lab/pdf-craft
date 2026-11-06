@@ -215,7 +215,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
     @rate_limit_request
     async def request(
         self, input, max_tokens=None, temperature=None, top_p=None, *,
-        retry_index=None, retry_max=None, use_cache=True, deadline=None,
+        retry_index=None, retry_max=None, use_cache=True, deadline=None, allow_empty=False,
         request_headers: Mapping[str, str] | None = None,
         usage: UsageCollector | None = None,
     ) -> str:
@@ -320,7 +320,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                             await evidence.flush()
                             if deadline is not None:
                                 deadline += time.monotonic() - started
-                    if not response.strip():
+                    if not response.strip() and not allow_empty:
                         empty_attempts += 1
                         await self._log_async("empty-response", attempt + 1, key=key)
                         if attempt >= self.runtime.config.retry_times:

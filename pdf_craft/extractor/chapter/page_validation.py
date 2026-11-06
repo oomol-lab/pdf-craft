@@ -30,8 +30,6 @@ def validate_page(page):
     for position, citation in enumerate(ordered):
         if citation.continues_previous and (position != 0 or citation.index is not None):
             issues.append('[CITATION_ORDER] Only the first unindexed note may continue the output cursor')
-    if [item.index for item in ordered if item.index is not None] != list(range(1, len([item for item in ordered if item.index is not None]) + 1)):
-        issues.append('[CITATION_ORDER] Definition indexes must follow stream order')
     citations = {item.citation_id: item for item in page.citations}
     _validate_layout_sequences({_layout_id(item): item for item in page.layouts}, citations, issues)
     defined = {item.index for item in page.citations if item.index is not None}

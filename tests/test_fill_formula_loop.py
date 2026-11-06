@@ -15,7 +15,7 @@ from pdf_craft.extractor.chapter.chapter import (
 )
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from tests.test_anchored_content_translation import _repairing_translator
-from pdf_craft.transformer.canonical_projection import MathProjectionError
+from pdf_craft.transformer.free_translation import AllocationFillError
 from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly
 
 FIXTURE = Path(__file__).parent / 'assets/translation/fill_formula_cases.json'
@@ -36,7 +36,7 @@ def protected_fixture(case):
     source = decode(fromstring(case['source_xml']), allow_legacy=False)
     assert len(nodes) == len(formulas(source))
     for node in nodes:
-        node.text = '<source-math key="' + keys[node.get('id')] + '"/>'
+        node.text = r'\(' + formulas(source)[int(keys[node.get('id')][1:]) - 1] + r'\)'
         for child in list(node):
             node.remove(child)
     canonical = ''.join(root.itertext())
@@ -47,14 +47,14 @@ def protected_fixture(case):
 
 
 class FillFormulaLoopTests(unittest.TestCase):
-    def test_captured_abstract_without_source_identities_requires_translation_repair(self):
+    def test_unallocated_captured_math_fails_only_in_engineering_fill(self):
         response = json.loads(FIXTURE.with_name('abstract_roundtrip_response.json').read_text())
         case = next(c for c in json.loads(FIXTURE.read_text())['cases']
                     if c['name'] == response['source_case'])
         source = decode(fromstring(case['source_xml']), allow_legacy=False)
         translator, runtime = _repairing_translator([response['fill']])
         translator._translate_text_async = AsyncMock(return_value=response['translation'])
-        with self.assertRaises(MathProjectionError):
+        with self.assertRaises(AllocationFillError):
             asyncio.run(NarrativeXMLTransformer(translator).transform(source, error_policy=False))
         self.assertEqual(runtime.context_value.calls, 0)
 
@@ -99,7 +99,7 @@ class FillFormulaLoopTests(unittest.TestCase):
         incorrect = '<xml><fragment id="1">进行<expression><math-ref key="m1"/></expression>上采样。</fragment></xml>'
         corrected = incorrect.replace('上采样', '下采样')
         translator, runtime = _repairing_translator([incorrect, corrected])
-        translator._translate_text_async = AsyncMock(return_value='进行<source-math key="s1"/>下采样。')
+        translator._translate_text_async = AsyncMock(return_value=r'进行\(16\times\)下采样。')
         target = asyncio.run(NarrativeXMLTransformer(translator).transform(source))
         self.assertEqual(runtime.context_value.calls, 2)
         self.assertIn('canonical translation', runtime.context_value.messages[1][0][-1].message)
@@ -122,7 +122,7 @@ class FillFormulaLoopTests(unittest.TestCase):
                           corrected.replace('<expression>', '<expression id="99">')]:
             with self.subTest(incorrect=incorrect):
                 translator, runtime = _repairing_translator([incorrect, corrected])
-                translator._translate_text_async = AsyncMock(return_value='进行<source-math key="s1"/>下采样。')
+                translator._translate_text_async = AsyncMock(return_value=r'进行\(16\times\)下采样。')
                 target = asyncio.run(NarrativeXMLTransformer(translator).transform(source))
                 self.assertEqual(runtime.context_value.calls, 2)
                 self.assertEqual(formulas(target), [r'16\times'])
