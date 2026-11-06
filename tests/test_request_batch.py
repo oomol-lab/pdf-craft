@@ -34,7 +34,7 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
             text = f'unit {index} ' + ('long text ' * (1500 if index % 5 == 0 else 1))
             async with translator._translation_runtime.context() as context:
                 result = await translator._requests.request(context, [Message(MessageRole.USER, text)],
-                    runtime=translator._translation_runtime, stage='translation')
+                    runtime=translator._translation_runtime, stage='fill')
                 self.assertEqual(result, text)
         await asyncio.wait_for(asyncio.gather(*(request(index) for index in range(25))), 3)
         self.assertLess(len(model.calls), 25)
@@ -79,7 +79,7 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
             async with translator._translation_runtime.context() as context:
                 return await translator._requests.request(context, [
                     Message(MessageRole.SYSTEM, shared), Message(MessageRole.USER, f'unit {index}')],
-                    runtime=translator._translation_runtime, stage='translation')
+                    runtime=translator._translation_runtime, stage='fill')
         results = await asyncio.wait_for(asyncio.gather(*(request(index) for index in range(145))), 5)
         self.assertEqual(results, [f'unit {index}' for index in range(145)])
         self.assertTrue(any(len(batch) == MAX_BATCH_UNITS for batch in model.calls))
@@ -102,7 +102,7 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
         results = await AnchoredContentXMLTransformer(translator).transform_assets(units)
         self.assertEqual([result.caption for result in results if result is not None],
                          [unit.asset.caption for unit in units])
-        self.assertEqual(len(model.calls), 2)
+        self.assertEqual(len(model.calls), 3)
 
     async def test_exhausted_unit_retains_real_batch_evidence_and_counts_usage_once(self):
         with TemporaryDirectory() as directory:
@@ -144,7 +144,7 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
         self.assertTrue(all(len(batch) == 1 for batch in model.calls))
 
     @policy_operation
-    async def test_partial_translation_envelope_is_not_committed_to_cache(self):
+    async def test_partial_fill_envelope_is_not_committed_to_cache(self):
         with TemporaryDirectory() as directory:
             translator, _ = translator_fixture()
             translator._translation_llm.cache_path = Path(directory)
@@ -158,11 +158,11 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
                 async with translator._translation_runtime.context() as context:
                     return await translator._requests.request(context,
                         [Message(MessageRole.USER, f'source {index}')],
-                        runtime=translator._translation_runtime, stage='translation')
+                        runtime=translator._translation_runtime, stage='fill')
             for _ in range(2):
                 results = await asyncio.gather(request(0), request(1), return_exceptions=True)
                 self.assertEqual(results[0], 'accepted')
-                self.assertIsInstance(results[1], ValueError)
+                self.assertEqual(results[1], '')
                 self.assertEqual(list(Path(directory).iterdir()), [])
             self.assertEqual(calls, 2)
 
@@ -211,7 +211,7 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
         async def request():
             async with translator._translation_runtime.context() as context:
                 return await batcher.request(context, [Message(MessageRole.USER, 'source')],
-                                             runtime=translator._translation_runtime, stage='translation')
+                                             runtime=translator._translation_runtime, stage='fill')
         first, second = asyncio.create_task(request()), asyncio.create_task(request())
         await entered.wait()
         first.cancel()
@@ -256,7 +256,7 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
         async def request(text):
             async with translator._translation_runtime.context() as context:
                 return await batcher.request(context, [Message(MessageRole.USER, text)],
-                                             runtime=translator._translation_runtime, stage='translation')
+                                             runtime=translator._translation_runtime, stage='fill')
         with request_window(1), patch.object(batcher, '_execute', execute):
             first = asyncio.create_task(request('first'))
             second = None

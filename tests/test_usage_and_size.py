@@ -298,7 +298,7 @@ class UsageTests(IsolatedAsyncioTestCase):
                 import json
                 return json.dumps([{'id': unit['id'], 'text': unit['messages'][-1]['content']}
                                    for unit in json.loads(messages[-1].message)])
-            return messages[-1].message
+            return messages[-1].message.replace('Text to translate:\n', '').strip('\n')
         async def fill(transformer, hill_climbing, **_kwargs):
             await transformer._fill_runtime.request('fill', use_cache=False)
             error = hill_climbing.submit(hill_climbing.request_element())

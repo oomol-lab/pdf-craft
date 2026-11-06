@@ -276,6 +276,10 @@ class _ResponseContext:
         return None
 
     async def request(self, *_args, **_kwargs):
+        messages = _args[0] if _args else _kwargs['input']
+        if messages[0].message.startswith('You are the structural fill engineer.'):
+            from tests.free_translation_model import allocation_answer
+            return allocation_answer(json.loads(messages[1].message))
         self.messages.append(_args or (_kwargs["input"],))
         self.calls += 1
         return next(self._responses)
@@ -284,6 +288,7 @@ class _ResponseContext:
 class _ResponseRuntime:
     def __init__(self, responses: Sequence[str], runtime) -> None:
         self.context_value = _ResponseContext(responses)
+        self.config = runtime.config
         self.encoding = runtime.encoding
         self.template = runtime.template
 
@@ -317,6 +322,7 @@ def _repairing_translator(fill_responses: Sequence[str], *, direct_fill: bool = 
         translator._direct_fill_candidates = lambda *_args: ()  # type: ignore[method-assign]
     runtime = _ResponseRuntime(fill_responses, translator._fill_runtime)
     translator._fill_runtime = runtime  # type: ignore[assignment]
+    translator._requests.fill_runtime = runtime
     return translator, runtime
 
 
@@ -604,7 +610,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             '</expression>。</fragment></xml>'
         )
         translator, runtime = _repairing_translator((filled,))
-        translator._translate_text_async = AsyncMock(return_value='模 <source-math key="s2"/> 的特征 <source-math key="s1"/>。')  # type: ignore[method-assign]
+        translator._translate_text_async = AsyncMock(return_value=r'模 \(q\) 的特征 \(\chi\)。')  # type: ignore[method-assign]
 
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 

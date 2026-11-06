@@ -88,8 +88,8 @@ PCEX 与原生 EPUB 把连续内容送入同一个 XML mapper；章节只决定�
 不重置预算分组。PCEX 的磁盘就绪队列提供带稳定身份的正文／脚注流，
 Narrative 适配器统一投影；EPUB 的异步 XML 根同样共用既有 splitter。
 翻译输出不设门禁，所有结构验收和修复属于 fill 层；必须遵守
-[翻译与 fill 的职责硬边界](translation-fill-boundary.md)。当前批翻译 JSON 协议及
-首阶段公式身份检查是待移除偏移，后续调整仍须保留跨章节聚合与有界处理。
+[翻译与 fill 的职责硬边界](translation-fill-boundary.md)。自由翻译 group 先取得完整回答，分配 fill 再确定单元归属与公式身份，最后 XML fill
+恢复结构。跨章节聚合与有界处理继续保留。
 
 mapper 使用有界来源收集窗口，再以最多 64 个语义工作组成一次调度准入，
 包括大章节，避免每个自然段先启动一套独立完整翻译流程。

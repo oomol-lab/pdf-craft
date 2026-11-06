@@ -23,7 +23,7 @@ from pdf_craft.transformer.xml_translator.segment import (
 from pdf_craft.progress import ProgressEvent, UnitKind
 from pdf_craft.transformer.xml_translator.xml import decode_friendly, encode_friendly
 from .callbacks import Callbacks, warp_callbacks
-from ...request_batch import BatchResponseError, RequestBatcher, with_request_window
+from ...request_batch import RequestBatcher, with_request_window
 from pdf_craft._policy import current, recover
 from pdf_craft.policies import FailureCategory, RetryScope
 from pdf_craft._failure_sources import tag_locations, segment_locations, task_locations
@@ -31,8 +31,9 @@ from .hill_climbing import HillClimbing
 from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
 from .submitter import SubmitKind, submit
 from ...word_count import count_xml_words
-from ...source_math import SourceMathTranslation, validate_unbound_references
+from ...source_math import SourceMathTranslation
 from ...canonical_projection import MathProjectionError
+from ...free_translation import AllocationFillError
 from ...progress import TranslationProgress, active_progress, selected_item, selected_assets
 from pdf_craft.progress import UnitOutcome
 from collections import Counter
@@ -99,10 +100,10 @@ class XMLTranslator:
         self._translation_runtime = runtime_for(
             translation_llm,
             translation_executor,
-            protocol_version="xml-translation-v1",
+            protocol_version="free-translation-v2",
         )
         self._fill_runtime = runtime_for(
-            fill_llm, fill_executor, protocol_version="xml-fill-v1",
+            fill_llm, fill_executor, protocol_version="xml-fill-v2",
         )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
@@ -110,7 +111,7 @@ class XMLTranslator:
         self._cache_seed_content: str | None = cache_seed_content
         self._max_group_score = max_group_score
         self._stream_mapper: XMLStreamMapper | None = None
-        self._requests = RequestBatcher(max_group_score)
+        self._requests = RequestBatcher(max_group_score, fill_runtime=self._fill_runtime)
 
     @property
     def target_language(self) -> str:
@@ -506,12 +507,12 @@ class XMLTranslator:
             if source_math is not None:
                 context = '\n\n'.join(value for value in (source_context, source_math.context) if value)
                 translated_text = await self._translate_text_async(source_text, context=context, source_math=source_math)
-                translated_text = source_math.resolve(translated_text)
             else:
                 translated_text = (await self._translate_text_async(source_text, context=source_context)
                                    if source_context else await self._translate_text_async(source_text))
         except Exception as error:
-            await recover(error, FailureCategory.TRANSLATION, 'text_translation',
+            await recover(error, FailureCategory.FILL if isinstance(error, AllocationFillError) else FailureCategory.TRANSLATION,
+                          'translation_allocation_fill' if isinstance(error, AllocationFillError) else 'text_translation',
                           'omit_translation', targets=targets, context_locations=context_targets,
                           backend='llm', model=getattr(self._translation_llm, 'model', None))
             return [None] * len(inline_segments)
@@ -521,11 +522,11 @@ class XMLTranslator:
                 translated_text=translated_text, callbacks=callbacks,
                 failure_locations=targets,
                 canonical_text_validator=(
-                    (lambda element: canonical_text_validator(inline_segments, translated_text, element))
+                    (lambda element, canonical=translated_text: canonical_text_validator(inline_segments, canonical, element))
                     if canonical_text_validator is not None else None
                 ),
                 canonical_math_projector=canonical_math_projector,
-                allow_direct_fill=allow_direct_fill,
+                allow_direct_fill=allow_direct_fill, source_math=source_math,
             )
         except Exception as error:
             await recover(error, FailureCategory.FILL, 'xml_fill', 'omit_translation',
@@ -534,9 +535,15 @@ class XMLTranslator:
         if projected is not None:
             return projected
         mappings: list[InlineSegmentMapping | None] = []
-        for mapping in hill_climbing.gen_mappings():
+        for index, mapping in enumerate(hill_climbing.gen_mappings()):
             if mapping and not mapping[1]:
-                mapping = None
+                if canonical_text_validator is not None:
+                    # An accepted empty artist allocation is an empty result,
+                    # not the failure sentinel that restores untranslated text.
+                    block = mapping[0]
+                    mapping = (block, [TextSegment('', [block], 0, 0, 1, next(iter(inline_segments[index])).position)])
+                else:
+                    mapping = None
             mappings.append(mapping)
         return mappings
 
@@ -555,55 +562,10 @@ class XMLTranslator:
         messages = [Message(MessageRole.SYSTEM, template.render(
             target_language=self._target_language, user_prompt=self._user_prompt)),
             Message(MessageRole.USER, (await self._translation_runtime.template('translation_input')).render(
-                text=text, context=context,
-                source_math={key: value.latex for key, value in source_math.values.items()} if source_math is not None else {}))]
-        translator = self
-        last_error = None
-
-        class _TranslationProtocol:
-            async def validate(self, response, state, attempt, max_attempts):
-                nonlocal last_error
-                try:
-                    if source_math is not None:
-                        source_math.resolve(response)
-                    else:
-                        validate_unbound_references(text, response)
-                except MathProjectionError as error:
-                    last_error = error
-                    return ProtocolRetry(str(error), state)
-                return ProtocolSuccess(response, state)
-
-            async def empty(self, state, attempt, max_attempts):
-                return ProtocolRetry(str(last_error or 'Empty translation response'), state, include_response=False)
-
-            async def exhausted(self, state, attempts, response):
-                error = last_error or BatchResponseError('No usable translation response')
-                error.attempts = attempts
-                raise error
-
+                text=text, context=context))]
         async with self._translation_runtime.context(cache_seed_content=self._cache_seed_content) as ctx:
-            envelope_error = False
-            async def request(_current_messages, index, maximum):
-                nonlocal last_error, envelope_error
-                try:
-                    # Unbound envelopes resend the original source. Formula
-                    # protocol repairs retain the original text and read-only
-                    # table, including when that table is empty.
-                    request_messages = _current_messages if not envelope_error else messages
-                    response = await translator._requests.request(ctx, runtime=translator._translation_runtime,
-                        stage='translation', messages=request_messages, retry_index=index, retry_max=maximum)
-                    envelope_error = False
-                    return response
-                except BatchResponseError as error:
-                    last_error = error
-                    envelope_error = True
-                    return ''
-            return await run_repair_loop(RepairLoopOptions(
-                messages=messages, request=request, protocol=_TranslationProtocol(), state=None,
-                max_attempts=current().retry.attempts(RetryScope.TRANSLATION),
-                failure_log_path=getattr(self._translation_llm, 'failure_log_path', None),
-                failure_log_context={'stage': 'text_translation', 'model': self._translation_llm.model},
-            ))
+            return await self._requests.request(ctx, messages, runtime=self._translation_runtime,
+                stage='translation', source_math=source_math, source_text=text)
 
     async def _request_and_submit_async(
         self,
@@ -611,11 +573,17 @@ class XMLTranslator:
         source_text: str,
         translated_text: str,
         callbacks: Callbacks,
-        canonical_text_validator: Callable[[Element], str | None] | None = None,
+        canonical_text_validator: Callable[[Element, str], str | None] | None = None,
         failure_locations: tuple = (),
         canonical_math_projector: CanonicalMathProjector | None = None,
         allow_direct_fill: bool = False,
+        source_math: SourceMathTranslation | None = None,
     ) -> list[InlineSegmentMapping | None] | None:
+        if source_math is not None and not source_math.allocated:
+            from types import SimpleNamespace
+            from ...free_translation import fill_translation_group
+            call = SimpleNamespace(source_math=source_math, messages=[Message(MessageRole.USER, source_text)])
+            translated_text = (await fill_translation_group(self._fill_runtime, [call], translated_text))['0']
         from ...canonical_math import CanonicalMath
         canonical_math = CanonicalMath(translated_text) if canonical_text_validator is not None else None
 
@@ -625,7 +593,7 @@ class XMLTranslator:
             if error is None:
                 error = hill_climbing.validate(element)
             if error is None and canonical_text_validator is not None:
-                error = canonical_text_validator(element)
+                error = canonical_text_validator(element, translated_text)
                 if error is not None and canonical_math is not None:
                     error += canonical_math.instructions()
             if error is None and canonical_math_projector is not None:
@@ -709,6 +677,18 @@ class XMLTranslator:
         if len(candidate) == 1 and not len(candidate[0]) and candidate[0].get('id') is not None:
             candidate = hill_climbing.request_element()
             candidate[0].text = canonical
+            yield candidate
+        elif len(candidate) == 1 and candidate[0].get('id') is not None and all(
+                child.tag == 'expression' and not len(child) for child in candidate[0]):
+            # A single owner with only formula allocation containers has no
+            # remaining prose ownership decision. Keep every required container
+            # empty and insert the complete canonical text in the owner. The
+            # normal validator/projector must still restore each source by its
+            # accepted engineering identity, never by these physical slots.
+            candidate = hill_climbing.request_element()
+            candidate[0].text = canonical
+            for child in candidate[0]:
+                child.text = child.tail = None
             yield candidate
 
     def _extract_xml_element(self, text: str) -> Element | str:

@@ -38,8 +38,11 @@ class EchoModel:
     @staticmethod
     def answer(messages):
         user = messages[1 if len(messages) > 1 else 0]['content']
+        if messages[0]['content'].startswith('You are the structural fill engineer.'):
+            from tests.free_translation_model import allocation_answer
+            return allocation_answer(json.loads(user))
         template = re.search(r'XML template:\n```XML\n(.*?)\n```', user, re.S)
-        return template[1] if template else user.split('Text to translate:\n', 1)[-1]
+        return template[1] if template else user.replace('Text to translate:\n', '').strip('\n')
 
 def paragraph(index):
     return TextFlowItem('body', 0, [SourceTextFragment(index, index, (0, 0, 100, 30), [f'Paragraph {index}.'])])

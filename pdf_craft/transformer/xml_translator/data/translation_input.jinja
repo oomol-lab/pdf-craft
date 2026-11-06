@@ -1,14 +1,5 @@
-{% if context -%}
-Read-only context (do not translate):
+{% if context %}Background for understanding the source:
 {{ context }}
 
-{% endif -%}
-{% if source_math -%}
-Immutable source formulas (read-only; reference keys identify original occurrences):
-{% for key, value in source_math.items() %}{{ key }}: {{ value }}
-{% endfor %}
-{% endif -%}
-{% if context or source_math -%}
-Text to translate:
-{% endif -%}
+{% endif %}Text to translate:
 {{ text }}

@@ -15,6 +15,7 @@ from pdf_craft.extractor.chapter.chapter import (
 )
 from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
 from pdf_craft.transformer.canonical_projection import MathProjectionError
+from pdf_craft.transformer.free_translation import AllocationFillError
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
 from pdf_craft.transformer.structured_translation import StructuredTranslation
@@ -59,12 +60,12 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
 
     async def test_source_formula_is_indivisible_even_when_fill_puts_it_in_plain_text(self):
         target = await self.translate(chapter(['Equality: ', expression('x=y'), '.']),
-            '等式 <source-math key="s1"/>。',
+            '等式 $x=y$。',
             '<xml><fragment id="1"><expression/>等式 <math-ref key="m1"/>。</fragment></xml>')
         self.assertEqual(content_of(target), ['等式 ', expression('x=y'), '。'])
         self.assertNotIn('$', await asyncio.to_thread(_pdf_patch_text, target))
 
-    async def test_changed_or_split_canonical_math_cannot_create_new_source_formulas(self):
+    async def test_incomplete_engineering_correspondence_exhausts_fill(self):
         source = chapter(['A character ', expression(r'\chi\mod q'), ', ',
                           expression(r'\chi_0(n)=1'), ' or ', expression(r'\chi_0(n)=0'), '.'])
         for canonical in (
@@ -74,7 +75,7 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
             with self.subTest(canonical=canonical):
                 translator, runtime = _repairing_translator([])
                 translator._translate_text_async = AsyncMock(return_value=canonical)
-                with self.assertRaises(MathProjectionError):
+                with self.assertRaises(AllocationFillError):
                     await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
                 self.assertEqual(runtime.context_value.calls, 0)
 
@@ -122,7 +123,7 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
             b'</p></body></html>'))
         translator, runtime = _repairing_translator([
             '<xml><p id="1">等式 <expression><math-ref key="m1"/></expression>。</p></xml>'])
-        translator._translate_text_async = AsyncMock(return_value='等式 <source-math key="s1"/>。')
+        translator._translate_text_async = AsyncMock(return_value='等式 $x=y$。')
         protocol = StructuredTranslation(formulas=XMLInterrupter())
         node.element, _ = await protocol.translate(translator, TranslationTask(node.element, SubmitKind.REPLACE, None))
         result = BytesIO()
@@ -154,7 +155,7 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
             'Equality: ', expression('x=y'), '.'])
         translator, runtime = _repairing_translator([
             '<xml><caption id="1">等式 <expression><math-ref key="m1"/></expression>。</caption></xml>'])
-        translator._translate_text_async = AsyncMock(return_value='等式 <source-math key="s1"/>。')
+        translator._translate_text_async = AsyncMock(return_value='等式 $x=y$。')
         result, = await AnchoredContentXMLTransformer(translator).transform_assets([
             AnchoredContent('a', 0, -1, source, '')], error_policy=False)
         self.assertIsNotNone(result)
@@ -183,7 +184,7 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
         self.assertNotIn('__PDF_CRAFT', tostring(encoded, encoding='unicode'))
 
     async def test_source_reuse_does_not_normalize_away_canonical_tex_payload(self):
-        target = await self.translate(chapter([expression(r'\text{a  b}')]), '<source-math key="s1"/>',
+        target = await self.translate(chapter([expression(r'\text{a  b}')]), r'$\text{a  b}$',
             '<xml><fragment id="1"><expression><math-ref key="m1"/></expression></fragment></xml>')
         self.assertEqual([item.content for item in content_of(target) if isinstance(item, InlineExpression)],
                          [r'\text{a  b}'])

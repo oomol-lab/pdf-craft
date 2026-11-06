@@ -56,12 +56,6 @@ def with_request_window(function: _F) -> _F:
     return cast(_F, invoke)
 
 
-class BatchResponseError(ValueError):
-    """A translation response could not be bound to its explicit input identity."""
-
-    attempts: int = 1
-
-
 class _IncompleteBatch(Exception):
     """Roll back a partial envelope's cache without discarding valid siblings."""
 
@@ -83,6 +77,8 @@ class _Call:
     usage: Any
     tokens: int
     execution_context: Any
+    source_math: Any = None
+    source_text: str | None = None
 
 
 @dataclass
@@ -102,12 +98,15 @@ class RequestBatcher:
     semantic units retain their single-call path. LLMRuntime owns execution.
     """
 
-    def __init__(self, max_score: int):
+    def __init__(self, max_score: int, *, fill_runtime=None):
+        self.fill_runtime = fill_runtime
         self.budget = max(4096, max_score * 4)
         self.pending: dict[tuple, _Batch] = {}
         self.timers: dict[tuple, asyncio.TimerHandle] = {}
 
-    async def request(self, context, messages, *, runtime, stage, **options):
+    async def request(self, context, messages, *, runtime, stage, source_math=None, source_text=None, **options):
+        if stage == 'translation' and self.fill_runtime is None:
+            raise ValueError('Free translation requires an engineering fill runtime')
         encoding = await runtime.encoding()
         # Shared system instructions are transmitted and charged once. Reserve
         # output proportional to each unit's actual payload, not N copies of
@@ -124,7 +123,7 @@ class RequestBatcher:
         key = (group, policy.task_id, policy.request_headers, id(scope.collector) if scope else None,
                shared, stage, tuple(sorted(options.items())))
         loop = asyncio.get_running_loop()
-        call = _Call(messages, context, runtime, options, loop.create_future(), active_log(), scope, tokens, copy_context())
+        call = _Call(messages, context, runtime, options, loop.create_future(), active_log(), scope, tokens, copy_context(), source_math, source_text)
         batch = self.pending.get(key)
         if batch is not None and (len(batch.calls) == MAX_BATCH_UNITS or
                                   batch.overhead + sum(item.tokens for item in batch.calls) + tokens > self.budget):
@@ -190,7 +189,16 @@ class RequestBatcher:
             return
         first = calls[0]
         try:
-            if len(calls) == 1:
+            if stage == 'translation' and self.fill_runtime is not None:
+                from .free_translation import fill_translation_group
+                shared = first.messages[0]
+                messages = [shared, Message(MessageRole.USER, '\n\n'.join(call.messages[-1].message for call in calls))]
+                with shared_request_usage([call.usage for call in calls]), batch_log_scope(lambda: [call.log for call in calls if not call.future.done()]):
+                    async with first.runtime.context(cache_seed_content=getattr(first.context, 'cache_seed_content', None)) as context:
+                        raw = await context.request(messages, allow_empty=True, **first.options)
+                    answers = ({'0': raw} if len(calls) == 1 and first.source_math is None
+                               else await fill_translation_group(self.fill_runtime, calls, raw))
+            elif len(calls) == 1:
                 response = await first.context.request(first.messages, **first.options)
                 answers = {'0': response}
             else:
@@ -218,12 +226,10 @@ class RequestBatcher:
                 answer = answers.get(str(index))
                 if answer is not None:
                     call.future.set_result(answer)
-                elif stage == 'fill':
-                    # Consume this unit's existing fill attempt, not a hidden
-                    # batch-to-single retry. Accepted siblings have already left.
-                    call.future.set_result('')
                 else:
-                    call.future.set_exception(BatchResponseError(f'Unbound translation batch id={index}: missing, invalid or ambiguous envelope entry (accepted {len(answers)}/{len(calls)} identities)'))
+                    # Missing engineering output consumes only this member's
+                    # existing fill attempt; successful siblings remain adopted.
+                    call.future.set_result('')
         except asyncio.CancelledError:
             for call in calls:
                 call.future.cancel()

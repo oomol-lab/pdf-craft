@@ -1,89 +1,40 @@
-"""Carry immutable source formula occurrences through the first translation."""
-from collections import Counter
-import re
-from xml.etree.ElementTree import Element, fromstring, tostring, ParseError
-
-from .canonical_math import CanonicalMath
-from .canonical_projection import MathProjectionError, SourceMath, bind_source_math
+"""Engineering source formula evidence; never a translation output protocol."""
+from .canonical_projection import SourceMath
 from .xml_translator.segment import TextSegment
-
-_REFERENCE = re.compile(r'<source-math\b[^>]*?/\s*>|<source-math\b[^>]*>.*?</source-math\s*>', re.DOTALL)
-_MARKUP = re.compile(r'</?source-math\b[^>]*(?:>|$)', re.IGNORECASE)
-
-
-def validate_unbound_references(source: str, response: str) -> None:
-    """No formula table grants no new reference identities.
-
-    Literal markup already present in source prose (e.g. protocol documentation)
-    may survive unchanged; it does not grant permission to invent other markers.
-    """
-    if Counter(_MARKUP.findall(response)) - Counter(_MARKUP.findall(source)):
-        raise MathProjectionError(
-            'No source formula table was provided. Do not invent source-math references; '
-            'translate the original prose without adding formula markup.')
 
 
 class SourceMathTranslation:
-    """One semantic unit's references; neither text slots nor translated values own identity."""
+    """One semantic unit's source evidence and accepted fill bindings."""
 
     def __init__(self, sources: list[SourceMath]):
         self.sources = [source for source in sources if not source.context]
         self.context_slots = {id(source.slot) for source in sources if source.context}
         self.context = '\n\n'.join(source.latex for source in sources if source.context)
         self.values = {f's{index}': source for index, source in enumerate(self.sources, 1)}
-        self.slots = {id(source.slot): key for key, source in self.values.items()}
+        self.evidence = {}
+        self.allocated = False
         self.bindings: list[list[SourceMath]] = []
 
-    def render(self, segment: TextSegment, seen: set[str]) -> str:
+    def readable(self, segment: TextSegment) -> str:
+        """Present original mathematical text without exposing engineering IDs."""
         if any(id(node) in self.context_slots for node in segment.parent_stack):
             return ''
-        key = next((self.slots[id(node)] for node in segment.parent_stack if id(node) in self.slots), None)
-        if key is None:
-            return segment.text
-        if key in seen:
-            return ''
-        seen.add(key)
-        leading = segment.text[:len(segment.text) - len(segment.text.lstrip(' \t\r\n'))]
-        trailing = segment.text[len(segment.text.rstrip(' \t\r\n')):]
-        node = Element('source-math', {'key': key})
-        node.text = self.values[key].latex
-        return leading + tostring(node, encoding='unicode') + trailing
+        return segment.text
 
-    def resolve(self, response: str) -> str:
-        """Accept source identities or recover an unambiguous, unchanged literal reply."""
-        references = list(_REFERENCE.finditer(response))
-        if not references:
-            if _MARKUP.search(response):
-                raise MathProjectionError('Use complete, empty source-math references with their original keys.')
-            self.bindings = bind_source_math(response, self.sources)
-            return response
-        keys = []
-        for match in references:
-            try:
-                node = fromstring(match.group())
-            except ParseError as error:
-                raise MathProjectionError('Use empty source-math references with their original keys.') from error
-            key = node.get('key')
-            if (node.tag != 'source-math' or set(node.attrib) != {'key'} or key not in self.values or len(node)):
-                raise MathProjectionError('Unknown source-math identity: copy the original keys exactly.')
-            payload = (node.text or '').strip(' \t\r\n')
-            if payload and payload != self.values[key].latex.strip(' \t\r\n'):
-                raise MathProjectionError('A source-math payload changed: preserve its original formula or return an empty reference.')
-            keys.append(key)
-        counts = Counter(keys)
-        if counts != Counter(self.values.keys()):
-            missing = [key for key in self.values if not counts[key]]
-            duplicates = {key: count for key, count in counts.items() if count > 1}
-            raise MathProjectionError(
-                f'Preserve every source-math identity exactly once. Missing keys: {missing}; '
-                f'duplicate keys (occurrence counts): {duplicates}.')
-        ordinary = _REFERENCE.sub('', response)
-        if _MARKUP.search(ordinary) or CanonicalMath.matches(ordinary):
-            raise MathProjectionError('Do not invent or retype formulas; use only the original source-math references.')
-        bindings = [[self.values[key]] for key in keys]
-        iterator = iter(keys)
-        canonical = _REFERENCE.sub(lambda _match: self.values[next(iterator)].latex, response)
-        if [match.group() for match in CanonicalMath.matches(canonical)] != [group[0].latex for group in bindings]:
-            raise MathProjectionError('Source formula boundaries cannot be represented safely.')
-        self.bindings = bindings
-        return canonical
+    def capture(self, segments):
+        """Give the engineer contextual occurrence evidence, never the artist."""
+        slots = {id(source.slot): key for key, source in self.values.items()}
+        parts, spans, offset = [], {}, 0
+        for segment in segments:
+            for text in segment:
+                value = self.readable(text)
+                key = next((slots[id(node)] for node in text.parent_stack if id(node) in slots), None)
+                if key is not None:
+                    start, _ = spans.get(key, (offset, offset))
+                    spans[key] = start, offset + len(value)
+                parts.append(value)
+                offset += len(value)
+        source = ''.join(parts)
+        self.evidence = {key: dict(before=source[max(0, start-120):start],
+                                   text=source[start:end], after=source[end:end+120])
+                         for key, (start, end) in spans.items()}

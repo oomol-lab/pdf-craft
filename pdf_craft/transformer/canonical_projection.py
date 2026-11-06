@@ -8,7 +8,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 import re
 import unicodedata
-from xml.etree.ElementTree import Element, tostring
+from xml.etree.ElementTree import Element
 
 from .canonical_math import CanonicalMath
 from .whitespace import WhiteSpace, normalize
@@ -46,62 +46,6 @@ def formula_content(value: str) -> tuple[str, bool]:
 
 def _normalized(value: str) -> str:
     return unicodedata.normalize('NFD', normalize(value, WhiteSpace.NORMAL).strip())
-
-
-def _math_identity(value: str) -> str:
-    # Inner TeX whitespace may belong to \text/\verb, not CSS document space.
-    return unicodedata.normalize('NFD', value.strip(' \t\r\n'))
-
-
-class _FormulaPool:
-    def __init__(self, sources: list[SourceMath]):
-        self.sources = sources
-        self.parts = [formula_content(source.latex)[0].strip(' \t\r\n') for source in self.sources]
-        self.used: set[int] = set()
-
-    def take(self, value: str) -> list[SourceMath]:
-        body, _ = formula_content(value)
-        expected = _math_identity(body)
-        # Reuse exact source presentation, including an unchanged sequence of
-        # source formulas merged into one canonical expression. Never consume a
-        # source occurrence twice, and never infer identity from a fill slot.
-        groups = [[index] for index, part in enumerate(self.parts)
-                  if index not in self.used and _math_identity(part) == expected]
-        if not groups:
-            for start in range(len(self.sources)):
-                compact, spaced = '', ''
-                for end in range(start, len(self.sources)):
-                    if end in self.used:
-                        break
-                    compact += self.parts[end]
-                    spaced += (' ' if end > start else '') + self.parts[end]
-                    candidates = (_math_identity(compact), _math_identity(spaced))
-                    if end > start and expected in candidates:
-                        groups.append(list(range(start, end + 1)))
-                        break
-                    if min(map(len, candidates)) > len(expected):
-                        break
-        if groups:
-            def signature(indexes):
-                nodes = [deepcopy(self.sources[index].element) for index in indexes]
-                for node in nodes:
-                    node.tail = None
-                return tuple(tostring(node) for node in nodes)
-            if len({signature(indexes) for indexes in groups}) != 1:
-                raise MathProjectionError('Ambiguous source formula: preserve its source-math identity.')
-            indexes = groups[0]
-            self.used.update(indexes)
-            return [self.sources[index] for index in indexes]
-        raise MathProjectionError('A translated formula has no unchanged source counterpart. Preserve source-math identities.')
-
-
-def bind_source_math(canonical: str, sources: list[SourceMath]) -> list[list[SourceMath]]:
-    """Recover literal replies only when every source occurrence is accounted for."""
-    pool = _FormulaPool(sources)
-    bindings = [pool.take(value) for value in CanonicalMath(canonical).values.values()]
-    if len(pool.used) != len(sources):
-        raise MathProjectionError('Missing source formulas: preserve every source-math identity once.')
-    return bindings
 
 
 def project_canonical_math(
@@ -142,7 +86,12 @@ def project_canonical_math(
                 if cursor < match.start():
                     output.append(replace(field, text=text[cursor:match.start()], parent_stack=stack,
                                           block_depth=find_block_depth(stack)))
-                if offset <= match.start():
+                if not binding:
+                    # The engineer explicitly preserved additional artist math
+                    # without inventing a source identity or rich source node.
+                    output.append(replace(field, text=text[max(offset, match.start()):min(end, match.end())],
+                                          parent_stack=stack, block_depth=find_block_depth(stack)))
+                elif offset <= match.start():
                     for source in binding:
                         node = deepcopy(source.element)
                         node.tail = None

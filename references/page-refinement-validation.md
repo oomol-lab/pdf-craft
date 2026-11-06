@@ -54,7 +54,9 @@ role/level 或 outgoing/incoming 字段来否决本页。
 `page_validation.validate_page(page)` / `PageAssembly.validate(page)` 只验收完整当前页，不接收目录或邻页。
 来源原始记录作为不透明 provenance 运输到产物，不能用于验收或回写语义。
 
-模型的 citation_id 是页内句柄。第一条脚注的 continues_previous 是向最近脚注输出游标
+模型的 citation_id 是页内句柄。脚注编译和组装统一按 stream_order 解释顺序；
+数组排列不构成另一份顺序。续接只能是该顺序中的第一条无编号脚注，冲突在当前页内拒绝。
+第一条脚注的 continues_previous 是向最近脚注输出游标
 追加的操作，不再提交 predecessor 来源范围；段内 continues_from_previous 独立控制自然段续接。
 有游标时机械绑定，无游标时以 `unbound-PAGE-ORDER` 保留可见内容的独立流，不能连接到正文。
 有编号或明确独立的无标记脚注分配当前页输出身份；旧临时 ID 不决定邻页成员资格。

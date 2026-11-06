@@ -699,7 +699,7 @@ def _compile_citations(page_index, proposed, issues):
     seen_ids = set()
     expected_index = 1
     found_indexed = False
-    for position, item in enumerate(proposed):
+    for position, item in enumerate(sorted(proposed, key=lambda item: item.stream_order)):
         prefix = f"citations[{position}]"
         if item.continues_previous and position != 0:
             issues.append(f'[CITATION_ORDER] {prefix}: only the first note may append to the output cursor')

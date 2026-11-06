@@ -36,13 +36,13 @@ def _save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 
-def _fingerprint():
+def _fingerprint(fixture=FIXTURE):
     digest = hashlib.sha256()
     for path in sorted((ROOT / 'pdf_craft').rglob('*')):
         if path.is_file() and path.suffix in ('.py', '.jinja'):
             digest.update(str(path.relative_to(ROOT)).encode())
             digest.update(path.read_bytes())
-    digest.update(FIXTURE.read_bytes())
+    digest.update(fixture.read_bytes())
     digest.update(Path(__file__).read_bytes())
     return digest.hexdigest()
 
@@ -121,8 +121,9 @@ class _Recorder:
         return await run_repair_loop(options)
 
     def summary(self):
-        return {'translation_requests': sum(r['phase'] == 'xml-translation-v1' for r in self.requests),
-                'fill_requests': sum(r['phase'] == 'xml-fill-v1' for r in self.requests),
+        return {'translation_requests': sum(r['phase'] in ('xml-translation-v1', 'free-translation-v2') for r in self.requests),
+                'fill_requests': sum(r['phase'] in ('xml-fill-v1', 'xml-fill-v2') for r in self.requests),
+                'allocation_requests': sum(r['phase'] == 'xml-fill-v2' and r['messages'][0]['content'].startswith('You are the structural fill engineer.') for r in self.requests),
                 'groups': self.groups}
 
 
@@ -153,7 +154,7 @@ async def _case(case, directory, llm, executor):
             raise AssertionError('Temporary translation nodes escaped post-processing')
         if decode(fromstring(xml), allow_legacy=False) != target:
             raise AssertionError('Translated PCEX cannot round-trip')
-        if not recorder.requests or not recorder.groups:
+        if not recorder.requests or not recorder.summary()['fill_requests']:
             raise AssertionError('Production translation/fill was not exercised')
         (directory / 'accepted.xml').write_text(xml, encoding='utf-8')
         result = {'case': case['name'], 'passed': True, **recorder.summary()}
@@ -165,27 +166,29 @@ async def _case(case, directory, llm, executor):
     return result
 
 
-async def run(output: Path, profile: str):
+async def run(output: Path, profile: str, *, fixture: Path = FIXTURE, rounds: int = ROUNDS):
+    if rounds < 1:
+        raise ValueError('rounds must be at least 1')
     output.mkdir(parents=True, exist_ok=False)
     load_project_env(ROOT)
     llm = create_llm_from_env(profile, cache_path=output / 'unused-cache', log_dir_path=output / 'request-status')
     llm.cache_path = None  # Fresh first-stage and fill responses in every round.
     llm.temperature, llm.top_p = TEMPERATURE, TOP_P
     executor = ConcurrentExecutor(FixedCapacity(1))
-    fingerprint = _fingerprint()
+    fingerprint = _fingerprint(fixture)
     commit = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], check=True, capture_output=True, text=True).stdout.strip()
-    cases = json.loads(FIXTURE.read_text(encoding='utf-8'))['cases']
+    cases = json.loads(fixture.read_text(encoding='utf-8'))['cases']
     report = {'commit': commit, 'source_fingerprint': fingerprint, 'temperature': TEMPERATURE,
               'top_p': TOP_P, 'model': llm.model, 'passed': False, 'streak': 0, 'rounds': []}
     _save(output / 'acceptance.json', report)
-    for number in range(1, ROUNDS + 1):
+    for number in range(1, rounds + 1):
         directory = output / f'round-{number}'
         directory.mkdir()
         results = [await _case(case, directory / case['name'], llm, executor) for case in cases]
-        passed = len(results) == 3 and all(r['passed'] for r in results) and _fingerprint() == fingerprint
+        passed = bool(results) and all(r['passed'] for r in results) and _fingerprint(fixture) == fingerprint
         report['rounds'].append({'number': number, 'passed': passed, 'results': results})
         report['streak'] = report['streak'] + 1 if passed else 0
-        report['passed'] = report['streak'] == ROUNDS
+        report['passed'] = report['streak'] == rounds
         _save(output / 'acceptance.json', report)
         if not passed:
             return False
@@ -196,8 +199,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--profile', default='default')
+    parser.add_argument('--fixture', type=Path, default=FIXTURE)
+    parser.add_argument('--rounds', type=int, default=ROUNDS)
     args = parser.parse_args()
-    raise SystemExit(0 if asyncio.run(run(args.output.resolve(), args.profile)) else 1)
+    raise SystemExit(0 if asyncio.run(run(args.output.resolve(), args.profile, fixture=args.fixture, rounds=args.rounds)) else 1)
 
 
 if __name__ == '__main__':

@@ -26,6 +26,10 @@ def validate_page(page):
     orders = [item.stream_order for item in page.citations]
     if len(orders) != len(set(orders)):
         issues.append('[CITATION_ORDER] Note stream positions must be unique within the current page')
+    ordered = sorted(page.citations, key=lambda item: item.stream_order)
+    for position, citation in enumerate(ordered):
+        if citation.continues_previous and (position != 0 or citation.index is not None):
+            issues.append('[CITATION_ORDER] Only the first unindexed note may continue the output cursor')
     citations = {item.citation_id: item for item in page.citations}
     _validate_layout_sequences({_layout_id(item): item for item in page.layouts}, citations, issues)
     defined = {item.index for item in page.citations if item.index is not None}

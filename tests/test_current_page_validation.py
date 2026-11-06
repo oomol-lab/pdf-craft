@@ -214,3 +214,82 @@ class CurrentPageValidationTests(IsolatedAsyncioTestCase):
                 self.assertEqual(len(events), 1)
             finally:
                 await live.cancel()
+
+    def test_note_stream_order_overrides_array_order(self):
+        page = PrimaryPages().append(_page(2, _text('First note.') + _text('Second note.')))
+        submitted = response(page)
+        submitted['citations'] = [dict(citation_id='second', index=2, mark='*', stream_order=1),
+                                  dict(citation_id='first', index=1, mark='*', stream_order=0)]
+        for layout, identifier, index in zip(submitted['layouts'], ['first', 'second'], [1, 2]):
+            layout.update(ownership='citation', citation_id=identifier, citation_index=index,
+                          continues_from_previous=False, continues_to_next=False)
+        result = _compile_repaired_page(page, RepairedPage.model_validate(submitted))
+        self.assertEqual([citation.index for citation in result.citations], [1, 2])
+        with TemporaryDirectory() as directory:
+            assembly = PageAssembly(Path(directory)/'streams.sqlite')
+            assembly.append(result)
+            assembly.finish()
+            self.assertEqual([len(pickle.loads(row[0]).flow_items) for row in assembly._run(
+                'SELECT value FROM refs ORDER BY number')], [1, 1])
+
+    def test_incoming_after_new_note_is_rejected_locally(self):
+        page = PrimaryPages().append(_page(2, _text('Incoming tail.') + _text('New note.')))
+        submitted = response(page)
+        submitted['citations'] = [dict(citation_id='tail', index=None, mark=None, stream_order=1,
+                                       continues_previous=True),
+                                  dict(citation_id='new', index=1, mark='*', stream_order=0)]
+        for layout, identifier, index in zip(submitted['layouts'], ['tail', 'new'], [None, 1]):
+            layout.update(ownership='citation', citation_id=identifier, citation_index=index,
+                          continues_from_previous=False, continues_to_next=False)
+        with self.assertRaisesRegex(ValueError, 'CITATION_ORDER'):
+            _compile_repaired_page(page, RepairedPage.model_validate(submitted))
+
+    def test_reordered_incoming_and_new_note_keep_every_text_once(self):
+        for has_cursor in (False, True):
+            with self.subTest(has_cursor=has_cursor), TemporaryDirectory() as directory:
+                pages = PrimaryPages()
+                prior = pages.append(_page(1, _text('Previous note.')))
+                data = response(prior)
+                data['citations'] = [dict(citation_id='prior', index=1, mark='*', stream_order=0)]
+                data['layouts'][0].update(ownership='citation', citation_id='prior', citation_index=1)
+                prior = _compile_repaired_page(prior, RepairedPage.model_validate(data))
+                page = pages.append(_page(2, _text('Incoming tail.') + _text('New note.')))
+                data = response(page)
+                data['citations'] = [dict(citation_id='new', index=1, mark='*', stream_order=1),
+                                     dict(citation_id='tail', index=None, mark=None, stream_order=0,
+                                          continues_previous=True)]
+                for layout, identifier, index in zip(data['layouts'], ['tail', 'new'], [None, 1]):
+                    layout.update(ownership='citation', citation_id=identifier, citation_index=index,
+                                  continues_from_previous=False, continues_to_next=False)
+                current = _compile_repaired_page(page, RepairedPage.model_validate(data))
+                validate_page(current)
+                conflict = deepcopy(current)
+                conflict.citations[1].stream_order = conflict.citations[0].stream_order
+                with self.assertRaisesRegex(PageStructureError, 'CITATION_ORDER'):
+                    validate_page(conflict)
+                assembly = PageAssembly(Path(directory)/'streams.sqlite')
+                if has_cursor:
+                    assembly.append(prior)
+                assembly.append(current)
+                assembly.finish()
+                notes = [pickle.loads(row[0]) for row in assembly._run('SELECT value FROM refs ORDER BY page,number')]
+                bodies = [pickle.loads(row[0]) for row in assembly._run('SELECT value FROM bodies')]
+                self.assertTrue(all(note.flow_items for note in notes))
+                serialized = repr(notes) + repr(bodies)
+                self.assertEqual(serialized.count('Incoming tail.'), 1)
+                self.assertEqual(serialized.count('New note.'), 1)
+                self.assertIn('New note.', repr(notes[-1]))
+                self.assertEqual('Incoming tail.' in repr(notes), has_cursor)
+
+    def test_unmarked_independent_origin_does_not_renumber_printed_definitions(self):
+        page = PrimaryPages().append(_page(1, _text('Unmarked note.') + _text('Printed note.')))
+        data = response(page)
+        data['citations'] = [dict(citation_id='printed', index=1, mark='*', stream_order=1),
+                             dict(citation_id='unmarked', index=None, mark=None, stream_order=0)]
+        for layout, identifier, index in zip(data['layouts'], ['unmarked', 'printed'], [None, 1]):
+            layout.update(ownership='citation', citation_id=identifier, citation_index=index,
+                          continues_from_previous=False, continues_to_next=False)
+        repaired = _compile_repaired_page(page, RepairedPage.model_validate(data))
+        validate_page(repaired)
+        self.assertEqual({item.citation_id: item.index for item in repaired.citations},
+                         {'printed': 1, 'unmarked': 2})

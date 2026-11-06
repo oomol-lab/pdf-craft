@@ -132,7 +132,7 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
         self.assertEqual(translation_runtime.context_value.calls, 1)
         self.assertEqual(runtime.context_value.calls, 1)
         messages = translation_runtime.context_value.messages[0][0]
-        self.assertIn('Read-only context', messages[-1].message)
+        self.assertIn('Background for understanding the source', messages[-1].message)
         self.assertIn('Nearby source context', messages[-1].message)
 
     async def test_shared_formula_projection_keeps_adjacent_identical_formulas_and_tails(self):
@@ -169,8 +169,8 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
     async def test_mathml_adapter_uses_shared_canonical_fill_before_restoring_source(self):
         from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
         translator, runtime = _repairing_translator([
-            json.dumps([{'id': '0', 'text': '<xml><p id="1">Avant <expression><math-ref key="m1"/></expression> après</p></xml>'},
-                        {'id': '1', 'text': '<xml><p id="1">Deuxième</p></xml>'}]),
+            json.dumps([{'id': '1', 'text': '<xml><p id="1">Avant <expression><math-ref key="m1"/></expression> après</p></xml>'},
+                        {'id': '0', 'text': '<xml><p id="1">Deuxième</p></xml>'}]),
         ])
         translator._translate_text_async = AsyncMock(side_effect=['Avant $x$ après', 'Deuxième'])
         root = fromstring('<body><p>Before <math><mi>x</mi></math> after</p><p>Second</p></body>')

@@ -1,60 +1,26 @@
 # 跨章节翻译请求打包
 
-> 以下记录当前实现与已有回归。新的硬约束见
-> [翻译与 fill 的职责硬边界](../../references/translation-fill-boundary.md)：
-> 翻译文本不得接受任何前置门禁，翻译模型不得被要求输出 JSON envelope、公式引用
-> 或身份协议。下文涉及首阶段格式验收的现存实现及测试预期属于待改偏移，不能作为
-> 后续实现的设计依据。跨章节减少实际请求数、有界调度、归属及原子交付的门禁仍须保留；
-> 后续回归还须验证任意自由译文原样进入 fill，fill 重试不触发重译。
+章节决定归属，group 决定连续输入的预算窗口。首阶段将就绪单元的可读原文汇聚为
+一个翻译请求，返回完整自由文本，不要求 XML/JSON、身份或占位符。
+分配 fill 接收原始回答和各来源，在保持普通译文完整的前提下分配归属及公式对应；
+其后的 XML fill 按各单元恢复结构，可批量使用仅属于工程层的 JSON envelope。
 
-章节决定内容归属，StructuredTranslation 决定 canonical 验收单元，
-RequestBatcher 决定模型请求。这三个边界互相独立。PCEX 正文、脚注、资产字段与原生
-EPUB 共用 XMLTranslator 的两个请求入口：首阶段翻译和 fill。
+来源收集、64 单元上限、token 预算、window 背压及 EOF/暂停时交付保持有界。
+PCEX 正文和脚注、EPUB XHTML 根连续进入同一调度流，不因章节或文件边界清空预算。
+连续来源最多收集 1 秒，暂停 200ms 时先处理尾批并保留未完成读取；来源和就绪工作
+均最多收集 64 个，每次最多准入 `64 * window` 个工作，避免大章节展开整书任务。
+GroupRequests 收集本组就绪调用后才 flush，收集期间不占供应商执行槽位。
+请求预算为 `max(4096, max_group_score * 4)`，仍预留实际输入的输出空间；
+超预算的单个语义单元保持单请求，不为凑预算截断内容。
+不同 operation、headers、usage collector、阶段和修复参数不混批。
+各单元完成分配后仍独立执行 XML fill、采用、coverage 与回调。已成功单元不参与兄弟
+单元的 XML 修复；分配循环固定同一份原始回答，不重新调用翻译模型。
+分配和 XML fill 各有有限 fill 预算；调用层的真实网络故障按原传输预算处理。
+取消单个等待者不取消同批兄弟，最后一个等待者负责取消并等待底层请求。
 
-组包不修改 PCEX 持久化结构、版本、coverage 或来源身份，也不更换 EPUB 的原节点与 CFI。
-每个单元先得到独立 canonical 译文，再执行原有结构、Unicode、空白和公式验收。
-同一批请求里的局部 XML ID、math-ref key 使用各自 conversation 命名空间；外层 JSON
-显式携带请求内唯一 ID，输出允许重排。禁止按空行或正文拆分结果。
-
-## 有界与失败语义
-
-- PCEX 的真实调度入口把正文和脚注持续交给一个 Narrative/XML 任务流，
-  不再按 ContentItem 单独调用 transform。原生 EPUB 的异步根使用相同的 splitter，
-  不因读到下一个 XHTML 重新清空分组范围。
-- 来源收集最多 64 个 XML 根，并以原 token 分组预算约束读前量。首个根到达后
-  连续输入最多收集 1 秒；输入暂停 200ms 时保持那一次未完成读取，先处理现有尾批。
-  逐根读取不会因整个收集耗时刚超过 200ms 就截断仍在连续到达的内容。
-  大根仍由原 splitter 按预算拆分；每次最多准入 64 个语义工作，工作容量为 `64 * window`。整组
-  一次准入最多额外占用 63 个工作位；成员独立释放容量，不能让一个修复中的单元
-  占住整组容量、阻止后续就绪内容。不会因为一本书只有一个大章节而启动整本书数量的并发任务。
-- 每组成员保留各自 canonical 译文及 fill 修复循环。GroupRequests 显式等待本组
-  成员进入模型请求或完成，再 flush 就绪 conversation；既有 token/输出预算及
-  64 单元上限仍可提前切批。该收集不占 provider 槽位，也不等待兄弟单元完成 repair。
-  没有内容组的独立调用仍使用原 10ms 稀疏调用期限；它不再是正文分组的依据。
-- 组包预算为 `max(4096, max_group_score * 4)`。公共 system 指令只传输和计费一次；
-  每个 conversation 只携带自己的消息历史、文本和 XML 模板，按实际编码后的 JSON
-  预留同等输出 token，再计入共享指令和外层 envelope 的开销。canonical 验收说明
-  属于共享 system 指令，公式引用表仍属于各自单元。预算约束新增聚合。
-  单个已由 mapper 拆分的超预算单元沿用单请求，不为凑预算截断语义内容。
-- 每个 operation 的 request window 与 LLM executor 继续限制真实网络并发。
-  自定义 PCEX transformer 保留原有 job-window 契约。页眉页脚的就绪工作也采用
-  显式收集，metadata、anchored content 与正文保持独立进度，避免辅助字段成为交付屏障。
-- mapper 在调度前将内容组拆成独立 canonical 单元，按来源顺序增量归还 mapping；
-  不再等整组完成后一次性返回。前面已验收的段落不等待后面段落的 repair。
-  同一原子 owner 或包围它的 owner 尚未完整验收时，仍按原有通知边界等待。
-- 完整的独立单元继续通过原来的提交和通知链交付。聚合的 HTTP 响应完成后，各单元可以
-  独立验收；失败单元的 repair 不将成功单元重新入队。原有来源顺序、owner 原子性及回调
-  规则保持，章节文件在它的单元全部结算后收尾。
-- 组包本身没有修复循环。fill 缺少某个外层 ID 时，仅该单元收到空响应并消耗原有一次
-  fill 尝试；重复/未知身份或非法 envelope 拒绝该响应。首阶段缺失身份按翻译失败处理。
-  网络失败仍由 LLMRuntime 的原有传输预算处理，各单元随后沿用自己的 ErrorPolicy。
-- 单个等待者取消不影响同批其他等待者；最后一个等待者离开时取消并等待底层清理。
-  共享请求自行拥有缓存上下文，避免首个等待者提前退出导致缓存残留。
-- 每个耗尽的 fill loop 日志包含它参与的真实批次请求/响应及之后自己的修复请求；成功
-  loop 的临时日志照常删除。实际模型用量每批只计一次，任一成果被采用则该批记为有效；
-  全部未采用则记为浪费。不把一次请求虚构成 N 次或估算各单元 token 用量。
-  外层 envelope 不完整时撤销整批缓存写入，但当前轮仍保留可验证的独立结果。
-- 不同 operation、HTTP headers、usage collector、阶段和修复调度参数不能混批。
+真实模型调用数包括自由翻译、分配 fill、XML fill 及其修复。恒等译文可以确定性分配，
+单单元无公式回答直接进入 XML fill，不能伪造请求计数。失败日志保留本轮工程输入中的
+完整原译文，模型缓存和客户现场不提交。PCEX 持久化结构及 EPUB CFI 不改变。
 
 ## 无网络回归入口
 
@@ -85,7 +51,7 @@ EOF 尾批、1000 段单章在首个请求前的资源展开上限、输入暂�
 
 该门禁使用现场的 o200k_base、2600 分组预算、window=6，启用 metadata 和 furniture，
 断言完整转换的真实 transport 调用不超过 15 次，并逐单元检查来源文本、公式、资产及
-几何结构的往返。开发期离线运行观察到 12–14 次；这是正确模拟响应的调用计数，
+几何结构的往返。本轮离线运行观察到 15 次；这是正确模拟响应的调用计数，
 不能代表实际模型翻译质量或保证所有文档的节省比例。
 
 新门禁首先在旧生产入口上运行：24 个短段落发出 16 次调用，超过 4 次上限。
@@ -107,3 +73,21 @@ PDF_CRAFT_EPUB_CFI_REGRESSION=/absolute/path/to/original.epub \
 ```
 
 私有现场不入库；真实模型质量及付费回归由后续实验评估。
+
+## 自由翻译与公式回归
+
+`tests.test_online_formula_allocation` 使用公开 table&formula.pdf 的两种 OCR 局部，
+强制重排 `=1` / `=0` 并使分配 fill 首次失败；验证源节点、译文和只翻译一次。
+`tests.test_source_math_identity` 还用空文本、任意标记和空白回答验证原样进入 fill。
+单个 owner 只有公式容器时可确定性执行 XML fill，仍须通过同样的完整校验和身份恢复。
+
+针对这两份局部的单轮付费复现（需显式配置模型）：
+
+```sh
+.venv/bin/python -m pdf_craft_tool.smoke.fill_formula_loop \
+  --output pdf-craft-output/NEW-DIRECTORY \
+  --fixture tests/assets/translation/online_formula_identity_cases.json --rounds 1
+```
+
+输出记录全部真实请求及分配请求数，保存最终 XML。公式多重集和几何往返只是基础检查；
+还需检查工程绑定与最终公式的语义位置，尤其 `=1` / `=0`，不能只看报告 passed。

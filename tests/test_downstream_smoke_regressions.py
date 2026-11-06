@@ -3,20 +3,18 @@
 import asyncio
 from copy import deepcopy
 import json
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 from xml.etree.ElementTree import fromstring, tostring
 
-from pdf_craft import RetryPolicy, SubmitKind
+from pdf_craft import SubmitKind
 from pdf_craft._policy import policy_operation
 from pdf_craft.extractor.chapter.chapter import SourceAsset
 from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
 from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
 from pdf_craft.transformer.canonical_math import CanonicalMath
-from pdf_craft.transformer.canonical_projection import MathProjectionError
-from pdf_craft.transformer.request_batch import BatchResponseError, RequestBatcher
+from pdf_craft.transformer.free_translation import AllocationFillError
+from pdf_craft.transformer.request_batch import RequestBatcher
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.segment import search_inline_segments, search_text_segments
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
@@ -33,50 +31,7 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
         return await asyncio.gather(*(translator._translate_text_async(text) for text in texts),
                                     return_exceptions=True)
 
-    async def test_partial_envelope_retries_only_unbound_translation(self):
-        translator, _ = translator_fixture()
-        invocations = []
-        async def invoke(messages, *args, **kwargs):
-            invocations.append(messages)
-            if len(invocations) == 1:
-                payload = json.loads(messages[-1].message)
-                identities = {entry['messages'][-1]['content']: entry['id'] for entry in payload}
-                return json.dumps([
-                    {'id': identities['source A'], 'text': 'accepted'},
-                    {'id': identities['source B'], 'text': 'x'},
-                    {'id': identities['source B'], 'text': 'y'},
-                ])
-            return messages[-1].message
-        translator._translation_runtime.__dict__['_invoke'] = invoke
-        result = await self._translations(translator, ['source A', 'source B'], retry_policy=RetryPolicy(translation=1))
-        self.assertEqual(result, ['accepted', 'source B'])
-        self.assertEqual(len(invocations), 2)
-        self.assertNotIn('source A', str(invocations[1]))
 
-    async def test_envelope_exhaustion_is_bounded_and_retains_raw_response(self):
-        with TemporaryDirectory() as directory:
-            translator, _ = translator_fixture()
-            translator._translation_llm.failure_log_path = Path(directory)
-            invocations = 0
-            async def invoke(*_args, **_kwargs):
-                nonlocal invocations
-                invocations += 1
-                return '[{"id":"unknown","text":"bad identity"}]'
-            translator._translation_runtime.__dict__['_invoke'] = invoke
-            result = await self._translations(translator, ['source A', 'source B'],
-                                              retry_policy=RetryPolicy(translation=1))
-            self.assertEqual(invocations, 2)
-            self.assertTrue(all(isinstance(error, BatchResponseError) for error in result))
-            self.assertEqual(len(list(Path(directory).iterdir())), 2)
-            for error in result:
-                identifier = getattr(error, 'failure_log_id')
-                log = Path(directory) / identifier
-                summary = json.loads((log / 'summary.json').read_text())
-                self.assertEqual(summary['stage'], 'text_translation')
-                self.assertEqual(summary['attempts'], 2)
-                records = [json.loads(row) for row in (log / 'transports.jsonl').read_text().splitlines()]
-                self.assertTrue(any(row.get('response') == '[{"id":"unknown","text":"bad identity"}]'
-                                    for row in records))
 
     def test_bad_entry_does_not_discard_unambiguous_siblings(self):
         self.assertEqual(RequestBatcher._answers('[{"id":"0","text":"ok"},{"id":"1","text":"x"},'
@@ -102,32 +57,6 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
                     items.insert(0 if first else len(items), malformed)
                     self.assertEqual(RequestBatcher._answers('[' + ','.join(items) + ']', 3), expected)
 
-    async def test_malformed_identity_conflict_uses_existing_translation_retry_budget(self):
-        async def exercise(malformed_first):
-            translator, _ = translator_fixture()
-            invocations = []
-            async def invoke(messages, *_args, **_kwargs):
-                invocations.append(messages)
-                if len(invocations) == 1:
-                    # Ready calls can arrive in either order after async token
-                    # encoding. Envelope IDs identify requests, not gather order.
-                    payload = json.loads(messages[-1].message)
-                    identities = {entry['messages'][-1]['content']: entry['id'] for entry in payload}
-                    items = [json.dumps({'id': identities['source A'], 'text': 'competing answer'}),
-                             json.dumps({'id': identities['source B'], 'text': 'accepted sibling'})]
-                    items.insert(0 if malformed_first else len(items),
-                                 '{"id":' + json.dumps(identities['source A']) + ',"text":"x","text":"y"}')
-                    return '[' + ','.join(items) + ']'
-                return messages[-1].message
-            translator._translation_runtime.__dict__['_invoke'] = invoke
-            result = await self._translations(translator, ['source A', 'source B'],
-                                              retry_policy=RetryPolicy(translation=1))
-            self.assertEqual(result, ['source A', 'accepted sibling'])
-            self.assertEqual(len(invocations), 2)
-            self.assertNotIn('source B', str(invocations[1]))
-        for first in (False, True):
-            with self.subTest(malformed_first=first):
-                await exercise(first)
 
     async def test_identical_text_and_quotations_are_not_quality_retry_triggers(self):
         translator, model = translator_fixture()
@@ -176,7 +105,7 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
     async def test_extra_canonical_math_cannot_be_adopted_as_a_new_source_formula(self):
         translator, runtime = _repairing_translator([])
         translator._translate_text_async = AsyncMock(return_value='$x$ $y$ $z$')
-        with self.assertRaises(MathProjectionError):
+        with self.assertRaises(AllocationFillError):
             await NarrativeXMLTransformer(translator).transform(formula_source(), error_policy=False)
         self.assertEqual(runtime.context_value.calls, 0)
 

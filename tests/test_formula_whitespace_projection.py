@@ -36,7 +36,7 @@ class FormulaProjectionTests(IsolatedAsyncioTestCase):
                             f'<expression id="3">{right}</expression>。</fragment></xml>')
                 response = response.replace('甲', r'\(甲\)').replace('乙', r'\(乙\)')
                 translator, runtime = _repairing_translator([response])
-                translator._translate_text_async = AsyncMock(return_value='取<source-math key="s1"/> <source-math key="s2"/>。')
+                translator._translate_text_async = AsyncMock(return_value=r'取\(甲\) \(乙\)。')
                 target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
                 self.assertEqual(runtime.context_value.calls, 1)
                 expected = Chapter(None, -1, [TextFlowItem('body', -1, [
