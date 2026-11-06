@@ -79,6 +79,8 @@ class _Call:
     execution_context: Any
     source_math: Any = None
     source_text: str | None = None
+    preserve_space: bool = False
+    source_context: str = ''
 
 
 @dataclass
@@ -104,7 +106,7 @@ class RequestBatcher:
         self.pending: dict[tuple, _Batch] = {}
         self.timers: dict[tuple, asyncio.TimerHandle] = {}
 
-    async def request(self, context, messages, *, runtime, stage, source_math=None, source_text=None, **options):
+    async def request(self, context, messages, *, runtime, stage, source_math=None, source_text=None, preserve_space=False, source_context='', **options):
         if stage == 'translation' and self.fill_runtime is None:
             raise ValueError('Free translation requires an engineering fill runtime')
         encoding = await runtime.encoding()
@@ -123,7 +125,7 @@ class RequestBatcher:
         key = (group, policy.task_id, policy.request_headers, id(scope.collector) if scope else None,
                shared, stage, tuple(sorted(options.items())))
         loop = asyncio.get_running_loop()
-        call = _Call(messages, context, runtime, options, loop.create_future(), active_log(), scope, tokens, copy_context(), source_math, source_text)
+        call = _Call(messages, context, runtime, options, loop.create_future(), active_log(), scope, tokens, copy_context(), source_math, source_text, preserve_space, source_context)
         batch = self.pending.get(key)
         if batch is not None and (len(batch.calls) == MAX_BATCH_UNITS or
                                   batch.overhead + sum(item.tokens for item in batch.calls) + tokens > self.budget):
@@ -192,7 +194,14 @@ class RequestBatcher:
             if stage == 'translation' and self.fill_runtime is not None:
                 from .free_translation import fill_translation_group
                 shared = first.messages[0]
-                messages = [shared, Message(MessageRole.USER, '\n\n'.join(call.messages[-1].message for call in calls))]
+                if all(call.source_text is not None for call in calls):
+                    template = await first.runtime.template('translation_input')
+                    source = template.render(
+                        text='\n\n'.join(call.source_text for call in calls),
+                        context='\n\n'.join(dict.fromkeys(call.source_context for call in calls if call.source_context)))
+                else:
+                    source = '\n\n'.join(call.messages[-1].message for call in calls)
+                messages = [shared, Message(MessageRole.USER, source)]
                 with shared_request_usage([call.usage for call in calls]), batch_log_scope(lambda: [call.log for call in calls if not call.future.done()]):
                     async with first.runtime.context(cache_seed_content=getattr(first.context, 'cache_seed_content', None)) as context:
                         raw = await context.request(messages, allow_empty=True, **first.options)

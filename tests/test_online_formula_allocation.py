@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
+from unittest.mock import patch
 from xml.etree.ElementTree import fromstring
 
 from pdf_craft.extractor.chapter.chapter import InlineExpression, decode
@@ -79,3 +80,41 @@ class OnlineFormulaAllocationTests(IsolatedAsyncioTestCase):
         actual_prompt = '\n'.join(message.message for message in artists[0])
         for forbidden in ('source-math', 'JSON', 'placeholder', 's10'):
             self.assertNotIn(forbidden, actual_prompt)
+
+    async def test_splitter_overlap_is_background_not_retranslated_formula_sources(self):
+        from pdf_craft.expression import ExpressionKind
+        from pdf_craft.extractor.chapter.chapter import Chapter, SourceTextFragment, TextFlowItem
+        source = Chapter(None, -1, [TextFlowItem('body', -1, [
+            SourceTextFragment(1, index, (0, index*20, 100, index*20+20),
+                               [f'Part {index} explains the formula ',
+                                InlineExpression(ExpressionKind.INLINE_PAREN, f'x_{index}'),
+                                ' and continues the argument. ']) for index in range(8)])])
+        translator, model = translator_fixture(max_group_score=97)
+        original = model.answer
+        def answer(messages):
+            if messages[0]['content'].startswith('You are a translator.'):
+                return messages[1]['content'].split('Text to translate:\n', 1)[1].strip('\n')
+            return original(messages)
+        model.answer = answer
+        from pdf_craft.transformer.xml_translator.xml_translator.stream_mapper import XMLStreamMapper
+        truncate = XMLStreamMapper._truncate_and_transform_group
+        def overlap(mapper, group):
+            head, body, tail = truncate(mapper, group)
+            # The observed production failure has this same readonly overlap
+            # shape. Keep the real splitter/runtime/fill and inject only the
+            # neighboring evidence slot to exercise it deterministically.
+            return head, body, [body[-1], *tail] if body else tail
+        with patch.object(XMLStreamMapper, '_truncate_and_transform_group', overlap):
+            target = await NarrativeXMLTransformer(translator, window=2).transform(source, error_policy=False)
+        artists = [call for call in model.wire_calls if call[0].message.startswith('You are a translator.')]
+        self.assertTrue(any('Read-only background' in call[1].message for call in artists))
+        body = ''.join(call[1].message.split('Text to translate:\n', 1)[1] for call in artists)
+        for index in range(8):
+            self.assertEqual(body.count(f'Part {index}'), 1)
+            self.assertEqual(body.count(f'x_{index}'), 1)
+        restored = [part.content for item in target.flow_items if isinstance(item, TextFlowItem) for fragment in item.children
+                    for part in fragment.content if isinstance(part, InlineExpression)]
+        self.assertEqual(restored, [f'x_{index}' for index in range(8)])
+        sources = [json.loads(call[1].message)['sources'] for call in model.wire_calls
+                   if call[0].message.startswith('You are the structural fill engineer.')]
+        self.assertEqual(sum(len(unit['formulas']) for batch in sources for unit in batch), 8)

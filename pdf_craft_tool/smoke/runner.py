@@ -206,6 +206,9 @@ def _execute(run: SmokeRun, asset: SmokeAsset, run_path: Path,
         with report.stage("render"):
             llm = LLM(**run.translation["llm"])
             fill_llm = LLM(**run.translation["fill_llm"]) if isinstance(run.translation.get("fill_llm"), dict) else llm
+            for model in (llm, fill_llm):
+                if model.failure_log_path is None:
+                    model.failure_log_path = run_path / 'llm-failures'
             submit = SubmitKind[run.translation.get("submit", "REPLACE").upper()]
             PDFCraft().translate_epub(asset.path, output, target_language=run.translation.get("target_language", "zh"),
                                       submit=submit, user_prompt=run.translation.get("user_prompt"),
@@ -328,7 +331,9 @@ def _run_pdf(
             if translation_transformer is not None
             else _DeterministicXMLTranslator(str(prefix))
         )
-        craft.translate_pdf(asset.path, package, target, cast(Any, translator), **model_request_options())
+        craft.translate_pdf(asset.path, package, target, cast(Any, translator),
+                            retry_policy=RetryPolicy(**(run.translation or {}).get("retry_policy", {})),
+                            **model_request_options())
     from .checks import check_pdf
     import pypdf
     with report.stage("check"):
@@ -418,7 +423,8 @@ def _translate_package(
     return craft.translate_extraction(
         package, run_path / "translated.pcex", transformer,
         translation_id=translation_id if isinstance(translation_id, str) else None,
-        target_language=str(translation.get("target_language", "en")), **model_request_options(),
+        target_language=str(translation.get("target_language", "en")),
+        retry_policy=RetryPolicy(**translation.get("retry_policy", {})), **model_request_options(),
     )
 
 
@@ -430,6 +436,9 @@ def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> XMLTranslator
     translation_llm = LLM(**llm_values)
     fill_values = translation.get("fill_llm")
     fill_llm = LLM(**fill_values) if isinstance(fill_values, dict) else translation_llm
+    for model in (translation_llm, fill_llm):
+        if model.failure_log_path is None:
+            model.failure_log_path = run_path / 'llm-failures'
     return XMLTranslator(
         translation_llm=translation_llm,
         fill_llm=fill_llm,

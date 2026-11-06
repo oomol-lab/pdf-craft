@@ -24,9 +24,9 @@ class FreeTranslationTests(TestCase):
         with self.assertRaisesRegex(ValueError, 'complete original translation'):
             allocate(json.dumps([dict(id='0', text='corrected', formulas=[])]),
                      [SimpleNamespace(source_math=None)], 'anything at all')
-        with self.assertRaisesRegex(ValueError, 'complete original translation'):
-            allocate(json.dumps([dict(id='0', text='code  indent', formulas=[])]),
-                     [SimpleNamespace(source_math=None)], 'code\tindent')
+        result = allocate(json.dumps([dict(id='0', text='code  indent', formulas=[])]),
+                          [SimpleNamespace(source_math=None, preserve_space=True)], 'code\tindent')
+        self.assertEqual(result['0'], 'code\tindent')
 
     def test_unusual_and_empty_text_are_valid_inputs_to_fill(self):
         for raw in ('', '<arbitrary>unstructured</arbitrary>', 's10 χ mod q', '  weird\n\nresponse  '):
@@ -55,3 +55,110 @@ class FreeTranslationTests(TestCase):
             with self.subTest(formulas=formulas), self.assertRaises(ValueError):
                 allocate(json.dumps([dict(id='0', text='x', formulas=formulas)]),
                          [SimpleNamespace(source_math=None)], 'x')
+
+
+    def test_coverage_feedback_identifies_real_missing_text(self):
+        raw = 'Intro. Formula x followed by important prose. End.'
+        response = json.dumps([dict(id='0', text='Intro. Formula ', formulas=[])])
+        with self.assertRaises(ValueError) as caught:
+            allocate(response, [SimpleNamespace(source_math=None)], raw)
+        message = str(caught.exception)
+        for detail in ('Missing', 'added 0', 'unit 0', 'translation offset',
+                       'important prose', 'Allocated unit lengths: id=0:'):
+            self.assertIn(detail, message)
+
+    def test_unique_formula_does_not_need_unnecessary_context(self):
+        math = SourceMathTranslation([SourceMath(r'\(x=0\)', Element('formula'))])
+        raw = r'If condition then \(x=0\).'
+        result = allocate(json.dumps([dict(id='0', text=raw, formulas=[
+            dict(key='s1', text=r'\(x=0\)', before='If', after='then')])]),
+            [SimpleNamespace(source_math=math)], raw)
+        self.assertEqual(result['0'], raw)
+        self.assertEqual(math.bindings[0], [math.values['s1']])
+
+    def test_repeated_formula_still_needs_real_disambiguation(self):
+        math = SourceMathTranslation([SourceMath(r'\(x\)', Element('formula', origin='a')),
+                                     SourceMath(r'\(x\)', Element('formula', origin='b'))])
+        raw = 'B x; A x.'
+        with self.assertRaisesRegex(ValueError, 'Exact candidate contexts'):
+            allocate(json.dumps([dict(id='0', text=raw, formulas=[
+                dict(key='s2', text='x', before='wrong', after=''),
+                dict(key='s1', text='x', before='A', after='.')])]),
+                [SimpleNamespace(source_math=math)], raw)
+        self.assertFalse(math.allocated)
+
+    def test_ordinary_whitespace_is_recovered_without_changing_words(self):
+        result = allocate(json.dumps([dict(id='0', text='The  bold\nword.', formulas=[])]),
+                          [SimpleNamespace(source_math=None)], 'The bold word.')
+        self.assertEqual(result['0'], 'The bold word.')
+        for raw in ('The\u00a0bold word.', 'The bold words.'):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                allocate(json.dumps([dict(id='0', text='The bold word.', formulas=[])]),
+                         [SimpleNamespace(source_math=None)], raw)
+
+    def test_whitespace_across_allocations_keeps_semantic_owners(self):
+        result = allocate(json.dumps([dict(id='1', text='Other  paragraph.', formulas=[]),
+                                      dict(id='0', text='Boldword.', formulas=[])]),
+                          [SimpleNamespace(source_math=None), SimpleNamespace(source_math=None)],
+                          'Other paragraph.\n\nBold word.')
+        self.assertEqual(result['0'], 'Bold word.')
+        self.assertEqual(result['1'].strip(), 'Other paragraph.')
+
+    def test_formula_locator_recovers_spacing_without_rewriting_math(self):
+        math = SourceMathTranslation([SourceMath(r'\(x=0\)', Element('formula'))])
+        raw = r'Result \(x=0\).'
+        result = allocate(json.dumps([dict(id='0', text=raw, formulas=[
+            dict(key='s1', text=r'\(x = 0\)', before='', after='')])]),
+            [SimpleNamespace(source_math=math)], raw)
+        self.assertEqual(result['0'], raw)
+        self.assertEqual(math.bindings, [[math.values['s1']]])
+
+    def test_spacing_recovery_does_not_guess_repeated_math_identity(self):
+        from pdf_craft.transformer.allocation_text import formula_occurrences
+        raw = r'A \(\text{a b}\); B \(\text{ab}\).'
+        candidates = formula_occurrences(raw, r'\( \text{a  b} \)')
+        self.assertEqual(len(candidates), 2)
+        math = SourceMathTranslation([SourceMath(r'\(x=0\)', Element('formula'))])
+        with self.assertRaisesRegex(ValueError, 'Literal occurrences=0'):
+            allocate(json.dumps([dict(id='0', text=r'\(x=1\)', formulas=[
+                dict(key='s1', text=r'\(x = 0\)', before='', after='')])]),
+                [SimpleNamespace(source_math=math)], r'\(x=1\)')
+
+    def test_translated_occurrence_ids_follow_semantic_owner_after_reordering(self):
+        calls = [SimpleNamespace(source_math=SourceMathTranslation([
+            SourceMath(r'\(x\)', Element('formula', origin=name))])) for name in ('a', 'b')]
+        raw = r'B \(x\). A \(x\).'
+        answer = allocate(json.dumps([
+            dict(id='1', text=r'B \(x\). ', formulas=[dict(key='s1', target='t1')]),
+            dict(id='0', text=r'A \(x\).', formulas=[dict(key='s1', target='t2')])]), calls, raw)
+        self.assertEqual(answer, {'0': r'A \(x\).', '1': r'B \(x\). '})
+        self.assertEqual(calls[0].source_math.bindings[0][0].element.get('origin'), 'a')
+        self.assertEqual(calls[1].source_math.bindings[0][0].element.get('origin'), 'b')
+        with self.assertRaisesRegex(ValueError, 'not in unit'):
+            allocate(json.dumps([
+                dict(id='1', text=r'B \(x\). ', formulas=[dict(key='s1', target='t2')]),
+                dict(id='0', text=r'A \(x\).', formulas=[dict(key='s1', target='t1')])]), calls, raw)
+
+    def test_occurrence_ids_support_merged_math_and_cannot_overlap(self):
+        math = SourceMathTranslation([SourceMath(r'\(x=\)', Element('formula', id='a')),
+                                     SourceMath(r'\(1\)', Element('formula', id='b'))])
+        calls = [SimpleNamespace(source_math=math)]
+        raw = r'\(x=1\)'
+        allocate(json.dumps([dict(id='0', text=raw, formulas=[
+            dict(keys=['s1', 's2'], target='t1')])]), calls, raw)
+        self.assertEqual([s.element.get('id') for s in math.bindings[0]], ['a', 'b'])
+        with self.assertRaisesRegex(ValueError, 'overlap'):
+            allocate(json.dumps([dict(id='0', text=raw, formulas=[
+                dict(key='s1', target='t1'), dict(key='s2', target='t1')])]), calls, raw)
+
+    def test_feedback_collects_errors_across_units_without_partial_bindings(self):
+        calls = [SimpleNamespace(source_math=SourceMathTranslation([
+            SourceMath(r'\(x\)', Element('formula'))])) for _ in range(2)]
+        with self.assertRaises(ValueError) as caught:
+            allocate(json.dumps([
+                dict(id='0', text=r'A \(x\). ', formulas=[dict(key='s1', target='unknown')]),
+                dict(id='1', text=r'B \(x\).', formulas=[dict(key='s1', target='unknown')])]),
+                calls, r'A \(x\). B \(x\).')
+        self.assertIn('Unit 0', str(caught.exception))
+        self.assertIn('Unit 1', str(caught.exception))
+        self.assertTrue(all(not call.source_math.allocated for call in calls))

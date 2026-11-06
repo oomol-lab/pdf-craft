@@ -62,6 +62,8 @@ class StructuredTranslation:
     def render(self, segments: list[InlineSegment], math: SourceMathTranslation | None = None) -> str:
         parts, previous = [], None
         for segment in segments:
+            if getattr(segment, '_translation_context', False):
+                continue
             owner = self.owner(segment) if self.owner is not None else segment
             if parts and owner is not previous:
                 parts.append('\n\n')
@@ -109,6 +111,7 @@ class StructuredTranslation:
     def source_math(self, segments: list[InlineSegment]) -> SourceMathTranslation | None:
         if self.formulas is None:
             return None
+        segments = [segment for segment in segments if not getattr(segment, '_translation_context', False)]
         sources = self.formulas.source_math(text for segment in segments for text in segment)
         if not sources:
             return None
