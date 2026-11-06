@@ -91,6 +91,10 @@
         "concurrency": 3,
         "retry_policy": {
           "analysis": 4
+        },
+        "printed_evidence": {
+          "pdf": "tests/assets/pdf/citation_large.pdf",
+          "dpi": 300
         }
       }
     }
