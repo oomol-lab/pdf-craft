@@ -462,7 +462,7 @@ def _narrative_protocol() -> StructuredTranslation:
 def _source_unit_identity(owner: Element) -> str:
     fragment = owner.find('fragment') if owner.tag == 'text' else None
     if fragment is not None:
-        return f'{fragment.get("page_index")}:{fragment.get("source_order")}'
+        return f'{fragment.get("page_index")}:{fragment.get("fragment_id")}'
     return owner.get('__pdf_craft_stream_node') or str(id(owner))
 
 

@@ -1,6 +1,6 @@
 """PDF replacement data shared by erasing, filling and composition."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,7 @@ class PDFReplacementRegion:
     page_pixel_size: tuple[int, int]
     dpi: int = 300
     reading_order: int = 0
+    fragment_id: int | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True)

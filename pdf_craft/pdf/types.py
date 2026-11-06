@@ -30,6 +30,11 @@ class PageLayout:
     first_line_inset: float | None = None
     vertical_columns: bool = False
     number_ink_bbox: tuple[int, int, int, int] | None = None
+    semantic_id: int | None = None
+
+    @property
+    def anchor_order(self) -> int:
+        return self.order if self.semantic_id is None else self.semantic_id
 
 
 @dataclass
@@ -129,6 +134,7 @@ def _decode_layout(element: Element, order: int) -> PageLayout:
         first_line_inset=float(inset) if inset is not None else None,
         vertical_columns=element.get("vertical_columns") == "true",
         number_ink_bbox=number_box,
+        semantic_id=int(element.attrib["semantic_id"]) if "semantic_id" in element.attrib else None,
     )
 
 

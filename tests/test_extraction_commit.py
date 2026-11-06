@@ -58,7 +58,7 @@ class CommitBoundaryTests(IsolatedAsyncioTestCase):
             evidence.mkdir(); chapters.mkdir()
             save_xml(fromstring('<page index="1"><body><layout ref="text" det="0,0,100,20">Body</layout></body>'
                                 '<footnotes><layout ref="text" det="0,25,100,40">Heading</layout></footnotes></page>'), evidence/'page_1.xml')
-            save_xml(fromstring('<chapter><flow><text role="heading"><fragment page_index="1" source_order="1" bbox="0,25,100,40">Heading</fragment></text>'
+            save_xml(fromstring('<chapter><flow><text role="heading"><fragment page_index="1" source_order="1" fragment_id="1" source_start="0" bbox="0,25,100,40">Heading</fragment></text>'
                                 '<standalone-asset><asset ref="image" page_index="1" bbox="0,0,100,100"/></standalone-asset></flow></chapter>'), chapters/'chapter_head.xml')
             project_adopted(chapters, evidence, root/'projection', [])
             toc = await analyse_toc(root/'projection', root/'toc.xml', False)
@@ -97,7 +97,7 @@ class AdoptionScaleTests(IsolatedAsyncioTestCase):
         flow = SubElement(root, 'flow')
         for index in range(4000):
             text = SubElement(flow, 'text', {'role': 'body'})
-            SubElement(text, 'fragment', {'page_index':'1', 'source_order':str(index), 'bbox':'0,0,100,20'}).text = 'Body'
+            SubElement(text, 'fragment', {'page_index':'1', 'source_order':str(index), 'fragment_id':str(index), 'source_start':'0', 'bbox':'0,0,100,20'}).text = 'Body'
         with TemporaryDirectory() as folder:
             path = Path(folder)
             (path/'chapter_head.xml').touch()

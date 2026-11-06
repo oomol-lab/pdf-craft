@@ -91,6 +91,49 @@ class PCEXMigrationTests(TestCase):
 
 
 class PCEXLayerMigrationTests(IsolatedAsyncioTestCase):
+    async def test_v5_missing_fragment_ids_migrate_source_layers_and_coverage_together(self):
+        from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem, decode
+        craft = AsyncPDFCraft()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root/'source')
+            paragraph = TextFlowItem('body', -1, [SourceTextFragment(1, 7, (0,0,90,30), ['Figure before'])])
+            save_xml(encode(Chapter(None, -1, [paragraph])), root/'source/chapters/chapter_head.xml')
+            await craft.translate_extraction(source, root/'current.pcex', offline_translator(),
+                                             translation_id='existing', target_language='zh-CN', error_policy=False)
+            with ZipFile(root/'current.pcex') as before, ZipFile(root/'v5.pcex', 'w') as after:
+                for member in before.infolist():
+                    data = before.read(member)
+                    if member.filename == 'manifest.json':
+                        manifest = json.loads(data)
+                        manifest['format_version'] = 5
+                        data = json.dumps(manifest).encode()
+                    elif member.filename.endswith('.xml') and ('/chapters/' in member.filename or member.filename.startswith('chapters/')):
+                        xml = ET.fromstring(data)
+                        for fragment in xml.iter('fragment'):
+                            for key in ('fragment_id', 'source_start', 'source_end', 'source_text'):
+                                fragment.attrib.pop(key, None)
+                        data = ET.tostring(xml)
+                    after.writestr(member, data)
+            original = (root/'v5.pcex').read_bytes()
+            opened = await craft.open_extraction(root/'v5.pcex')
+            with opened._materialize() as paths:
+                for path in (paths.chapters/'chapter_head.xml', paths.translations/'existing/chapters/chapter_head.xml'):
+                    node = required(read_xml(path), './flow/text/fragment')
+                    self.assertEqual(node.get('fragment_id'), '7')
+                    self.assertEqual(node.get('source_start'), '0')
+                    self.assertIsNone(node.get('source_text'), 'migration cannot invent raw OCR evidence')
+                    decode(read_xml(path))
+                coverage = read_xml(paths.translations/'existing/coverage.xml')
+                self.assertEqual(required(coverage, './narrative/paragraph').get('order'), '7')
+                snapshot = {path.relative_to(paths.root): path.read_bytes() for path in paths.root.rglob('*') if path.is_file()}
+                migrate_workspace(paths.root)
+                self.assertEqual(snapshot, {path.relative_to(paths.root): path.read_bytes() for path in paths.root.rglob('*') if path.is_file()})
+            await craft.render_markdown(opened, root/'bilingual.md', mode=RenderMode.BILINGUAL, translation_id='existing')
+            self.assertIn('Figure before', (root/'bilingual.md').read_text())
+            self.assertIn('图注 之前', (root/'bilingual.md').read_text())
+            self.assertEqual((root/'v5.pcex').read_bytes(), original)
+
     async def test_current_opaque_content_is_not_translated_or_rendered(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)
@@ -123,7 +166,7 @@ class PCEXLayerMigrationTests(IsolatedAsyncioTestCase):
             opened = await craft.open_extraction(root / 'legacy.pcex')
             with opened._materialize() as paths:
                 manifest = json.loads(paths.manifest.read_text(encoding='utf-8'))
-                self.assertEqual(manifest['format_version'], 5)
+                self.assertEqual(manifest['format_version'], 6)
                 for chapters, expected in ((paths.chapters, 'Figure before '),
                                            (paths.translations / 'caption-layer/chapters', '图注 之前 ')):
                     image = required(read_xml(chapters / 'chapter_head.xml'), './/asset')

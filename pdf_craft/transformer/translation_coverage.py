@@ -81,7 +81,7 @@ def paragraph_identity(chapter: Chapter, item: TextFlowItem) -> tuple[str, int, 
     fragment = next((child for child in item.children if isinstance(child, SourceTextFragment)), None)
     if fragment is None:
         return None
-    return (str(chapter.id) if chapter.id is not None else "head", fragment.page_index, fragment.source_order)
+    return (str(chapter.id) if chapter.id is not None else "head", fragment.page_index, fragment.identity_order)
 
 
 def anchored_content_identities(chapter: Chapter) -> set[tuple[str, int, int]]:

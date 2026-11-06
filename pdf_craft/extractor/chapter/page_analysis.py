@@ -226,7 +226,6 @@ def analyse_pages(
     for page in pages.values():
         page.layouts = expand_asset_sources(page.layouts)
 
-    document_order = 0
     for page in pages.values():
         # Reading positions were captured before splitting the OCR streams.
         # Hand-constructed/legacy fragments retain their supplied ordering.
@@ -241,9 +240,8 @@ def analyse_pages(
         for index, layout in enumerate(page.layouts):
             page.layouts[index] = replace(
                 layout,
-                document_order=document_order,
+                document_order=(page.page_index << 32) + index,
             )
-            document_order += 1
 
     return list(pages.values())
 
@@ -357,8 +355,10 @@ def restore_streams(pages: Iterable[PageAnalysis]) -> RestoredStreams:
 
 
 def _source_position_key(source) -> tuple:
-    if isinstance(source, (SourceTextFragment, _AnalysedTextSource)):
-        return ("text", source.page_index, source.source_order)
+    if isinstance(source, SourceTextFragment):
+        return ("text", source.page_index, source.identity_order)
+    if isinstance(source, _AnalysedTextSource):
+        return ("text", source.page_index, source.fragment_id)
     return (source.ref, source.page_index, source.bbox)
 
 
@@ -447,8 +447,8 @@ def _validate_pages(pages: list[PageAnalysis]) -> None:
                     f"Duplicate layout document order: {layout.document_order}"
                 )
             document_orders.add(layout.document_order)
-            if layout.source_order is not None:
-                identity = (layout.page_index, layout.source_order)
+            if isinstance(layout.source, _AnalysedTextSource):
+                identity = (layout.page_index, layout.source.fragment_id)
                 if identity in source_identities:
                     raise ValueError(f"Duplicate fragment source identity: {identity}")
                 source_identities.add(identity)
@@ -596,6 +596,9 @@ def _restore_fragment(
         bbox=source.bbox,
         content=_project_fragment_content(source, layout, references),
         source=source.origin,
+        source_start=source.source_start,
+        source_end=source.source_end,
+        source_text=source.source_text,
     )
 
 

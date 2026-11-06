@@ -87,7 +87,7 @@ def _read_titles(pages: XMLReader[Page]) -> list["_Title"]:
             titles.append(
                 _Title(
                     text=re.sub(r"\s+", " ", layout.text).strip(),
-                    ref=(page.index, layout.order),
+                    ref=(page.index, layout.anchor_order),
                     height=bottom - top,
                 )
             )

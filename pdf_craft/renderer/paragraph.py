@@ -33,7 +33,7 @@ def display_values(item, mode):
         fragment = element.find('fragment')
         if fragment is not None:
             identities.add((str(item.chapter_id) if item.chapter_id is not None else 'head',
-                            int(fragment.get('page_index', '0')), int(fragment.get('source_order', '0'))))
+                            int(fragment.get('page_index', '0')), int(fragment.get('fragment_id', '0'))))
     preserved = set()
     if item.narrative_states is not None:
         preserved = {identity for identity in identities if item.narrative_states.get(identity) == 'preserved'}
@@ -59,7 +59,7 @@ class ParagraphNotifier:
                                       Path('assets'), level, self.numbers))
 
     def content(self, paragraph, original, level):
-        regions = [SourceRegion(self.pages[fragment.page_index], fragment.source_order, fragment.bbox)
+        regions = [SourceRegion(self.pages[fragment.page_index], fragment.source_order, fragment.bbox, fragment_id=fragment.identity_order)
                    for fragment in paragraph.children if isinstance(fragment, SourceTextFragment)]
         return ParagraphContent(self.markdown(paragraph, level),
                                 self.markdown(original, level) if original is not None else None, regions)

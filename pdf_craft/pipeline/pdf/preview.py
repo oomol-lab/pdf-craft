@@ -10,7 +10,7 @@ from .geometry import region_in_page_points
 from .feed import _PreviewReplacement
 
 
-def lines_for_placement(filler, placement):
+def lines_for_placement(filler, placement, span=None):
     """Use the drawing path's QTextLayout and frozen widths/tops, not heuristics."""
     QtCore, QtGui = _qt_modules()
     _ensure_qt_application(QtGui)
@@ -40,6 +40,10 @@ def lines_for_placement(filler, placement):
             if cursor < end:
                 runs.append((cursor, end))
             for lo, hi in runs:
+                if span is not None:
+                    lo, hi = max(lo, span[0]), min(hi, span[1])
+                    if lo >= hi:
+                        continue
                 position = line.cursorToX(_utf16_index_for_python(text, lo))
                 left = position[0] if isinstance(position, tuple) else position
                 result.append(TextLine(text[lo:hi].replace("\u00a0", " "), x + left / _LAYOUT_SCALE,
@@ -78,13 +82,16 @@ class WindowPreview:
             summary = self.window._summaries[contribution.paragraph_index]
             content = (summary.replacement.preview
                        if isinstance(summary.replacement, _PreviewReplacement) else None)
+            if isinstance(summary.replacement, _PreviewReplacement) and summary.replacement.shared_previews:
+                self._shared_page(page_index, contribution, summary.replacement, masks)
+                continue
             for region in contribution.regions:
                 mask = next(masks, None)
                 if content is None:
                     continue
                 source = next((source for source in content.regions if
                                source.page.page_index == page_index and
-                               source.source_order_in_page == region.reading_order and source.bbox == region.bbox), None)
+                               source.identity_order == (region.fragment_id if region.fragment_id is not None else region.reading_order) and source.bbox == region.bbox), None)
                 if source is None:
                     continue
                 width, height = self.sizes[page_index]
@@ -105,13 +112,60 @@ class WindowPreview:
                     r = mask.rectangle
                     areas.append(EraseArea((r.x*sx, r.top*sy, (r.x+r.width)*sx, r.bottom*sy), mask.color))
                 value = PDFSourceRegion(source.page, source.source_order_in_page, source.bbox,
-                                        size, lines, formulas, areas)
+                                        size, lines, formulas, areas, fragment_id=source.fragment_id)
                 identity = (summary.replacement.preview_index if self.incremental else contribution.paragraph_index)
                 self.db.execute('INSERT INTO preview VALUES (?,?,?,?)',
-                                (identity, page_index, region.reading_order, pickle.dumps(value)))
+                                (identity, page_index, source.identity_order, pickle.dumps(value)))
+
+    def _shared_page(self, page_index, contribution, replacement, masks):
+        width, height = self.sizes[page_index]
+        for region in contribution.regions:
+            mask = next(masks, None)
+            rectangle = region_in_page_points(region, width, height)
+            placement = next((value for value in contribution.placements
+                              if value.page_index == page_index and value.rectangle == rectangle), None)
+            for index, _channel, content, start, end in replacement.shared_previews:
+                if content is None:
+                    continue
+                source = content.regions[0]
+                sx, sy = source.page.width / width, source.page.height / height
+                lines = ([] if placement is None else [
+                    TextLine(line.text, line.x*sx, line.baseline*sy)
+                    for line in lines_for_placement(self.filler, placement, (start, end))])
+                size = None if placement is None else font_size_for_placement(self.filler, placement)*sy
+                areas = []
+                if mask is not None:
+                    r = mask.rectangle
+                    areas = [EraseArea((r.x*sx, r.top*sy, (r.x+r.width)*sx, r.bottom*sy), mask.color)]
+                    mask = None  # A physical source is erased once, not per owner.
+                value = PDFSourceRegion(source.page, source.source_order_in_page, source.bbox,
+                                        size, lines, [], areas, fragment_id=source.fragment_id)
+                self.db.execute('INSERT INTO preview VALUES (?,?,?,?)',
+                                (index, page_index, source.fragment_id, pickle.dumps(value)))
+
+    def _shared_contents(self, replacement, failed_pages):
+        for index, channel, content, _start, _end in replacement.shared_previews:
+            if self.incremental and self.db.execute('SELECT 1 FROM delivered WHERE paragraph=?', (index,)).fetchone():
+                continue
+            if content is None or any(r.page.page_index in failed_pages for r in content.regions):
+                if self.incremental:
+                    self._delivered(index)
+                yield index, channel, None
+                continue
+            source = content.regions[0]
+            row = self.db.execute('SELECT value FROM preview WHERE paragraph=? AND page=? AND number=?',
+                                  (index, source.page.page_index, source.identity_order)).fetchone()
+            if row is None:
+                continue
+            if self.incremental:
+                self._delivered(index)
+            yield index, channel, PDFParagraphContent(content.text, content.original, [pickle.loads(row[0])])
 
     def contents(self, failed_pages):
         for index, summary in enumerate(self.window._summaries):
+            if isinstance(summary.replacement, _PreviewReplacement) and summary.replacement.shared_previews:
+                yield from self._shared_contents(summary.replacement, failed_pages)
+                continue
             content = (summary.replacement.preview
                        if isinstance(summary.replacement, _PreviewReplacement) else None)
             if content is None:
@@ -128,11 +182,11 @@ class WindowPreview:
             regions = []
             for source in content.regions:
                 row = self.db.execute('SELECT value FROM preview WHERE paragraph=? AND page=? AND number=?',
-                                      (identity, source.page.page_index, source.source_order_in_page)).fetchone()
+                                      (identity, source.page.page_index, source.identity_order)).fetchone()
                 if row is None and self.incremental:
                     break  # This natural paragraph still has uncomposed pages.
                 regions.append(pickle.loads(row[0]) if row else
-                               PDFSourceRegion(source.page, source.source_order_in_page, source.bbox, None, []))
+                               PDFSourceRegion(source.page, source.source_order_in_page, source.bbox, None, [], fragment_id=source.fragment_id))
             if len(regions) != len(content.regions):
                 continue
             if self.incremental:

@@ -53,7 +53,7 @@ class FurnitureExclusionTests(TestCase):
                                 'Disabled footnote candidate</layout></footnotes></page>'), evidence/'page_1.xml')
             (evidence/'page_pixel_sizes.json').write_text(json.dumps({'1': [200, 200]}))
             save_xml(fromstring('<chapter><flow><text role="body"><fragment page_index="1" '
-                                'source_order="0" bbox="5,80,195,110">Adopted body</fragment>'
+                                'source_order="0" fragment_id="0" source_start="0" bbox="5,80,195,110">Adopted body</fragment>'
                                 '</text></flow></chapter>'), chapters/'chapter_head.xml')
             project_adopted(chapters, evidence, root/'projection', [])
             result = extract_furnitures(pdf, root/'projection')

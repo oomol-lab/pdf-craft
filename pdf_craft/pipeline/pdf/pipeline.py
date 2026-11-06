@@ -1,3 +1,4 @@
+from dataclasses import replace
 # pylint: disable=unused-argument
 
 from pdf_craft.usage import UsageCollector
@@ -118,7 +119,7 @@ class PDFTranslationPipeline:
             for layout in narrative_texts(chapter):
                 if not isinstance(layout, TextFlowItem) or layout.role not in {"body", "heading"}:
                     continue
-                source_key = tuple((child.page_index, child.source_order, child.bbox)
+                source_key = tuple((child.page_index, child.identity_order, child.bbox)
                                    for child in layout.children if isinstance(child, SourceTextFragment))
                 identity = paragraph_identity(chapter, layout)
                 if identity is None:
@@ -205,7 +206,7 @@ def _regions_for_fragments(fragments: Iterable[SourceTextFragment], pages, rende
             fragment.page_index, fragment.bbox, pages, render_dpi, fragment.source_order, error_policy,
         )
         if region is not None:
-            regions.append(region)
+            regions.append(replace(region, fragment_id=fragment.identity_order))
     return tuple(regions)
 
 

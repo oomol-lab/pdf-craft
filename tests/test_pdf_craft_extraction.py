@@ -323,7 +323,7 @@ class TestPDFCraftExtraction(unittest.TestCase):
             normalized = root / "normalized.pcex"
             opened._export(normalized)
             with ZipFile(normalized) as archive:
-                self.assertEqual(json.loads(archive.read("manifest.json"))["format_version"], 5)
+                self.assertEqual(json.loads(archive.read("manifest.json"))["format_version"], 6)
                 self.assertNotIn("translations/index.json", archive.namelist())
 
     def test_v3_archive_rejects_legacy_reference_flow(self):
@@ -426,7 +426,7 @@ class TestPDFCraftExtraction(unittest.TestCase):
                     normalized_chapter = ElementTree.fromstring(
                         archive.read("chapters/chapter_head.xml")
                     )
-                self.assertEqual(normalized_manifest["format_version"], 5)
+                self.assertEqual(normalized_manifest["format_version"], 6)
                 self.assertIsNotNone(normalized_chapter.find("flow"))
                 self.assertIsNone(normalized_chapter.find("body"))
                 self.assertEqual(normalized_chapter.findall("flow/text")[1].get("role"), "body")

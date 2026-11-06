@@ -42,6 +42,7 @@ from .asset_text import (
     active_asset_text, asset_text_packet, compile_asset_attachment, detach_invalid_asset_text,
 )
 from .review_templates import review_text
+from .source_ranges import SourceRange, compile_source_ranges
 from .page_review import (
     text_scale_estimate,
     JEV_REVIEW_THRESHOLD,
@@ -71,10 +72,12 @@ class RepairedReference(_StrictModel):
     layout_id: str
     citation_index: int = Field(ge=1)
     anchor: RefAnchor
+    extract_from_expression: bool = False
 
 
 class RepairedLayout(_StrictModel):
     layout_id: str
+    source_range: SourceRange | None = None
     ownership: Literal["paragraph", "citation", "ignored"]
     continues_from_previous: bool
     continues_to_next: bool | None = None
@@ -86,12 +89,20 @@ class RepairedLayout(_StrictModel):
     keep_asset_attachment: bool | None = None
 
 
+class CitationPredecessor(_StrictModel):
+    page_index: int = Field(ge=1)
+    source_order: int = Field(ge=0)
+    start: int = Field(ge=0)
+    end: int = Field(ge=1)
+
+
 class RepairedCitation(_StrictModel):
     citation_id: str
     index: int | None = Field(default=None, ge=1)
     mark: str | None
     stream_order: int = Field(ge=0)
     continues_previous: bool = False
+    predecessor: CitationPredecessor | None = None
 
 
 class RepairedPage(_StrictModel):
@@ -101,73 +112,7 @@ class RepairedPage(_StrictModel):
     references: list[RepairedReference]
 
 
-_SOURCE_CONTRACT = """不可变事实：目标页 page_index、layout 数量、layout_id、document_order、bbox、source_type 和 text。你不能增删、拆分、合并或重排 layout，也不能改动文字。"""
-
-_ASSET_CONTRACT = """图片/表格可以嵌在同一个自然段内部，它们的位置不可移动，自身的两个 continuation 必须为 false。判断文字 continuation 时跳过这些锚点，连接同一归属流中的前一文字 layout；只有独立段落公式阻断这种连接。"""
-
-_NEIGHBOR_CONTRACT = """相邻页仅提供不可变的初级内容上下文，不提供审核评分。跨出局部窗口的语义身份及跨纯图片/表格页的正文前驱，可能尚未绑定；不要猜测窗口外的身份或仅因看不到前驱而修改连接。这些关系由后续按序组段绑定，不是本次请求必须补齐的字段。若目标页带有 jev_p_pass，它只表示较弱审核器对当前页的估计，不是事实或约束；请独立检查，如果原结果正确可以原样返回。"""
-
-_OWNERSHIP_RULES = """归属优先于续接：
-- OCR 的 body/footnote 分类及初级 ownership 都可能出错。必须逐块检查，包括没有编号的页底续文；不要只修带编号的第一块。
-- 脚注可有多个自然段、公式和跨页续文。紧随脚注的解释、引文、图式或续页段没有新编号，并不使它变成正文。根据完整阅读顺序、内容和几何识别整个范围。
-- 编号是注释的起点，不是每个块必须重复的类型标签。同一小字阅读带中，解释或继续展开上一条脚注的无编号块仍属于该脚注；没有编号、换段或继续讨论同一主题都不是回归正文的证据。只有明确返回主阅读流的证据才结束这条注释。
-- 跨页正文应连接上一页真正正文的末尾，不能连接页码、续页提示或脚注。先在心中分别梳理正文流与页底注释流，再判断每条连接。
-- 单独的页码、“转下页/接上页”等出版提示属于 ignored，不是正文或脚注文字；不要将它和相邻真实内容拼成一句。
-- 相邻初级结果同样可能误分类。只将其作为证据，不能因为相邻页暂将脚注续文标为正文，就让目标页沿用错误归属。"""
-
-_READING_EXAMPLE = """阅读示例（不是按位置硬编码）：正文末块为“这个结论还需要”，下一页正文开头为“进一步讨论。”，
-两者之间本页有“① 关于某术语的注解。”以及“换一种说法，这个术语也可以……”等小字块。
-后一个无编号块如果延续注解，应仍属于①，不可因换了自然段就改为正文。下一页下方的“（接上页）……”
-也要检查注释续接。关闭脚注时整个已确认注释范围 ignored；开启时所有这些块属于同一 citation，
-自然段各自保留。text_scale_estimate 是由块面积和文字量推算的软线索，用于比较小字区域，
-不是实际字号；需结合编号、内容、正文续接和几何，不能单凭这个数值删除内容。"""
-
-PAGE_REPAIR_SYSTEM_PROMPT = f"""你负责检查并修正 PDF OCR 页的语义结构，只返回目标页完整 JSON。
-{_SOURCE_CONTRACT}
-
-先根据原文、阅读顺序和上下文独立划分正文、脚注、出版提示，再与初级结果比较。
-初级结果仅是待审核的算法猜测，不是已经正确的模板。只改有证据的错误，但必须检查所有块。
-{_OWNERSHIP_RULES}
-{_READING_EXAMPLE}
-
-正文是主阅读流；脚注是解释正文标记的独立阅读流，即使 OCR 把整片页脚标为 body 也要纠正。
-编号脚注后的无编号块要先检查是否属于该脚注的后续自然段。若主阅读流在前面的未完句处跨页，
-其后插入的编号注释及相邻解释不能被当成主阅读流的新正文。结合邻页真正正文的开头判定。
-页脚跨页时通常在下一页正文下方续写，不能与下一页顶部主阅读流互接。
-
-citations 描述本页脚注：新开始的每条注释分别建立 index=1,2,...、实际 mark 和
-citation_id=new-页码-index；同一注释的多个块共享一个 ID，不同编号绝不能合为一个无索引注释。
-已确定起点的跨页定义保持其 ID、起点和成员；但 unresolved 初级别名不是已确认定义，可以删除或拆分。
-真正的续页注释 index/mark 为 null，排在本页新注释前；前驱在邻页尚未绑定时保留局部 unresolved ID，
-若首块确实续接前页同一段则 continues_from_previous=true，最终在有序组段时绑定已采用的起点。
-同一注释在下一页另起自然段时，citation.continues_previous=true，但 layout.continues_from_previous=false；
-注释身份的延续与自然段的延续不是同一件事。图式之后新起解释段不能和图式标签拼成一句。
-正文标记只连接本页已建立的有索引定义：references 给出 layout_id、citation_index、anchor。
-anchor.before/mark/after 连续取自该 layout.text，mark 是实际引用字符，前后文须足以唯一定位。
-没有可匹配标记的定义也要保留，不得为了省事将所有定义改成无索引。
-独立的新注释即使 OCR 漏掉编号/星号，也应创建本页新 index，mark 可为 null，不要假装成前页的无索引续段。
-印刷标记属于来源文字，不能改写；本地按 citation.mark 统一投影。不得在正文额外制造符号。
-
-先定归属，再定自然段：同一个脚注内可以有多个段落、引文和图式，它们共享 ID 但不一定相连。
-初级 continues_from_previous=false 的段落边界默认保留。只有前段明显未完、后段直接补齐同一个句子，
-且没有独立新段证据时，才改为 true；前段已完整结束、后段从完整新句开始时必须保留 false。
-论述同一主题、承接上文、同一个脚注 ID，都不构成合并自然段的理由。“或者/因此”等引导的新段也不能顺手并入前段。
-图式后的解释可以是同一注释的新自然段；“接上页”只说明排版续页，不自动说明同一个自然段。
-正文、脚注各自按阅读顺序判断；后继的 continues_from_previous 是唯一连接真源，省略 continues_to_next。
-只连接语法、语义上确实同一自然段的块；主题相同不够，完整新句、独立引文和缩进留白支持另起一段。
-不要将页码/续页提示接入任一流。跨页半句允许续接，不能因此把后续完整新段一并合并。
-{_ASSET_CONTRACT}
-{_NEIGHBOR_CONTRACT}
-
-paragraph 的 role/level 为 body/-1 或有证据的 heading/层级。citation 文本同样需 role/level。
-OCR 若把非线性的图式/分式示意图误当文字块，且这些标签不能组成线性句子，设置 preserve_as_image=true，
-仍保留其归属和原始身份。程序将保留原图，不把二维标签挤成一行译文。普通正文、编号注释和行内公式不可用此选项。
-ignored 不进入任何流：两个 gap=false，role/level/citation_id/citation_index 均为 null，无 ref。
-返回所有原 layout，保持其身份、文字与顺序；citations 中不能有无成员定义。
-遵守 output_contract，不解释、不加 Markdown 围栏。校验冲突时重新检查语义，而非拼接无关内容过关。
-最终检查：若正文在脚注区上方以未完句截断，并与下一页正文首块续接，则这期间脚注区的其余解释块、图式
-不能另充正文。注释有多个自然段很正常，所有未被新编号切开的同区解释块应共享上一条注释 ID。
-"""
+PAGE_REPAIR_SYSTEM_PROMPT = review_text('page_repair', includes_footnotes=True)
 
 
 class JevLlmRepairProcessor:
@@ -465,16 +410,17 @@ def _validate_shared_citations(
                 replacement.index, replacement.stream_order
             ) != (original.index, original.stream_order):
                 raise ValueError("[CROSS_PAGE_IDENTITY] Preserve shared definition origins and segments")
-    proposed_layouts = {_layout_id(layout): layout for layout in candidate.layouts}
     for original in source.layouts:
         if original.ownership == "citation" and original.citation_id in shared_ids:
-            replacement = proposed_layouts[_layout_id(original)]
-            if replacement.ownership != "citation" or replacement.citation_id != original.citation_id:
-                raise ValueError(
-                    f"[CROSS_PAGE_MEMBERSHIP] Preserve source member {_layout_id(original)} "
-                    f"of shared definition {original.citation_id}; a single-page edit "
-                    "cannot ignore or reassign it."
-                )
+            replacements = [layout for layout in candidate.layouts
+                            if (layout.source_order == original.source_order if original.source_order is not None
+                                else _layout_id(layout) == _layout_id(original))]
+            # An OCR box can contain other notes too. Preserve membership of
+            # this source in the established note, not exclusive ownership of
+            # every character in its original coarse box.
+            if not any(layout.ownership == 'citation' and layout.citation_id == original.citation_id
+                       for layout in replacements):
+                raise ValueError('[CROSS_PAGE_MEMBERSHIP] Preserve established cross-page source ownership')
 
 
 
@@ -505,32 +451,7 @@ def build_page_repair_messages(
         "next_page": _context_packet(next_page),
         "output_contract": output_contract,
     }
-    system_prompt = PAGE_REPAIR_SYSTEM_PROMPT if includes_footnotes else f"""
-你负责恢复目标页的主阅读流，只返回完整 JSON。本次关闭脚注输出，不建立脚注编号或引用体系。
-{_SOURCE_CONTRACT}
-先独立识别正文与注释的完整范围，再对照初级算法归属；不能照抄初级 ownership。
-{_OWNERSHIP_RULES}
-{_READING_EXAMPLE}
-
-输出规则：正文 paragraph；明确的注释、页码、出版提示、running header 为 ignored。
-原 footnote 分类不是事实：若实际上属于正文，则恢复 paragraph。原 body 同样可能包含脚注，需排除。
-脚注编号仅表示注释起点，其后的无编号解释、引文、图式或续页内容仍可能属于同一注释。
-若正文在页脚区之前截断，并在下一页首块继续，期间脚注区中的同级解释不可另外当成正文。
-应先用相邻页开头确认真正正文如何续接，再决定主阅读流范围；不要让脚注内容插入主阅读流。
-
-只有明确的内容、邻文和几何证据才能排除块，不能仅因页底、小字或编号而误删正文。
-混合正文与注释的块不能整块 ignored，不做块内删改。无法确定时保留初级归属。
-paragraph 的 role/level 为 body/-1 或有依据的 heading/层级；同一自然段才能 continues_from_previous=true。
-初级 false 的自然段边界默认保留；只有明确的未完句直接续接才能改为 true。
-前段完整结束、后段从完整新句开始时必须保留 false，主题相关不构成合段理由。
-完整新句、独立引文或话题重启保留另起段落。省略 continues_to_next，由本地计算。
-{_ASSET_CONTRACT}
-{_NEIGHBOR_CONTRACT}
-ignored 的 gap=false，role/level/citation_id/citation_index 为 null；不能建立引用关系。
-所有 layouts 的 citation_id/citation_index 必须为 null，citations/references 必须为空。
-保留全部原始 layout 身份、文字和顺序，遵守 output_contract，不输出解释或 Markdown 围栏。
-最终检查：明确属于注释区域的无编号续文也应 ignored，不能只排除编号开头的第一块。
-"""
+    system_prompt = review_text('page_repair', includes_footnotes=includes_footnotes)
     return [
         Message(MessageRole.SYSTEM, system_prompt),
         Message(
@@ -684,6 +605,7 @@ def _compile_repaired_page(
     source: PageAnalysis, response: RepairedPage,
     available_citations: Mapping[str, AnalysedCitation] | None = None,
 ) -> PageAnalysis:
+    source, response = compile_source_ranges(source, response, _layout_id, _resolve_anchor)
     issues: list[str] = []
     if response.page_index != source.page_index:
         issues.append(
@@ -761,7 +683,7 @@ def _compile_repaired_page(
                 continues_from_previous=proposed.continues_from_previous,
                 continues_to_next=(proposed.continues_to_next
                                    if proposed.continues_to_next is not None
-                                   else original.continues_to_next if proposed.ownership != "ignored" else False),
+                                   else False),
                 paragraph_role=proposed.paragraph_role,
                 paragraph_level=proposed.paragraph_level,
                 citation_id=proposed.citation_id,
@@ -827,6 +749,12 @@ def _compile_repaired_page(
             continue
         assert resolved is not None
         start, end = resolved
+        if reference.extract_from_expression:
+            printed = (_mark_text(citation.mark) or '').strip()
+            selected = text[start:end]
+            if not printed or selected != '^{' + printed + '}':
+                issues.append(f'[REF_EXPRESSION] {prefix}: extracted superscript must match the printed note marker')
+                continue
         spans_by_layout.setdefault(reference.layout_id, []).append(
             ReferenceSpan(
                 start=start,
@@ -834,6 +762,7 @@ def _compile_repaired_page(
                 citation_page_index=source.page_index,
                 citation_index=reference.citation_index,
                 mark_text=text[start:end],
+                extract_from_expression=reference.extract_from_expression,
             )
         )
 
@@ -981,7 +910,11 @@ def _compile_citations(
         predecessor = available.get(item.citation_id) if item.index is None else None
         if old is None and predecessor is not None:
             old = replace(predecessor, index=None, mark=None)
-        if old is None and item.citation_id != f"new-{source.page_index}-{item.index}":
+        if item.predecessor is not None and (item.index is not None or not item.continues_previous
+                                             or item.predecessor.page_index >= source.page_index
+                                             or item.predecessor.start >= item.predecessor.end):
+            issues.append(f'[CITATION_PREDECESSOR] {prefix}: only an incoming note may name an earlier source range')
+        if old is None and item.predecessor is None and item.citation_id != f"new-{source.page_index}-{item.index}":
             issues.append(
                 f"[CITATION_ID] {prefix}: retain existing identity or use "
                 f"new-{source.page_index}-{item.index} for a new local definition.")
@@ -993,9 +926,11 @@ def _compile_citations(
             page_index=source.page_index,
             index=item.index,
             mark=mark,
-            stream_order=old.stream_order if old is not None else item.stream_order,
-            origin_page_index=(old.origin_page_index if old is not None else source.page_index),
+            stream_order=item.stream_order,
+            origin_page_index=(old.origin_page_index if old is not None else source.page_index if item.index is not None else None),
             continues_previous=item.continues_previous,
+            predecessor=((item.predecessor.page_index, item.predecessor.source_order,
+                          item.predecessor.start, item.predecessor.end) if item.predecessor is not None else None),
         ))
     return result
 
@@ -1125,7 +1060,7 @@ def _anchor_error(
 
 
 def _layout_id(layout: AnalysedLayout) -> str:
-    return f"layout-{layout.document_order}"
+    return layout.source_id or f"layout-{layout.document_order}"
 
 
 def _mark_text(mark) -> str | None:

@@ -4,6 +4,7 @@ Only this module interprets historical image field shapes. Source chapters and
 all persisted translation layers are converted together, without renumbering
 flow identities, changing coverage or modifying the caller's archive.
 """
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 import json
@@ -11,7 +12,7 @@ from xml.etree import ElementTree
 
 from ..common import save_xml
 
-CURRENT_VERSION = 5
+CURRENT_VERSION = 6
 
 
 def migrate_workspace(root: Path) -> None:
@@ -29,10 +30,35 @@ def migrate_workspace(root: Path) -> None:
             path.write_bytes(_v3_chapter_xml(path))
     if version in {1, 2, 3}:
         manifest = _v3_manifest(manifest)
-    _migrate_image_fields(paths.chapters, paths.translations)
+    if version < 5:
+        _migrate_image_fields(paths.chapters, paths.translations)
+    _migrate_fragment_identity(paths.chapters, paths.translations)
     manifest['format_version'] = CURRENT_VERSION
     paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     _validate_workspace(paths)
+
+
+def historical_chapter_view(root: ElementTree.Element) -> ElementTree.Element:
+    """Supply only v6 provenance fields during strict historical validation."""
+    result = deepcopy(root)
+    for fragment in result.iter('fragment'):
+        if fragment.get('source_order') is None:
+            raise ValueError('Historical fragment is missing source_order')
+        fragment.set('fragment_id', fragment.attrib['source_order'])
+        fragment.set('source_start', '0')
+    return result
+
+
+def _migrate_fragment_identity(chapters: Path, translations: Path) -> None:
+    """Full-source slots retain keys, including existing coverage keys.
+
+    Historical archives lack raw OCR evidence. Unknown original ranges remain
+    unavailable; never reconstruct them from stripped or translated content.
+    """
+    for path in chapters.glob('chapter_*.xml'):
+        save_xml(historical_chapter_view(ElementTree.parse(path).getroot()), path)
+        for layer_path in translations.glob(f'*/chapters/{path.name}'):
+            save_xml(historical_chapter_view(ElementTree.parse(layer_path).getroot()), layer_path)
 
 
 def _migrate_image_fields(chapters: Path, translations: Path) -> None:

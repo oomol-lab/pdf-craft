@@ -409,10 +409,10 @@ def _merge_flow(source_flow, targets, should_append, mode: RenderMode) -> None:
 
 def _append_fragment_content(source: ElementTree.Element, translated: ElementTree.Element) -> None:
     """Append rich translated content within each source fragment in a display view."""
-    targets = {(node.get("page_index"), node.get("source_order")): node
+    targets = {(node.get("page_index"), node.get("fragment_id")): node
                for node in translated.findall("fragment")}
     for fragment in source.findall("fragment"):
-        target = targets.get((fragment.get("page_index"), fragment.get("source_order")))
+        target = targets.get((fragment.get("page_index"), fragment.get("fragment_id")))
         if target is not None and _visible_text(target):
             _append_element_content(fragment, target)
 
@@ -441,17 +441,17 @@ def _text_identity(item: ElementTree.Element) -> tuple[int, int] | None:
     fragment = item.find("fragment")
     if fragment is None:
         return None
-    return int(fragment.get("page_index", "0")), int(fragment.get("source_order", "0"))
+    return int(fragment.get("page_index", "0")), int(fragment.get("fragment_id", "0"))
 
 
 def _append_heading(source: ElementTree.Element, translated: ElementTree.Element) -> None:
     targets = {
-        (fragment.get("page_index"), fragment.get("source_order")): fragment
+        (fragment.get("page_index"), fragment.get("fragment_id")): fragment
         for fragment in translated.findall("fragment")
     }
     translated_fragments: list[ElementTree.Element] = []
     for fragment in source.findall("fragment"):
-        target = targets.get((fragment.get("page_index"), fragment.get("source_order")))
+        target = targets.get((fragment.get("page_index"), fragment.get("fragment_id")))
         if target is not None and _visible_text(target):
             translated_fragments.append(deepcopy(target))
     if translated_fragments:

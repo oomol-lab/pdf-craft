@@ -158,7 +158,7 @@ def _partition_chapters(body_layouts, toc: TocInfo, *, assembled: bool = False, 
             for fragment in layout.children:
                 if not isinstance(fragment, SourceTextFragment):
                     continue
-                item = ref2toc.get((fragment.page_index, fragment.source_order), None)
+                item = ref2toc.get((fragment.page_index, fragment.identity_order), None)
                 if item:
                     break
             if item:
@@ -198,7 +198,7 @@ def _split_toc_headings(layouts, ref2toc):
         children = []
         current_id = None
         for child in layout.children:
-            anchor = (ref2toc.get((child.page_index, child.source_order))
+            anchor = (ref2toc.get((child.page_index, child.identity_order))
                       if isinstance(child, SourceTextFragment) else None)
             if anchor is not None:
                 if current_id is not None and current_id != anchor.id:

@@ -194,8 +194,8 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
                 self.assertTrue(all(item['ocr_stream'] == 'footnote' and item['ownership'] == 'ignored'
                                     for item in previous['excluded_candidates']))
             for messages in prompts:
-                self.assertIn('不能整块 ignored', messages[0].message)
-                self.assertIn('不建立脚注编号', messages[0].message)
+                self.assertIn('do not delete the whole box', messages[0].message)
+                self.assertIn('citations and references must be empty', messages[0].message)
                 if note_assets and json.loads(messages[1].message)['target_page']['page_index'] == 1:
                     assets = [item for item in json.loads(messages[1].message)['target_page']['layouts']
                               if item['source_type'] in ('formula', 'image', 'table')]

@@ -267,6 +267,8 @@ class PDFPatcher:
                 if isinstance(replacement, _PreviewReplacement) and self._preview_path is not None:
                     from .feed import write_record
                     write_record(self._preview_path / str(replacement.preview_index), None)
+                    for index, *_ in replacement.shared_previews:
+                        write_record(self._preview_path / str(index), None)
 
             streaming = isinstance(replacements, ReplacementFeed)
             def validated(values):

@@ -66,6 +66,15 @@ class _AnalysedTextSource:
     origin: TextSource | None = None
     citation_prefix_parts: int = 0
     asset_text_target: AssetTextTarget | None = None
+    source_start: int = 0
+    source_end: int | None = None
+    source_text: str | None = None
+
+    @property
+    def fragment_id(self) -> int:
+        n = self.source_order + self.source_start
+        return (self.source_order if self.source_start == 0
+                else -(n * (n + 1) // 2 + self.source_start + 1))
 
 
 @dataclass(frozen=True)
@@ -103,6 +112,7 @@ class ReferenceSpan:
     citation_page_index: int
     citation_index: int
     mark_text: str
+    extract_from_expression: bool = False
 
 
 @dataclass(frozen=True)
@@ -127,6 +137,7 @@ class AnalysedCitation:
     stream_order: int
     origin_page_index: int | None = None
     continues_previous: bool = False
+    predecessor: tuple[int, int, int, int] | None = None
 
     @property
     def state(self) -> Literal["definition", "continuation", "unresolved"]:
@@ -166,6 +177,7 @@ class AnalysedLayout:
     source: _AnalysedSource
     document_order: int
     annotations: LayoutAnnotations
+    source_id: str | None = field(default=None, compare=False)
 
     @property
     def asset_text_target(self) -> AssetTextTarget | None:

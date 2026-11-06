@@ -35,8 +35,8 @@ v3；读取端在内存中迁移 v1/v2 的平铺 body，不会臆造旧格式没
 
 ```xml
 <chapter id="1" level="0"><flow>
-  <text role="heading" level="0"><fragment page_index="3" source_order="0" bbox="180,210,2260,360">第一章</fragment></text>
-  <text role="body"><fragment page_index="3" source_order="1" bbox="180,410,2260,620">插图之前。</fragment><asset ref="image" page_index="3" bbox="400,700,2080,1800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/><fragment page_index="3" source_order="2" bbox="180,1900,2260,2100">插图之后。</fragment></text>
+  <text role="heading" level="0"><fragment page_index="3" source_order="0" fragment_id="0" source_start="0" bbox="180,210,2260,360">第一章</fragment></text>
+  <text role="body"><fragment page_index="3" source_order="1" fragment_id="1" source_start="0" bbox="180,410,2260,620">插图之前。</fragment><asset ref="image" page_index="3" bbox="400,700,2080,1800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/><fragment page_index="3" source_order="2" fragment_id="2" source_start="0" bbox="180,1900,2260,2100">插图之后。</fragment></text>
   <display-formula><asset ref="formula" page_index="3" bbox="300,2150,2100,2300"><content>E=mc^2</content></asset></display-formula>
   <standalone-asset><asset ref="table" page_index="4" bbox="220,600,2200,1700" asset_hash="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"/></standalone-asset>
 </flow></chapter>
@@ -216,7 +216,7 @@ translations = craft.list_translations(translated)
 ASCII 字母、数字、下划线或连字符；它在当前文件中唯一，并对应同名目录。语言明确不参与 identity。
 
 每个译文层与 source 使用完全相同的章节文件名。对应关系复用 PCEX 原有 identity：chapter identity、
-fragment 的 `(page_index, source_order)`、自然段首 fragment identity、chapter scope 内 reference 的
+fragment 的 `(page_index, fragment_id)`、自然段首 fragment identity、chapter scope 内 reference 的
 `(page_index, order)`，以及图片/表格 asset 的 flow slot。译文可以改变文字，但不能改变这些 identity、
 页面几何或 asset 结构。图片/表格字段只有在 anchored coverage 标记为 `translated` 的 slot 中才可变化。`coverage.xml` 复用现有 coverage schema，且只能引用 source identity。narrative 即使没有条目也保留对应节点；可选的 anchored 和 furniture 没有 coverage 时不生成节点。
 可选 furniture 译文保留 `(pattern_id, position_id)` 和 `(page_index, section_id)` identity。`metadata.json` 是
@@ -238,7 +238,7 @@ fragment 的 `(page_index, source_order)`、自然段首 fragment identity、cha
 
 ```json
 {
-  "format_version": 5,
+  "format_version": 6,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -267,12 +267,12 @@ fragment 的 `(page_index, source_order)`、自然段首 fragment identity、cha
 
 | 字段 | 类型 | 必需 | 含义与约束 |
 | --- | --- | --- | --- |
-| `format_version` | integer | 是 | 规范值为 `5`；旧 v1–v4 在业务使用前通过 migration 规范化。 |
+| `format_version` | integer | 是 | 规范值为 `6`；旧 v1–v5 在业务使用前通过 migration 规范化。 |
 | `producer` | object | 是 | 创建归档的软件标识；必须且只能含 `name`、`version` |
 | `created_at` | string 或 null | 否 | 归档创建时间；字符串须为可解析的 ISO 8601 时间 |
 | `document` | object | 是 | 文档级元数据；必须且只能含下一节的字段 |
 
-规范值 `format_version` 是 JSON 数字 `5`。输入边界在私有副本上校验并迁移旧 v1–v4，再交给翻译和渲染；未知版本会被拒绝。
+规范值 `format_version` 是 JSON 数字 `6`。输入边界在私有副本上校验并迁移旧 v1–v5，再交给翻译和渲染；未知版本会被拒绝。
 
 pdf-craft 自身写出时，`producer.name` 固定为 `pdf-craft`，`producer.version` 是已安装的 pdf-craft 包版本；无法取得安装版本时为 `unknown`。当前校验器允许其他生产者，但 `name` 和 `version` 都必须是非空字符串。
 
@@ -570,7 +570,7 @@ pdf-craft 从 OCR Markdown 生成这些节点时，会按 GFM 风格白名单过
   <ref id="3-1">
     <mark>①</mark>
     <flow>
-      <text role="body"><fragment page_index="3" source_order="5" bbox="180,3200,2260,3370">脚注正文。</fragment></text>
+      <text role="body"><fragment page_index="3" source_order="5" fragment_id="5" source_start="0" bbox="180,3200,2260,3370">脚注正文。</fragment></text>
       <standalone-asset><asset ref="image" page_index="3" bbox="400,3400,2080,3800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" /></standalone-asset>
     </flow>
   </ref>
@@ -709,7 +709,7 @@ craft.patch_pdf_with_extraction(
 
 ## 版本兼容
 
-当前格式版本为 `5`。旧 v1–v4 在输入物化副本上校验并迁移，源章节与已有译文层同步转换；之后翻译、渲染和导出只处理当前格式，原始归档不修改。未知版本拒绝。
+当前格式版本为 `6`。旧 v1–v5 在输入物化副本上校验并迁移，源章节与已有译文层同步转换；之后翻译、渲染和导出只处理当前格式，原始归档不修改。未知版本拒绝。
 
 应用程序若只需要后续渲染或翻译，也应通过 Craft 门面打开归档并执行版本和完整性检查，不要仅凭 ZIP 可解压就认定包可用。
 
@@ -717,4 +717,24 @@ craft.patch_pdf_with_extraction(
 
 图片 title/caption 是展示和独立翻译字段；image.content 是不展示、不翻译的源数据，缺少 title/caption 时也不回退。新提取直接写 caption。表格与公式 content 语义不变。
 
-旧 v1–v4 归档在输入边界迁移到 v5：没有显式 title/caption 的旧图片 content 移到 caption，源章节与对应译文层同步移动；已有显式字段时不合并 content。迁移保留身份、coverage、公式与混合内容，不修改原始文件，导出始终写 v5。历史判断只存在于 migration；业务不探测版本或猜测字段，也不分类图片像素。
+旧 v1–v5 归档在输入边界迁移到 v5：没有显式 title/caption 的旧图片 content 移到 caption，源章节与对应译文层同步移动；已有显式字段时不合并 content。迁移保留身份、coverage、公式与混合内容，不修改原始文件，导出始终写 v5。历史判断只存在于 migration；业务不探测版本或猜测字段，也不分类图片像素。
+
+### 来源切片与逻辑身份（v6）
+
+每个 fragment 除物理来源 `page_index`、`source_order`、原始 `bbox` 外，必须保存整数
+`fragment_id` 和 `source_start`。多个逻辑片段可以共享同一原框，不伪造子框。
+逻辑身份为 `(page_index, fragment_id)`，自然段以首片段标识，coverage 的 `order`
+与 TOC 标题锚点的 `order` 使用 fragment_id。阅读顺序来自有序列表，不能按 ID 排序。
+
+切片还保留 `source_end` 和 `source_text`。范围以不可变引用文本视图的 Unicode
+码点计数；HTML 包装只贡献子内容，公式贡献原始 LaTeX 正文。先检查范围，再移除
+印刷标记、插入引用及合并断词。source_text 不参与翻译，各译文层保留同一来源证据。
+历史整框片段可能缺失这些证据，不能从译文或归一化文字伪造。
+
+v5→v6 在 migration 中为历史整框片段分配等于 source_order 的 fragment_id 与零起点，
+同步转换源和全部已有译文层；coverage 原键保持有效。业务读取必须具有 v6 身份字段。
+
+PDF 回填集中协调共享物理来源的成员，只擦除一次，并分别导出各成员实际排版行。
+来源归属不完整、部分失败或被排除的内容保留原区域。目前共享框涉及多区域自然段或
+公式时同样保留原图，不独立覆盖同框的其他内容；未回填的预览没有排版行，不能视为
+PDF 回填成功。

@@ -84,10 +84,10 @@ class CitationRefinementQualityTests(TestCase):
         from pdf_craft.extractor.chapter.chapter import Reference, TextFlowItem
         with TemporaryDirectory() as directory:
             path = Path(directory)/'chapter_head.xml'
-            path.write_text('<chapter><flow><text role="body"><fragment page_index="1" source_order="0" '
+            path.write_text('<chapter><flow><text role="body"><fragment page_index="1" source_order="0" fragment_id="0" source_start="0" '
                             'bbox="0,0,100,20">Body<ref id="1-1"/></fragment></text></flow>'
                             '<references><ref id="1-1"><mark>①</mark><flow><text role="body">'
-                            '<fragment page_index="1" source_order="1" bbox="0,30,100,50">Note.</fragment>'
+                            '<fragment page_index="1" source_order="1" fragment_id="1" source_start="0" bbox="0,30,100,50">Note.</fragment>'
                             '</text></flow></ref></references></chapter>')
             items = iter(file_content(path))
             next(items)  # chapter envelope

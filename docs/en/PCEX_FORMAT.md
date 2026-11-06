@@ -39,8 +39,8 @@ memory without inventing unknown anchors.
 
 ```xml
 <chapter id="1" level="0"><flow>
-  <text role="heading" level="0"><fragment page_index="3" source_order="0" bbox="180,210,2260,360">Chapter One</fragment></text>
-  <text role="body"><fragment page_index="3" source_order="1" bbox="180,410,2260,620">Before.</fragment><asset ref="image" page_index="3" bbox="400,700,2080,1800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/><fragment page_index="3" source_order="2" bbox="180,1900,2260,2100">After.</fragment></text>
+  <text role="heading" level="0"><fragment page_index="3" source_order="0" fragment_id="0" source_start="0" bbox="180,210,2260,360">Chapter One</fragment></text>
+  <text role="body"><fragment page_index="3" source_order="1" fragment_id="1" source_start="0" bbox="180,410,2260,620">Before.</fragment><asset ref="image" page_index="3" bbox="400,700,2080,1800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/><fragment page_index="3" source_order="2" fragment_id="2" source_start="0" bbox="180,1900,2260,2100">After.</fragment></text>
   <display-formula><asset ref="formula" page_index="3" bbox="300,2150,2100,2300"><content>E=mc^2</content></asset></display-formula>
   <standalone-asset><asset ref="table" page_index="4" bbox="220,600,2200,1700" asset_hash="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"/></standalone-asset>
 </flow></chapter>
@@ -229,7 +229,7 @@ renumbered. Ambiguous duplicate identities in legacy input remain invalid.
 
 `translations/index.json` contains exactly one `translations` array. Each item has exactly `id`, `target_language`, and ISO 8601 `created_at` fields. The ID must be 4-32 ASCII letters, digits, underscores, or hyphens, begin with a letter or digit, be unique in this file, and name the matching directory. Language is deliberately not an identity.
 
-Every layer has the same chapter filenames as the source. Correspondence uses existing PCEX identities: chapter identity, fragment `(page_index, source_order)`, paragraph first-fragment identity, reference `(page_index, order)` within its chapter, and image/table asset flow slot. A layer may change translated text but must not change those identities, page geometry, or asset structure. Image/table fields may differ only for slots marked `translated` by anchored coverage. `coverage.xml` may refer only to source identities. The narrative section remains present when it has no entries; optional anchored and furniture sections are omitted when they have no coverage. Optional translated furniture retains `(pattern_id, position_id)` and `(page_index, section_id)` identities. `metadata.json` is a field-name overlay; it needs no artificial node IDs and must contain a `language` equal to the indexed target language.
+Every layer has the same chapter filenames as the source. Correspondence uses existing PCEX identities: chapter identity, fragment `(page_index, fragment_id)`, paragraph first-fragment identity, reference `(page_index, order)` within its chapter, and image/table asset flow slot. A layer may change translated text but must not change those identities, page geometry, or asset structure. Image/table fields may differ only for slots marked `translated` by anchored coverage. `coverage.xml` may refer only to source identities. The narrative section remains present when it has no entries; optional anchored and furniture sections are omitted when they have no coverage. Optional translated furniture retains `(pattern_id, position_id)` and `(page_index, section_id)` identities. `metadata.json` is a field-name overlay; it needs no artificial node IDs and must contain a `language` equal to the indexed target language.
 
 `translate_extraction()` treats an image/table asset nested in `<text>` as an
 opaque, self-closing anchor. Its title, content, and caption are not included
@@ -253,7 +253,7 @@ Variable folios are represented structurally rather than as the text of a reusab
 
 ```json
 {
-  "format_version": 5,
+  "format_version": 6,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -282,12 +282,12 @@ The top-level value must be a JSON object. Unlisted top-level fields are not all
 
 | Field | Type | Required | Meaning and constraints |
 | --- | --- | --- | --- |
-| `format_version` | integer | Yes | The canonical value is `5`; v1–v4 inputs are migrated before business access. |
+| `format_version` | integer | Yes | The canonical value is `6`; v1–v5 inputs are migrated before business access. |
 | `producer` | object | Yes | Identifies the software that created the archive; must contain exactly `name` and `version` |
 | `created_at` | string or null | No | Archive creation time; a string must be a parseable ISO 8601 datetime |
 | `document` | object | Yes | Document-level metadata; must contain exactly the fields in the next section |
 
-The canonical `format_version` is the JSON number `5`. Readers validate and migrate v1–v4 inputs on private copies before translation or rendering; unknown versions are rejected.
+The canonical `format_version` is the JSON number `6`. Readers validate and migrate v1–v5 inputs on private copies before translation or rendering; unknown versions are rejected.
 
 When pdf-craft writes an archive, `producer.name` is always `pdf-craft`, and `producer.version` is the installed pdf-craft package version. It falls back to `unknown` when the installed version cannot be determined. The current validator permits other producers, but both `name` and `version` must be non-empty strings.
 
@@ -587,7 +587,7 @@ points to a definition with the same ID in that chapter's `<references>`:
   <ref id="3-1">
     <mark>1</mark>
     <flow>
-      <text role="body"><fragment page_index="3" source_order="5" bbox="180,3200,2260,3370">Footnote text.</fragment></text>
+      <text role="body"><fragment page_index="3" source_order="5" fragment_id="5" source_start="0" bbox="180,3200,2260,3370">Footnote text.</fragment></text>
       <standalone-asset><asset ref="image" page_index="3" bbox="400,3400,2080,3800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" /></standalone-asset>
     </flow>
   </ref>
@@ -725,7 +725,7 @@ It cannot prove that the input PDF and extraction came from the same source file
 
 ## Version compatibility
 
-The current format version is `5`. Input migrations normalize v1–v4 archives, including source chapters and existing translation layers, before any business operation. Exports always use v5; original archives are never rewritten.
+The current format version is `6`. Input migrations normalize v1–v5 archives, including source chapters and existing translation layers, before any business operation. Exports always use v6; original archives are never rewritten.
 
 Applications that only need downstream rendering or translation should open the archive through a Craft façade so version and integrity checks run. A ZIP that can merely be extracted is not necessarily a usable PDFCraftExtraction.
 
@@ -743,3 +743,33 @@ fields take precedence; extra content is not merged. Migration preserves asset
 and flow identities, coverage and mixed formulas, and does not modify the input.
 Current-version inputs never trigger this historical rule. Business consumers
 have no version/field-shape fallback and do not classify image pixels.
+
+### Source slices and logical identity (v6)
+
+Every fragment carries integer `fragment_id` and `source_start` in addition to
+its physical `page_index`, `source_order`, and original `bbox`. Several logical
+fragments may share a physical source and its entire bbox. `(page_index,
+fragment_id)` identifies a logical fragment; the first fragment identifies a
+narrative unit and its coverage entry (`order=fragment_id`). TOC `order` also
+refers to the heading fragment ID. Array order defines reading order; IDs are
+not a sorting rule. Never manufacture smaller source rectangles.
+
+A sliced source retains `source_end` and `source_text`: offsets count Unicode
+code points in the immutable reference-text view (HTML wrappers contribute
+children; inline expressions contribute their exact LaTeX content). Ranges are
+checked before marker removal, reference insertion and dehyphenation. The
+original text is non-translatable provenance and stays identical in source and
+translation layers. Historical unsliced sources may lack this evidence;
+migration does not reconstruct it from translated or normalized text.
+
+The v5-to-v6 migration assigns each historical full-source fragment its old
+source ordinal as fragment ID and a zero start, synchronously in every layer.
+Existing coverage keys stay valid. Current business readers require the v6
+identity fields; compatibility is confined to the migration boundary.
+
+PDF writeback coordinates owners sharing a physical source, erases once and
+exports each owner's actual rendered lines. Incomplete ownership, failed or
+excluded content preserve the original region. Shared regions involving
+multi-region paragraphs or formulas currently preserve the original too; they
+are never independently drawn over each other. Unfilled previews contain no
+rendered lines and do not assert successful PDF replacement.

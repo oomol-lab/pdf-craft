@@ -154,12 +154,12 @@ def bind_local_result(candidate, local, previous, canonical, canonical_previous)
     if previous is not None and previous.layouts and all(
             item.source_order is None and getattr(item.source, 'ref', None) != 'formula'
             for item in previous.layouts if item.ownership == 'paragraph'):
-        local_by_order = {layout.document_order: layout for layout in local.layouts}
+        local_by_order = {layout.source_order: layout for layout in local.layouts}
         for layout in result.layouts:
             if layout.ownership == 'paragraph' and layout.source_order is not None:
-                source = local_by_order[layout.document_order]
+                source = local_by_order[layout.source_order]
                 if source.ownership == 'paragraph' and layout.continues_from_previous == source.continues_from_previous:
-                    layout.annotations.continues_from_previous = canonical_by_order[layout.document_order].continues_from_previous
+                    layout.annotations.continues_from_previous = next(item for item in canonical.layouts if item.source_order == layout.source_order).continues_from_previous
                 break
     return result
 
