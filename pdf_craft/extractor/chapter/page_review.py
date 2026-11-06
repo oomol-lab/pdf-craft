@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ...pdf import Page
+from ...jev import JEVInputLimitExceeded
 from .analysis_types import AnalysedLayout, PageAnalysis, _AnalysedAssetSource
 from .asset_text import asset_text_packet
 from .paragraph_geometry import text_scale_estimate
@@ -24,7 +25,7 @@ JEV_REVIEW_THRESHOLD = 0.39
 
 
 class IncompletePageReview(RuntimeError):
-    """The error-policy bridge handled a failed request, leaving no verdict."""
+    """A failed JEV request left no complete verdict; its cause may guide routing."""
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,12 @@ class JevReviewProcessor:
             try:
                 probability = await review_page(
                     state, evaluate, includes_footnotes=self._includes_footnotes)
-            except IncompletePageReview:
+            except IncompletePageReview as error:
+                if isinstance(error.__cause__, JEVInputLimitExceeded):
+                    from ..._policy import recover
+                    from ...policies import FailureCategory, FailureLocation
+                    await recover(error, FailureCategory.ANALYSIS, 'jev_review', 'algorithm_result',
+                                  targets=(FailureLocation('page', page_indexes=(state['target_page']['page_index'],)),))
                 continue
             if probability is not None:
                 cutoff = 1 - self._threshold
@@ -195,7 +201,10 @@ def review_threshold(_includes_footnotes: bool) -> float:
 async def review_page(state, evaluate: NamedBatchEvaluator, *, includes_footnotes: bool):
     """Run bounded review through the existing executor and error-policy bridge."""
     async def single(index, packet):
-        results = await evaluate(((index, packet),))
+        try:
+            results = await evaluate(((index, packet),))
+        except JEVInputLimitExceeded as error:
+            raise IncompletePageReview('JEV input exceeded the provider limit') from error
         if not results:
             raise IncompletePageReview('JEV request failed without a complete verdict')
         if len(results) != 1 or results[0][0] != index:
