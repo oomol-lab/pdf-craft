@@ -456,6 +456,8 @@ class XMLTranslator:
                      translation_protocol.project_math(mappings, canonical, math, owner))
                     if translation_protocol is not None else None),
                 source_math=source_math,
+                allow_direct_fill=(translation_protocol is not None
+                                   and translation_protocol.is_text_unit(translation_protocol.unit(group[0]))),
             )
             if on_round is not None:
                 await on_round(group)
@@ -473,6 +475,7 @@ class XMLTranslator:
         source_context: str = '',
         canonical_math_projector: CanonicalMathProjector | None = None,
         source_math: SourceMathTranslation | None = None,
+        allow_direct_fill: bool = False,
     ) -> list[InlineSegmentMapping | None]:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
         if not primary:
@@ -522,6 +525,7 @@ class XMLTranslator:
                     if canonical_text_validator is not None else None
                 ),
                 canonical_math_projector=canonical_math_projector,
+                allow_direct_fill=allow_direct_fill,
             )
         except Exception as error:
             await recover(error, FailureCategory.FILL, 'xml_fill', 'omit_translation',
@@ -610,9 +614,35 @@ class XMLTranslator:
         canonical_text_validator: Callable[[Element], str | None] | None = None,
         failure_locations: tuple = (),
         canonical_math_projector: CanonicalMathProjector | None = None,
+        allow_direct_fill: bool = False,
     ) -> list[InlineSegmentMapping | None] | None:
         from ...canonical_math import CanonicalMath
         canonical_math = CanonicalMath(translated_text) if canonical_text_validator is not None else None
+
+        def validate_candidate(element):
+            projected = None
+            error = canonical_math.expand(element, require_complete=False) if canonical_math is not None else None
+            if error is None:
+                error = hill_climbing.validate(element)
+            if error is None and canonical_text_validator is not None:
+                error = canonical_text_validator(element)
+                if error is not None and canonical_math is not None:
+                    error += canonical_math.instructions()
+            if error is None and canonical_math_projector is not None:
+                try:
+                    projected = canonical_math_projector(hill_climbing.candidate_mappings(element), translated_text)
+                except MathProjectionError as projection_error:
+                    error = str(projection_error)
+            if error is None:
+                error = hill_climbing.submit(element)
+            return error, projected
+
+        if allow_direct_fill and canonical_text_validator is not None:
+            for candidate in self._direct_fill_candidates(hill_climbing, translated_text):
+                error, projected = validate_candidate(candidate)
+                if error is None:
+                    return projected
+
         user_message = (await self._fill_runtime.template('fill_input')).render(
             source_text=source_text, xml_template=encode_friendly(hill_climbing.request_element()),
             translated_text=canonical_math.text if canonical_math is not None else translated_text,
@@ -633,26 +663,11 @@ class XMLTranslator:
             class _XMLProtocol:
                 async def validate(self, response: str, state, attempt: int, max_attempts: int):
                     nonlocal last_error
-                    projected = None
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
-                        error = validated
-                    elif canonical_math is not None and (reference_error := canonical_math.expand(validated, require_complete=False)):
-                        error = reference_error
+                        error, projected = validated, None
                     else:
-                        error = hill_climbing.validate(validated)
-                        if error is None and canonical_text_validator is not None:
-                            error = canonical_text_validator(validated)
-                            if error is not None and canonical_math is not None:
-                                error += canonical_math.instructions()
-                        if error is None and canonical_math_projector is not None:
-                            try:
-                                projected = canonical_math_projector(
-                                    hill_climbing.candidate_mappings(validated), translated_text)
-                            except MathProjectionError as projection_error:
-                                error = str(projection_error)
-                        if error is None:
-                            error = hill_climbing.submit(validated)
+                        error, projected = validate_candidate(validated)
                     if error is None:
                         last_error = None
                         return ProtocolSuccess(projected, state)
@@ -681,6 +696,20 @@ class XMLTranslator:
                 failure_log_context={'stage': 'xml_fill', 'model': self._fill_llm.model,
                     'targets': [asdict(location) for location in failure_locations]},
             ))
+
+    @staticmethod
+    def _direct_fill_candidates(hill_climbing: HillClimbing, canonical: str) -> Iterable[Element]:
+        # Preserve existing inline and source-slot ownership when the original
+        # structure already contains the exact canonical text. The caller must
+        # still validate the complete text and formula projection before submit.
+        candidate = hill_climbing.request_element()
+        yield candidate
+        # One leaf block has exactly one allocation. Insert XML text, never
+        # parse canonical prose as markup or guess boundaries between fields.
+        if len(candidate) == 1 and not len(candidate[0]) and candidate[0].get('id') is not None:
+            candidate = hill_climbing.request_element()
+            candidate[0].text = canonical
+            yield candidate
 
     def _extract_xml_element(self, text: str) -> Element | str:
         first_xml_element: Element | None = None

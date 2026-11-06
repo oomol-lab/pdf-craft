@@ -61,6 +61,15 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
     def field(element, attribute, path, mode, source):
         nonlocal offset
         text = normalize(getattr(element, attribute) or '', mode)
+        # Some EPUBs dedicate empty-looking inline slots to WORD JOINER.
+        # A fill model may copy that source-only padding after translation has
+        # omitted it. Keep the slot, but recover its empty canonical content.
+        # This is not Unicode equivalence: embedded/invented joiners, joiners
+        # requested by canonical text, and immutable formula payloads stay exact.
+        if (attribute == 'text' and not len(element) and source and text == source
+                and not source.strip('\u2060') and '\u2060' not in canonical
+                and not any(node.tag in replaced_tags for node in path)):
+            text = ''
         end = offset + sum(char not in DOCUMENT_SPACE for char in text)
         fields.append(_Field(element, attribute, path, mode, source or '', text, offset, end))
         offset = end
