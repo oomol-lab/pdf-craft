@@ -1,5 +1,12 @@
 # 跨章节翻译请求打包
 
+> 以下记录当前实现与已有回归。新的硬约束见
+> [翻译与 fill 的职责硬边界](../../references/translation-fill-boundary.md)：
+> 翻译文本不得接受任何前置门禁，翻译模型不得被要求输出 JSON envelope、公式引用
+> 或身份协议。下文涉及首阶段格式验收的现存实现及测试预期属于待改偏移，不能作为
+> 后续实现的设计依据。跨章节减少实际请求数、有界调度、归属及原子交付的门禁仍须保留；
+> 后续回归还须验证任意自由译文原样进入 fill，fill 重试不触发重译。
+
 章节决定内容归属，StructuredTranslation 决定 canonical 验收单元，
 RequestBatcher 决定模型请求。这三个边界互相独立。PCEX 正文、脚注、资产字段与原生
 EPUB 共用 XMLTranslator 的两个请求入口：首阶段翻译和 fill。
