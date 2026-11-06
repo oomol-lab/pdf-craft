@@ -42,16 +42,16 @@ model responses are excluded from the repository.
   structural errors and 89 canonical mismatches. This repair prevents those
   invalid translations from reaching fill.
 - Additional samples 315a/315b contained 6/4 fill loops and no source-math
-  markers. They cannot be assigned to this cause. Across their saved attempts,
-  28/9 had no single complete XML block; the other 50/43 still failed a separate
-  replay of current canonical whitespace recovery. That replay does not prove
-  a new engine defect or complete structural acceptance. These remaining fill
-  failures require separate investigation; this change does **not** establish
-  that every symptom reported under #313 is resolved. Do not close #313 solely
-  on the basis of this repair. Balance exhaustion and progress-count terminal
-  failures are outside this change.
+  markers. All ten exhausted their saved model responses, but their allocation
+  can be validated directly: unchanged canonical text retains source slots;
+  the changed single-leaf unit has one exact destination. The canonical fill
+  implementation now handles these cases without model copying.
+- A further EPUB case copied source-only U+2060 leaf-slot padding absent from
+  canonical text. Exact source-backed empty-slot recovery retains the tags and
+  still requires the whole canonical stream to match. It does not ignore
+  embedded, invented or canonically required format characters.
 
-## Deterministic verification
+## Verification of the original blank/reference repair
 
 `tests/test_translation_protocol_gaps.py` uses synthetic text and stub providers.
 The first five regressions produced 13 errors on the original implementation;
@@ -69,8 +69,8 @@ identities, malformed envelopes and bounded retry behavior:
 poetry run python -m unittest tests.test_translation_protocol_gaps tests.test_source_math_identity tests.test_request_batch -q
 ```
 
-No live model API, model download, deployment, release or service dependency
-change is part of this verification.
+The original blank/reference repair used no live model API, model download,
+deployment, release or service dependency change.
 
 Repository checks completed during implementation:
 

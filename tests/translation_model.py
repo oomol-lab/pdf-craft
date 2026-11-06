@@ -50,6 +50,8 @@ def translator_fixture(*, max_group_score=10000, encoding='cl100k_base'):
     config = LLM('test', 'https://example.invalid', 'offline', encoding, retry_times=0)
     translator = XMLTranslator(config, config, 'English', None, 10000, max_group_score,
                                executor=ConcurrentExecutor(FixedCapacity(2)))
+    # Batch/transport tests must exercise actual fill requests even for identity text.
+    translator._direct_fill_candidates = lambda hill_climbing, canonical: ()
     translator._translation_runtime.__dict__['_invoke'] = model.invoke
     translator._fill_runtime.__dict__['_invoke'] = model.invoke
     return translator, model

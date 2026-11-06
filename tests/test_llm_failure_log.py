@@ -361,6 +361,8 @@ class FailureLogTests(IsolatedAsyncioTestCase):
             executor=runtime.executor, retry_policy=RetryPolicy(fill=1), error_policy=accept)
         translator._fill_runtime = runtime
         translator._translate_text_async = AsyncMock(return_value='RIGHT')
+        # Exercise exhausted model repair and its evidence, not direct allocation.
+        translator._direct_fill_candidates = lambda hill_climbing, canonical: ()
         await NarrativeXMLTransformer(translator).transform(chapter(), error_policy=accept)
         self.assertEqual(len(failures), 1)
         summary, rows = self.read(failures[0].error.failure_log_id)

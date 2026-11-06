@@ -301,7 +301,7 @@ class _CapturePatcher:
         self.replacements = list(replacements)
 
 
-def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator, _ResponseRuntime]:
+def _repairing_translator(fill_responses: Sequence[str], *, direct_fill: bool = False) -> tuple[XMLTranslator, _ResponseRuntime]:
     config = LLM("test", "https://example.invalid/v1", "test", "cl100k_base")
     translator = XMLTranslator(
         config, config, "English", None,   10_000, 10_000,
@@ -311,6 +311,10 @@ def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator,
         return text
 
     translator._translate_text_async = translate_text  # type: ignore[method-assign]
+    if not direct_fill:
+        # These fixtures exercise hostile model responses and repair budgets;
+        # keep deterministic allocation from bypassing the transport under test.
+        translator._direct_fill_candidates = lambda *_args: ()  # type: ignore[method-assign]
     runtime = _ResponseRuntime(fill_responses, translator._fill_runtime)
     translator._fill_runtime = runtime  # type: ignore[assignment]
     return translator, runtime
