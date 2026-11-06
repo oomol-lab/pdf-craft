@@ -92,9 +92,13 @@ class DiskDelivery(Generic[T]):
         self._task = asyncio.create_task(self._deliver())
 
     async def append(self, value: T) -> None:
+        await IO_DOMAIN.run(self.write, value)
+
+    def write(self, value: T) -> None:
+        """Persist from a finite worker operation; never wait for delivery."""
         if self._task.done():
-            await self._task
-        await IO_DOMAIN.run(self._stream.append, value)
+            self._task.result()
+        self._stream.append(value)
 
     @fatal_error_boundary
     async def _deliver(self) -> None:

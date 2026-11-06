@@ -1,6 +1,6 @@
 # pylint: disable=protected-access
 from ..policies import ErrorCallbackError, ErrorPolicyInput, FailureCategory, FailureLocation
-from .._policy import OMITTED, decide_sync, decide_context, failure, decision_bridge
+from .._policy import OMITTED, decide_sync, decide_context, failure
 
 import asyncio
 import sys
@@ -12,6 +12,7 @@ from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, replace
 from enum import Enum, auto
+from functools import partial
 from pathlib import Path
 from threading import Lock
 from typing import Any, Container, Generator, Never, TypeVar, cast
@@ -29,7 +30,7 @@ from ..ocr_config import (
     DeepSeekOCR2VendorConfig, DeepSeekOCRVendorConfig, OCRConfig,
     UnlimitedOCRVendorConfig, VendorOCRConfig,
 )
-from ..runtime import IO_DOMAIN, OCR_DOMAIN, ExecutionDomain, run_cancellable, temporary_directory
+from ..runtime import IO_DOMAIN, OCR_DOMAIN, run_cancellable, temporary_directory, worker_context, invoke_callback
 from .handler import DefaultPDFHandler, PDFHandler
 from .page_extractor import Page, PageExtractorNode, PageLayout
 from .page_ref import PageRefContext
@@ -137,7 +138,6 @@ class OCR:
     ) -> AsyncGenerator[OCREvent, None]:
         """Keep PDF rendering serial while vendor page calls share async capacity."""
         selected_policy = error_policy
-        error_policy = decision_bridge(asyncio.get_running_loop(), error_policy)
         del ocr_size
         if not self.is_vendor:
             raise RuntimeError("recognize_vendor is only available for vendor OCR")
@@ -154,8 +154,11 @@ class OCR:
             temporary_directory("pdf-craft-vendor-ocr-"),
         )
         events: deque[OCREvent] = deque()
-        from ..runtime import callback_bridge
-        prepare_callback = callback_bridge(asyncio.get_running_loop(), on_preparation_event) if on_preparation_event is not None else events.append
+        async def prepare_callback(event):
+            if on_preparation_event is None:
+                events.append(event)
+            else:
+                await invoke_callback(on_preparation_event, event)
         prepared_stream = DiskStream(temporary_path / "prepared")
         render_task = None
         asset_hub = AssetHub(asset_path)
@@ -163,132 +166,119 @@ class OCR:
         usable_pages = 0
         did_ignore_any = False
         try:
-            def render_pages(cooperative_aborted: AbortedCheck):
-                nonlocal usable_pages, did_ignore_any
-                with PageRefContext(
-                    pdf_path=pdf_path,
-                    pdf_handler=self._get_pdf_handler(),
-                ) as refs:
-                    total_pages = refs.pages_count
-                    for ref in refs:
-                        check_aborted(cooperative_aborted)
-                        started = time.perf_counter()
-                        prepare_callback(OCREvent(
-                            OCREventKind.START, ref.page_index, total_pages,
-                        ))
-                        if ref.page_index not in page_indexes:
-                            did_ignore_any = True
-                            prepare_callback(OCREvent(
-                                OCREventKind.IGNORE, ref.page_index, total_pages,
-                                int((time.perf_counter() - started) * 1000),
-                            ))
-                            continue
-                        target = ocr_path / f"page_{ref.page_index}.xml"
-                        failed = ocr_path / f"page_{ref.page_index}.failed"
-                        if target.exists() and not failed.exists():
-                            usable_pages += 1
-                            prepare_callback(OCREvent(
-                                OCREventKind.SKIP, ref.page_index, total_pages,
-                                int((time.perf_counter() - started) * 1000),
-                            ))
-                            continue
-                        image_path = temporary_path / f"page_{ref.page_index}.png"
+            def render_page(ref, started, total_pages, cooperative_aborted):
+                """One finite operation; never wait for callbacks or admission here."""
+                image_path = temporary_path / f"page_{ref.page_index}.png"
+                image = ref.render(
+                    dpi=dpi if dpi is not None else 300,
+                    max_image_file_size=max_page_image_file_size,
+                    png_path=image_path, aborted=cooperative_aborted,
+                )
+                try:
+                    self._last_page_pixel_sizes[ref.page_index] = image.size
+                    check_aborted(cooperative_aborted)
+                    blank_page = _blank_page_if_white(image, ref.page_index)
+                    request_path = image_path
+                    scale_x = scale_y = 1.0
+                    if (blank_page is None and isinstance(self._config, UnlimitedOCRVendorConfig)
+                            and max(image.size) > 8192):
+                        request_path = temporary_path / f"page_{ref.page_index}_request.png"
+                        request_size = resized_png(
+                            image, request_path, max_page_image_file_size,
+                            cooperative_aborted, maximum=8192,
+                        )
+                        scale_x = image.width / request_size[0]
+                        scale_y = image.height / request_size[1]
+                    if blank_page is not None:
                         try:
-                            image = ref.render(
-                                dpi=dpi if dpi is not None else 300,
-                                max_image_file_size=max_page_image_file_size,
-                                png_path=image_path, aborted=cooperative_aborted,
-                            )
-                            self._last_page_pixel_sizes[ref.page_index] = image.size
-                            request_path = image_path
-                            scale_x = 1.0
-                            scale_y = 1.0
-                            try:
-                                check_aborted(cooperative_aborted)
-                                blank_page = _blank_page_if_white(image, ref.page_index)
-                                if (blank_page is None and isinstance(self._config, UnlimitedOCRVendorConfig)
-                                        and max(image.size) > 8192):
-                                    request_path = temporary_path / f"page_{ref.page_index}_request.png"
-                                    request_size = resized_png(
-                                        image, request_path, max_page_image_file_size,
-                                        cooperative_aborted, maximum=8192,
-                                    )
-                                    scale_x = image.width / request_size[0]
-                                    scale_y = image.height / request_size[1]
-                            finally:
-                                image.close()
-                        except (PDFError, PNGSizeError) as error:
-                            if isinstance(error, PNGSizeError):
-                                cause = error
-                                error = PDFError(str(error), ref.page_index)
-                                error.__cause__ = cause
-                            if not decide_sync(error_policy, error, FailureCategory.PDF_RENDER, 'page_render', 'page_placeholder',
-                                    targets=(FailureLocation('page', source=str(pdf_path), page_indexes=(ref.page_index,)),)) :
-                                raise error
-                            page = self._create_fallback_page(
-                                asset_hub, ref.page_index, None,
-                            )
-                            self._last_page_pixel_sizes[ref.page_index] = (100, 100)
                             self._save_page_pixel_sizes(geometry_path)
-                            save_xml(encode(page), target)
-                            failed.write_text(type(error).__name__, encoding="utf-8")
-                            terminal_failures.append(ref.page_index)
-                            prepare_callback(OCREvent(
-                                OCREventKind.FAILED, ref.page_index, total_pages,
-                                int((time.perf_counter() - started) * 1000),
-                                error=error,
-                            ))
-                            continue
-                        if blank_page is not None:
-                            # Settle a proven empty render before either vendor
-                            # scheduling path. No synthetic provider request or
-                            # usage is generated, including for all-empty books.
-                            try:
-                                self._save_page_pixel_sizes(geometry_path)
-                                save_xml(encode(blank_page), target)
-                                failed.unlink(missing_ok=True)
-                                if cover_path and blank_page.image:
-                                    cover_path.parent.mkdir(parents=True, exist_ok=True)
-                                    blank_page.image.save(cover_path, format="PNG")
-                            finally:
-                                if blank_page.image:
-                                    blank_page.image.close()
-                            usable_pages += 1
-                            elapsed = int((time.perf_counter() - started) * 1000)
-                            prepare_callback(OCREvent(
-                                OCREventKind.RENDERED, ref.page_index, total_pages, elapsed,
-                            ))
-                            prepare_callback(OCREvent(
-                                OCREventKind.COMPLETE, ref.page_index, total_pages, elapsed,
-                            ))
-                            continue
-                        prepare_callback(OCREvent(
-                            OCREventKind.RENDERED, ref.page_index, total_pages,
-                            int((time.perf_counter() - started) * 1000),
-                        ))
-                        prepared_stream.append(_PreparedVendorPage(
-                            page_index=ref.page_index,
-                            image_path=image_path,
-                            request_path=request_path,
-                            started=started,
-                            total_pages=total_pages,
-                            scale_x=scale_x,
-                            scale_y=scale_y,
-                            max_image_file_size=max_page_image_file_size,
-                        ))
-                prepared_stream.close()
+                            save_xml(encode(blank_page), ocr_path / f"page_{ref.page_index}.xml")
+                            (ocr_path / f"page_{ref.page_index}.failed").unlink(missing_ok=True)
+                            if cover_path and blank_page.image:
+                                cover_path.parent.mkdir(parents=True, exist_ok=True)
+                                blank_page.image.save(cover_path, format="PNG")
+                        finally:
+                            if blank_page.image:
+                                blank_page.image.close()
+                        return None
+                    return _PreparedVendorPage(
+                        page_index=ref.page_index, image_path=image_path,
+                        request_path=request_path, started=started, total_pages=total_pages,
+                        scale_x=scale_x, scale_y=scale_y,
+                        max_image_file_size=max_page_image_file_size,
+                    )
+                finally:
+                    image.close()
+
+            def render_fallback(page_index, error):
+                page = self._create_fallback_page(asset_hub, page_index, None)
+                self._last_page_pixel_sizes[page_index] = (100, 100)
+                self._save_page_pixel_sizes(geometry_path)
+                save_xml(encode(page), ocr_path / f"page_{page_index}.xml")
+                (ocr_path / f"page_{page_index}.failed").write_text(
+                    type(error).__name__, encoding="utf-8")
 
             async def produce_pages():
-                # This worker waits for loop callbacks which themselves use IO.
-                # It cannot occupy a slot in the shared pool feeding those calls.
-                domain = ExecutionDomain("page-render", 1)
+                nonlocal usable_pages, did_ignore_any
                 try:
-                    await run_cancellable(domain, render_pages, original_aborted=aborted)
+                    handler = await IO_DOMAIN.run(self._get_pdf_handler)
+                    async with worker_context(PageRefContext(pdf_path, handler)) as refs:
+                        total_pages = await IO_DOMAIN.run(lambda: refs.pages_count)
+                        iterator = iter(refs)
+                        while (ref := await IO_DOMAIN.run(next, iterator, None)) is not None:
+                            check_aborted(aborted)
+                            started = time.perf_counter()
+                            # Admission can wait for downstream capacity. It owns
+                            # no worker and is directly cancellable by this owner.
+                            await prepare_callback(OCREvent(OCREventKind.START, ref.page_index, total_pages))
+                            if ref.page_index not in page_indexes:
+                                did_ignore_any = True
+                                await prepare_callback(OCREvent(
+                                    OCREventKind.IGNORE, ref.page_index, total_pages,
+                                    int((time.perf_counter() - started) * 1000)))
+                                continue
+                            def cached(ref=ref):
+                                return ((ocr_path / f"page_{ref.page_index}.xml").exists()
+                                        and not (ocr_path / f"page_{ref.page_index}.failed").exists())
+                            if await IO_DOMAIN.run(cached):
+                                usable_pages += 1
+                                await prepare_callback(OCREvent(
+                                    OCREventKind.SKIP, ref.page_index, total_pages,
+                                    int((time.perf_counter() - started) * 1000)))
+                                continue
+                            try:
+                                item = await run_cancellable(
+                                    IO_DOMAIN,
+                                    partial(render_page, ref, started, total_pages),
+                                    original_aborted=aborted,
+                                )
+                            except (PDFError, PNGSizeError) as error:
+                                if isinstance(error, PNGSizeError):
+                                    cause = error
+                                    error = PDFError(str(error), ref.page_index)
+                                    error.__cause__ = cause
+                                if not await decide_context(failure(
+                                        error, FailureCategory.PDF_RENDER, 'page_render', 'page_placeholder',
+                                        targets=(FailureLocation('page', source=str(pdf_path),
+                                                                 page_indexes=(ref.page_index,)),)), selected_policy):
+                                    raise error
+                                await IO_DOMAIN.run(render_fallback, ref.page_index, error)
+                                terminal_failures.append(ref.page_index)
+                                await prepare_callback(OCREvent(
+                                    OCREventKind.FAILED, ref.page_index, total_pages,
+                                    int((time.perf_counter() - started) * 1000), error=error))
+                                continue
+                            elapsed = int((time.perf_counter() - started) * 1000)
+                            await prepare_callback(OCREvent(OCREventKind.RENDERED, ref.page_index, total_pages, elapsed))
+                            if item is None:
+                                usable_pages += 1
+                                await prepare_callback(OCREvent(OCREventKind.COMPLETE, ref.page_index, total_pages, elapsed))
+                            else:
+                                await IO_DOMAIN.run(prepared_stream.append, item)
+                    prepared_stream.close()
                 except BaseException as error:
                     prepared_stream.close(error)
                     raise
-                finally:
-                    domain.close()
 
             render_task = asyncio.create_task(produce_pages())
 
