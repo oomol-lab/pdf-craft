@@ -120,7 +120,7 @@ class PrintedLineGeometryTests(TestCase):
                 messages = build_page_repair_messages(previous_page=None, target_page=analysed,
                     next_page=None, previous_pass_probability=None, next_pass_probability=None)
                 observation = json.loads(messages[1].message)['target_page']['layouts'][0]
-                self.assertEqual(observation['first_line_inset'], inset)
+                self.assertEqual(observation['first_line_extra_indent_vs_later_lines_in_same_box'], inset)
                 self.assertIn('initial_proposal', observation)
                 self.assertNotIn('continues_from_previous', observation)
 

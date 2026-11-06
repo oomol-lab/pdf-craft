@@ -78,6 +78,7 @@ class RepairedLayout(_StrictModel):
     layout_id: str
     source_range: SourceRange | None = None
     ownership: Literal["paragraph", "citation", "ignored"]
+    paragraph_evidence: str = Field(min_length=1)
     continues_from_previous: bool
     continues_to_next: bool | None = None
     paragraph_role: Literal["body", "heading"] | None
@@ -444,7 +445,7 @@ def _layout_packet(
         "ocr_order": getattr(getattr(layout.source, "origin", None), "stream_order", None),
         "source_type": getattr(layout.source, "ref", "text"),
         "bbox": list(layout.bbox),
-        "first_line_inset": getattr(getattr(layout.source, "origin", None), "first_line_inset", None),
+        "first_line_extra_indent_vs_later_lines_in_same_box": getattr(getattr(layout.source, "origin", None), "first_line_inset", None),
         "text": text,
         "text_scale_estimate": text_scale_estimate(text, layout.bbox) if layout.source_order is not None else None,
         "definition_mark": definition_mark,

@@ -33,7 +33,7 @@ def response(page) -> dict[str, Any]:
               'continues_to_next', 'paragraph_role', 'paragraph_level',
               'citation_id', 'citation_index'}
     return dict(page_index=page.page_index,
-                layouts=[{k: v for k, v in item.items() if k in fields}
+                layouts=[dict({k: v for k, v in item.items() if k in fields}, paragraph_evidence="Fixture boundary decision.")
                          for item in packet['layouts']],
                 citations=packet['citations'], references=packet['references'])
 
