@@ -49,7 +49,7 @@ def _normalized(value: str) -> str:
 
 
 def project_canonical_math(
-    mappings: list[MathMapping | None], canonical: str, bindings: list[list[SourceMath]],
+    mappings: list[MathMapping | None], canonical: str, bindings: list[list[SourceMath | str]],
 ) -> list[MathMapping | None] | None:
     values = list(CanonicalMath(canonical).values.values())
     if not values:
@@ -93,6 +93,10 @@ def project_canonical_math(
                                           parent_stack=stack, block_depth=find_block_depth(stack)))
                 elif offset <= match.start():
                     for source in binding:
+                        if isinstance(source, str):
+                            output.append(replace(field, text=source, parent_stack=stack,
+                                                  block_depth=find_block_depth(stack)))
+                            continue
                         node = deepcopy(source.element)
                         node.tail = None
                         for part in search_text_segments(node, normalize_whitespace=False):

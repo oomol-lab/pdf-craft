@@ -1,9 +1,10 @@
 """Bind source identities to engineering-selected translated occurrences."""
 import json
-from .canonical_projection import MathProjectionError, formula_content
+from .canonical_projection import MathProjectionError, SourceMath
 from .canonical_math import CanonicalMath
 from .allocation_text import formula_occurrences
 from .whitespace import normalize
+from .math_binding import partition_math
 
 
 def _prose(value):
@@ -30,6 +31,9 @@ def allocate_math(unit, math, targets):
     assigned = [key for item in formulas for key in item.get('keys', [] if item.get('preserve') is True else [item.get('key')])]
     if sorted(assigned) != sorted(values):
         raise ValueError(f'Assign each source identity once. Missing: {sorted(set(values)-set(assigned))}; duplicated: {sorted({key for key in assigned if assigned.count(key)>1})}; unknown: {sorted(set(assigned)-set(values))}. Additional mathematical occurrences must use preserve=true instead of reusing a source key.')
+    selected_targets = [item['target'] for item in formulas if 'target' in item]
+    if len(set(selected_targets)) != len(selected_targets):
+        raise ValueError('Formula allocations cannot overlap; combine source keys for one target.')
     edits, bound, issues = [], [], []
     for item in formulas:
         keys = item.get('keys', [] if item.get('preserve') is True else [item.get('key')])
@@ -56,7 +60,28 @@ def allocate_math(unit, math, targets):
                 available = {key: match.group() for key, (owner, match) in targets.items() if owner == unit['id']}
                 issues.append(f'Formula {keys}: span {value!r} with before={before!r}, after={after!r} matches {len(matches)} occurrences. Literal occurrences={len(occurrences)}. Exact candidate contexts: {json.dumps(candidates, ensure_ascii=False)}. Translated targets: {json.dumps(available, ensure_ascii=False)}')
                 continue
-        edits.append((matches[0].start(), matches[0].end(), [values[key] for key in keys], matches[0].group()))
+        group: list[SourceMath | str] = [values[key] for key in keys]
+        original = matches[0].group()
+        complete = CanonicalMath.matches(original)
+        delimited = len(complete) == 1 and complete[0].group() == original
+        canonical = original if delimited else '\\(' + original + '\\)'
+        if group:
+            parts = item.get('parts')
+            if parts is not None:
+                if not isinstance(parts, list) or any(not isinstance(part, dict) for part in parts):
+                    raise ValueError('Math parts must be an array of objects.')
+                if any(not isinstance(part.get('keys', []), list) for part in parts):
+                    raise ValueError('Each mathematical part needs an array of source keys.')
+                parts = [dict(text=part.get('text'), keys=[keys.index(key) if key in keys else -1
+                              for key in part.get('keys', [])]) for part in parts]
+            try:
+                group = partition_math(canonical, [values[key] for key in keys], parts, require_parts='target' in item)
+            except ValueError as error:
+                issues.append(f'Formula {keys}: {error}')
+                continue
+        elif 'parts' in item:
+            raise ValueError('Math parts must bind source identities.')
+        edits.append((matches[0].start(), matches[0].end(), group, canonical))
     if issues:
         raise MathProjectionError('\n'.join(issues))
     for match in CanonicalMath.matches(text):
@@ -72,14 +97,7 @@ def allocate_math(unit, math, targets):
     for start, end, group, original in edits:
         if start < cursor:
             raise ValueError('Formula allocations cannot overlap.')
-        if not group:
-            if len(CanonicalMath.matches(original)) != 1 or CanonicalMath.matches(original)[0].group() != original:
-                raise ValueError('A preserved additional mathematical occurrence needs its complete original delimiters.')
-            latex = original
-        else:
-            latex = (group[0].latex if len(group) == 1 else '\\(' + ''.join(formula_content(source.latex)[0] for source in group) + '\\)')
-        if len(CanonicalMath.matches(original)) == 1 and CanonicalMath.matches(original)[0].group() == original:
-            latex = original
+        latex = original
         parts.extend((text[cursor:start], latex))
         projected_formulas.append(latex)
         bound.append(group)

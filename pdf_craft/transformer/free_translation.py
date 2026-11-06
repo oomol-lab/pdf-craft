@@ -82,6 +82,12 @@ def allocate(response, calls, raw):
 
 async def fill_translation_group(runtime, calls, raw):
     """The raw artist response first enters fill here and stays fixed on repair."""
+    if len(calls) == 1 and not getattr(calls[0].source_math, 'values', {}):
+        # Context-only display formulas do not own inline source identities.
+        # There is exactly one owner for the immutable answer, including an
+        # empty one. Account for additional artist math without asking a model
+        # to invent an allocation or translating readonly context again.
+        return allocate(json.dumps([dict(id='0', text=raw, formulas=[])]), calls, raw)
     # A unique identity allocation is an engineering operation. This does not
     # assess translation quality or change/retry the artist response.
     if all(call.source_math is None and getattr(call, 'source_text', None) is not None for call in calls):

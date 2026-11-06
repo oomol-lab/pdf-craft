@@ -437,6 +437,7 @@ def _layout_packet(
         "ocr_order": getattr(getattr(layout.source, "origin", None), "stream_order", None),
         "source_type": getattr(layout.source, "ref", "text"),
         "bbox": list(layout.bbox),
+        "first_line_inset": getattr(getattr(layout.source, "origin", None), "first_line_inset", None),
         "text": text,
         "text_scale_estimate": text_scale_estimate(text, layout.bbox) if layout.source_order is not None else None,
         "definition_mark": definition_mark,

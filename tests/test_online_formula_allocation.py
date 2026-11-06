@@ -2,6 +2,8 @@
 # pylint: disable=protected-access
 import json
 import re
+from types import SimpleNamespace
+from xml.etree.ElementTree import Element
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
@@ -13,6 +15,13 @@ from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from tests.test_canonical_math_projection import content_of
 from tests.test_canonical_math_projection import chapter, expression
 from tests.translation_model import translator_fixture
+from pdf_craft import SubmitKind
+from pdf_craft.transformer.free_translation import fill_translation_group
+from pdf_craft.transformer.source_math import SourceMathTranslation
+from pdf_craft.transformer.canonical_projection import SourceMath
+from pdf_craft.transformer.structured_translation import StructuredTranslation
+from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
+from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
 
 
 class OnlineFormulaAllocationTests(IsolatedAsyncioTestCase):
@@ -31,6 +40,80 @@ class OnlineFormulaAllocationTests(IsolatedAsyncioTestCase):
         target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
         self.assertEqual(content_of(target), [r'模 \(q\) 的特征 ', expression(r'\chi\mod q'), '。'])
         self.assertEqual(len(model.wire_calls), 3)
+
+    async def test_source_formula_restoration_retains_artist_math_residuals(self):
+        # Reduced from the real gundam nontrivial-zero paragraph: OCR left
+        # the upper endpoint outside its formula node, the artist did not.
+        for before, after in [('', '1'), ('a+', ''), ('a+', '1')]:
+            with self.subTest(before=before, after=after):
+                await self._run_math_residual_case(before, after)
+                await self._run_math_residual_case(before, after, plain=True)
+
+    async def _run_math_residual_case(self, before, after, plain=False):
+        source = chapter(['A zero satisfies ', expression(r'0<\Re(s)<'), ' 1.'])
+        value = before + r'0<\Re(s)<' + after
+        raw = '零点满足 ' + (value if plain else r'\(' + value + r'\)') + '。'
+        translator, model = translator_fixture()
+        allocations = []
+        def answer(messages):
+            if messages[0]['content'].startswith('You are a translator.'):
+                return raw
+            if messages[0]['content'].startswith('You are the structural fill engineer.'):
+                allocations.append(json.loads(messages[1]['content'])['translation'])
+                formula: dict = (dict(key='s1', text=value, before='', after='') if plain
+                                 else dict(key='s1', target='t1'))
+                if len(allocations) > 1:
+                    parts = ([dict(text=before)] if before else [])
+                    parts += [dict(keys=['s1'], text=r'0<\Re(s)<')]
+                    parts += [dict(text=after)] if after else []
+                    formula['parts'] = parts
+                return json.dumps([dict(id='0', text=raw, formulas=[formula])])
+            return '<xml><fragment id="1">零点满足 <expression><math-ref key="m1"/></expression>。</fragment></xml>'
+        model.answer = answer
+        target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+        content = content_of(target)
+        self.assertEqual([part for part in content if isinstance(part, InlineExpression)],
+                         [expression(r'0<\Re(s)<')])
+        residual = ''.join(part for part in content if isinstance(part, str))
+        if before:
+            self.assertIn(r'\(' + before + r'\)', residual)
+        if after:
+            self.assertIn(r'\(' + after + r'\)', residual)
+        self.assertEqual(allocations, [raw, raw])
+        self.assertEqual(len(model.wire_calls), 4)
+
+    async def test_native_epub_mathml_restoration_preserves_endpoint_outside_source_node(self):
+        source = fromstring('<body><p>A zero satisfies <math id="original"><mi>x</mi><mo>=</mo></math>1.</p></body>')
+        raw = r'零点满足 \(x=1\)。'
+        translator, model = translator_fixture()
+        def answer(messages):
+            if messages[0]['content'].startswith('You are a translator.'):
+                return raw
+            if messages[0]['content'].startswith('You are the structural fill engineer.'):
+                return json.dumps([dict(id='0', text=raw, formulas=[dict(key='s1', target='t1', parts=[
+                    dict(keys=['s1'], text='x='), dict(text='1')])])])
+            return '<xml><p id="1">零点满足 <expression><math-ref key="m1"/></expression>。</p></xml>'
+        model.answer = answer
+        target, _ = await StructuredTranslation(formulas=XMLInterrupter()).translate(
+            translator, TranslationTask(source, SubmitKind.REPLACE, None))
+        restored = target.findall('.//math')
+        self.assertEqual(len(restored), 1)
+        self.assertEqual(restored[0].get('id'), 'original')
+        self.assertEqual(''.join(restored[0].itertext()), 'x=')
+        self.assertEqual(restored[0].tail, r'\(1\)。')
+        self.assertEqual(len(model.wire_calls), 3)
+
+    async def test_context_only_formula_has_unique_owner_even_for_an_empty_answer(self):
+        for raw in ('', 'unchanged prose', r'Extra \(x+1\)'):
+            with self.subTest(raw=raw):
+                math = SourceMathTranslation([SourceMath(r'\(x\)', Element('formula'), context=True)])
+                # A runtime without template/request methods proves no model is
+                # asked to allocate an empty source identity table. The normal
+                # allocation validator still records unbound artist math.
+                result = await fill_translation_group(object(), [SimpleNamespace(source_math=math)], raw)
+                self.assertEqual(result, {'0': raw})
+                self.assertTrue(math.allocated)
+                self.assertEqual(math.bindings, [[]] if 'Extra' in raw else [])
 
     async def test_both_ocr_variants_restore_reordered_zero_and_one(self):
         fixture = json.loads((Path(__file__).parent / 'assets/translation/online_formula_identity_cases.json').read_text())

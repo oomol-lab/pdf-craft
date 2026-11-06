@@ -1,5 +1,6 @@
 """The artist is unrestricted; only engineering allocation may repair."""
 import json
+from typing import cast
 from types import SimpleNamespace
 from unittest import TestCase
 from xml.etree.ElementTree import Element
@@ -18,7 +19,7 @@ class FreeTranslationTests(TestCase):
             dict(key='s2', text='=1', before='First ', after=', then'),
             dict(key='s1', text='=0', before='then ', after='.')])])
         self.assertEqual(allocate(response, calls, raw)['0'], r'First \(=1\), then \(=0\).')
-        self.assertEqual([group[0].element.get('id') for group in math.bindings], ['one', 'zero'])
+        self.assertEqual([cast(SourceMath, group[0]).element.get('id') for group in math.bindings], ['one', 'zero'])
 
     def test_engineer_cannot_rewrite_artist(self):
         with self.assertRaisesRegex(ValueError, 'complete original translation'):
@@ -41,7 +42,7 @@ class FreeTranslationTests(TestCase):
         allocate(json.dumps([dict(id='0', text=raw, formulas=[
             dict(key='s2', text='x', before='B', after='; A'),
             dict(key='s1', text='x', before='A', after='.')])]), [SimpleNamespace(source_math=math)], raw)
-        self.assertEqual([group[0].element.get('origin') for group in math.bindings], ['b', 'a'])
+        self.assertEqual([cast(SourceMath, group[0]).element.get('origin') for group in math.bindings], ['b', 'a'])
 
     def test_semantic_owner_is_independent_of_translated_unit_order(self):
         answer = allocate(json.dumps([dict(id='1', text='Second.', formulas=[]),
@@ -146,10 +147,30 @@ class FreeTranslationTests(TestCase):
         raw = r'\(x=1\)'
         allocate(json.dumps([dict(id='0', text=raw, formulas=[
             dict(keys=['s1', 's2'], target='t1')])]), calls, raw)
-        self.assertEqual([s.element.get('id') for s in math.bindings[0]], ['a', 'b'])
+        self.assertEqual([cast(SourceMath, s).element.get('id') for s in math.bindings[0]], ['a', 'b'])
         with self.assertRaisesRegex(ValueError, 'overlap'):
             allocate(json.dumps([dict(id='0', text=raw, formulas=[
                 dict(key='s1', target='t1'), dict(key='s2', target='t1')])]), calls, raw)
+
+    def test_combined_source_nodes_cannot_swallow_internal_artist_math(self):
+        math = SourceMathTranslation([SourceMath(r'\(x=\)', Element('formula', id='x')),
+                                     SourceMath(r'\(y=\)', Element('formula', id='y'))])
+        calls = [SimpleNamespace(source_math=math)]
+        raw = r'\(x=1;y=2\)'
+        formula = dict(keys=['s1', 's2'], target='t1')
+        with self.assertRaisesRegex(ValueError, 'explicit parts'):
+            allocate(json.dumps([dict(id='0', text=raw, formulas=[formula])]), calls, raw)
+        self.assertFalse(math.allocated)
+        parts = [dict(keys=['s1'], text='x='), dict(text='1;'),
+                 dict(keys=['s2'], text='y='), dict(text='2')]
+        for bad in (parts[:-1], parts + [dict(text='2')],
+                    [dict(keys=['s1'], text='x='), dict(text='1;'), dict(keys=['s1'], text='y='), dict(text='2')]):
+            with self.assertRaises(ValueError):
+                allocate(json.dumps([dict(id='0', text=raw, formulas=[dict(formula, parts=bad)])]), calls, raw)
+            self.assertFalse(math.allocated)
+        self.assertEqual(allocate(json.dumps([dict(id='0', text=raw, formulas=[dict(formula, parts=parts)])]), calls, raw),
+                         {'0': raw})
+        self.assertEqual(math.bindings, [[math.values['s1'], r'\(1;\)', math.values['s2'], r'\(2\)']])
 
     def test_feedback_collects_errors_across_units_without_partial_bindings(self):
         calls = [SimpleNamespace(source_math=SourceMathTranslation([
