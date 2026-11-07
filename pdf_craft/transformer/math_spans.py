@@ -20,6 +20,7 @@ class _Frame:
     control_width: int
     checkpoint: int
     environments: int = 0
+    control_known: bool = False
 
 
 def math_matches(text: str) -> list[re.Match[str]]:
@@ -38,6 +39,12 @@ def math_matches(text: str) -> list[re.Match[str]]:
                 cursor += 1
             width = cursor-start
             symbol = text[cursor:cursor+1]
+            if frames and not frames[-1].control_known and symbol.isalpha() and start >= comment_end:
+                # Markdown can escape only the outer delimiters. Establish the
+                # body convention from its first real TeX command, independently
+                # of the wrapper's slash width, before consuming row commands.
+                frames[-1].control_width = width
+                frames[-1].control_known = True
             candidate_close = (frames and '\\'+symbol == frames[-1].close
                                and width == frames[-1].slash_width)
             if frames and not candidate_close and (frames[-1].environments or symbol not in ('(', '[')):
@@ -122,7 +129,8 @@ def math_matches(text: str) -> list[re.Match[str]]:
             # A tentative nested opener must not change the surrounding TeX
             # escape convention (e.g. a row followed by parentheses in text).
             control_width = frames[-1].control_width if frames else width
-            frames.append(_Frame(start, depth, close, width, control_width, len(spans)))
+            known = frames[-1].control_known if frames else False
+            frames.append(_Frame(start, depth, close, width, control_width, len(spans), control_known=known))
 
     result = []
     for start, end in spans:

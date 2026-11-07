@@ -15,7 +15,8 @@ from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from tests.test_canonical_math_projection import expression, content_of
 from tests.translation_model import translator_fixture
 
-DELIMITERS = ((r'\[', r'\]'), (r'\(', r'\)'), ('$', '$'), ('$$', '$$'))
+DELIMITERS = ((r'\[', r'\]'), (r'\(', r'\)'), ('$', '$'), ('$$', '$$'),
+              (r'\\[', r'\\]'), (r'\\(', r'\\)'))
 TEX_BODIES = (
     r'\begin{matrix}a&b\\(c+d)&e\end{matrix}',
     r'\begin {aligned}a&=b\\[2mm](c+d)&=e\\*[3pt]f&=g\end {aligned}',
