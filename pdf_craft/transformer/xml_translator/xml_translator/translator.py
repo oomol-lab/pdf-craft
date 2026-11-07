@@ -74,6 +74,19 @@ class TranslationTask(Generic[T]):
 
 
 class XMLTranslator:
+    async def retain_failure(self, error: Exception, *, stage: str, context: dict[str, Any]) -> None:
+        """Retain adapter acceptance evidence in the configured failure directory."""
+        from ....llm.failure_log import FailureLog
+        log = FailureLog(self._fill_llm.failure_log_path, {'stage': stage, **context})
+        if self._fill_llm.key:
+            log.secrets.add(self._fill_llm.key)
+        try:
+            identifier = await log.retain(error, 0)
+            if identifier is not None:
+                setattr(error, 'failure_log_id', identifier)
+        finally:
+            await log.close()
+
     def __init__(
         self,
         translation_llm: LLM,
@@ -469,6 +482,8 @@ class XMLTranslator:
                 allow_direct_fill=(translation_protocol is not None
                                    and translation_protocol.is_text_unit(translation_protocol.unit(primary[0]))),
             )
+            if translation_protocol is not None and all(mapping is not None for mapping in result):
+                translation_protocol.accepted_unit(translation_protocol.unit(primary[0]))
             if on_round is not None:
                 await on_round(group)
             results = iter(result)

@@ -13,7 +13,7 @@ from pdf_craft._policy import OMITTED, policy_operation
 
 from collections.abc import Sequence
 from typing import Any, Protocol
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import Element, tostring
 
 from pdf_craft.extractor.chapter.chapter import Chapter, Reference, SourceAsset, StandaloneAsset, decode, encode
 from pdf_craft.markdown.paragraph import HTMLTag, flatten
@@ -83,7 +83,7 @@ class AnchoredContentXMLTransformer:
 
         contexts = {_slot_key(item): item.context for item in assets}
         protocol = StructuredTranslation(owner=_asset_unit_owner, formulas=ChapterFormulaInterrupter(),
-                                         context=lambda segments: _asset_context(segments, contexts), record_math_units=True,
+                                         context=lambda segments: _asset_context(segments, contexts), record_units=True,
                                          identity=lambda owner: owner.get(_MATH_UNIT, str(id(owner))))
         task = TranslationTask(
                 element=element,
@@ -95,16 +95,27 @@ class AnchoredContentXMLTransformer:
         translated, _ = await protocol.translate(self._translator, task)
         if task.outcomes and not all(task.outcomes.values()):
             return (None,) * len(assets)
-        source_structures = {slot: _asset_structure(asset, protocol.projected_math_units)
+        source_structures = {slot: _asset_structure(asset, protocol.projected_math_units, validated_units=protocol.validated_text_units)
                              for slot, asset in source_assets.items()}
         translated_assets = _decode_assets_by_slot(
-            translated, expected_slots, source_structures, protocol.projected_math_units,
+            translated, expected_slots, source_structures, protocol.projected_math_units, protocol.validated_text_units,
         )
         if translated_assets is None:
             from .._policy import recover
             from ..policies import FailureCategory
             from .._failure_sources import task_locations
-            await recover(ValueError('asset translation does not preserve its source structure'),
+            error = ValueError('asset translation does not preserve its source structure')
+            retain = getattr(self._translator, 'retain_failure', None)
+            if retain is not None:
+                await retain(error, stage='asset_structure', context={
+                    'item_id': task.item_id,
+                    'source_assets': {slot: tostring(asset, encoding='unicode')
+                                      for slot, asset in source_assets.items()},
+                    'translated_xml': tostring(translated, encoding='unicode'),
+                    'projected_math_units': sorted(protocol.projected_math_units),
+                    'validated_text_units': sorted(protocol.validated_text_units),
+                })
+            await recover(error,
                           FailureCategory.FILL, 'asset_structure', 'omit_translation',
                           targets=task_locations(task))
             return (None,) * len(assets)
@@ -149,6 +160,7 @@ def _decode_assets_by_slot(
     expected_slots: dict[str, tuple[str, int, int]],
     source_structures: dict[str, tuple[Any, ...]],
     projected_units: set[str] | None = None,
+    validated_units: set[str] | None = None,
 ) -> dict[tuple[str, int, int], SourceAsset] | None:
     wrappers = root.findall("flow/standalone-asset")
     if len(wrappers) != len(expected_slots):
@@ -169,7 +181,7 @@ def _decode_assets_by_slot(
         return None
 
     if any(
-        _asset_structure(asset, projected_units) != source_structures[slot]
+        _asset_structure(asset, projected_units, validated_units=validated_units) != source_structures[slot]
         for asset, slot in zip(translated_elements, slot_keys, strict=True)
     ):
         return None
@@ -188,11 +200,17 @@ def _decode_assets_by_slot(
 
 
 def _asset_structure(element: Element, projected_units: set[str] | None = None,
-                     canonical_math: bool = False) -> tuple[Any, ...]:
+                     canonical_math: bool = False, *, validated_units: set[str] | None = None,
+                     canonical_text: bool = False) -> tuple[Any, ...]:
     """Preserve markup; only a validated math projection can change math shape."""
     canonical_math = canonical_math or (projected_units is not None and
                                        element.get(_MATH_UNIT) in projected_units)
-    leading = bool(element.text and element.text.strip())
+    # Text occupancy is not markup. Canonical fill already checks the complete
+    # immutable artist text for this owner, including legitimately empty units.
+    # Unvalidated adapters and immutable typed formulas keep the strict check.
+    canonical_text = canonical_text or (validated_units is not None and
+                                       element.get(_MATH_UNIT) in validated_units)
+    leading = True if canonical_text else bool(element.text and element.text.strip())
     children = []
     for child in element:
         if canonical_math and child.tag == 'inline_expr' and child.get('kind') != 'text':
@@ -205,8 +223,9 @@ def _asset_structure(element: Element, projected_units: set[str] | None = None,
             else:
                 leading = True
         else:
-            children.append((_asset_structure(child, projected_units, canonical_math),
-                             bool(child.tail and child.tail.strip())))
+            children.append((_asset_structure(child, projected_units, canonical_math,
+                                               validated_units=validated_units, canonical_text=canonical_text),
+                             True if canonical_text else bool(child.tail and child.tail.strip())))
     return (
         element.tag,
         tuple(sorted((key, value) for key, value in element.attrib.items()
