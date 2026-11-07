@@ -17,6 +17,7 @@ from PIL import Image, ImageChops
 from pdf_craft.pdf.poppler import PopplerDocument
 from pdf_craft.runtime import run_subprocess_sync
 
+from pdf_craft import OCRMode
 from .deepseek_refined import run as run_refined
 
 SOURCE = Path(__file__).resolve().parents[2] / 'tests/assets/pdf/strategic-justice-size.pdf'
@@ -100,7 +101,7 @@ def check_footnote_layout(target: Path) -> dict:
             'passed': len(lines) >= 6 and cjk_count >= 100 and all(markers.values()) and not overlaps}
 
 
-async def run(source: Path, output: Path, profile: str):
+async def run(source: Path, output: Path, profile: str, *, ocr_mode: OCRMode = 'deepseek-ocr-vendor'):
     """Always preserve the acceptance report, including pipeline failures."""
     if output.exists():
         raise ValueError('Output must be a new directory (no reuse of cached OCR)')
@@ -111,7 +112,7 @@ async def run(source: Path, output: Path, profile: str):
     try:
         await run_refined(
             source, output, profile, source_sha256=SOURCE_SHA256,
-            source_bytes=SOURCE_BYTES, pages=PAGES, target_language='zh-CN', strict=True,
+            source_bytes=SOURCE_BYTES, pages=PAGES, target_language='zh-CN', strict=True, ocr_mode=ocr_mode,
         )
         report['pipeline_completed'] = True
         report['size_check'] = check_output(source, output / 'translated.pdf')

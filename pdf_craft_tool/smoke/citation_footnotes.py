@@ -16,7 +16,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 from math import floor, ceil
 
 from pdf_craft.pdf import ocr
-from pdf_craft import transform
+from pdf_craft import transform, OCRMode
 from .deepseek_refined import run as run_refined
 
 SOURCE = Path(__file__).resolve().parents[2] / 'tests/assets/pdf/citation.pdf'
@@ -173,7 +173,8 @@ def check_reading_flows(output, footnotes):
                       and (printed_passed and continued_note if footnotes else definitions == 0)}
 
 
-async def run(source: Path, output: Path, profile: str, *, footnotes=True):
+async def run(source: Path, output: Path, profile: str, *, footnotes=True,
+              ocr_mode: OCRMode = 'deepseek-ocr-vendor'):
     if output.exists():
         raise ValueError('Output must be a new directory (no reuse of cached OCR)')
     records = []
@@ -213,6 +214,7 @@ async def run(source: Path, output: Path, profile: str, *, footnotes=True):
             await run_refined(
                 source, output, profile, source_sha256=SOURCE_SHA256, source_bytes=477248,
                 pages=3, target_language='en', strict=True, generate_plot=True, footnotes=footnotes,
+                ocr_mode=ocr_mode,
             )
         pipeline_completed = True
         formula = check_formula_preview(output)
