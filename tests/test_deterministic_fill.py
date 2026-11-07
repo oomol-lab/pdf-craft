@@ -12,6 +12,22 @@ from tests.test_source_math_identity import provider
 
 
 class DeterministicFillTests(IsolatedAsyncioTestCase):
+    async def test_empty_canonical_clears_all_slots_even_without_general_direct_fill(self):
+        source = fromstring('<body><p>Original <em>important</em> prose.</p>'
+                            '<p><a href="target.xhtml">Linked words</a><span>more text</span></p></body>')
+        translator, runtime = _repairing_translator([], direct_fill=True)
+        calls = provider(translator, [''])
+        result, _ = await StructuredTranslation(owner=lambda _segment: source,
+            is_text_unit=lambda _owner: False).translate(
+                translator, TranslationTask(source, SubmitKind.REPLACE, None),
+                error_policy=False, retry_policy=RetryPolicy(translation=0, fill=12))
+        self.assertEqual(''.join(result.itertext()), '')
+        self.assertEqual(len(result.findall('.//p')), 2)
+        self.assertEqual(len(result.findall('.//em')), 1)
+        self.assertEqual(result.find('.//a').get('href'), 'target.xhtml')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(runtime.context_value.calls, 0)
+
     async def test_long_translation_into_one_plain_slot_needs_no_fill_request(self):
         translator, runtime = _repairing_translator([], direct_fill=True)
         canonical = 'Translated text & literal <span> markup.\u00a0' * 500

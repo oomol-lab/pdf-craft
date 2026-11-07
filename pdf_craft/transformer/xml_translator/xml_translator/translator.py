@@ -618,7 +618,7 @@ class XMLTranslator:
                 error = hill_climbing.submit(element)
             return error, projected
 
-        if allow_direct_fill and canonical_text_validator is not None:
+        if (allow_direct_fill or translated_text == '') and canonical_text_validator is not None:
             for candidate in self._direct_fill_candidates(hill_climbing, translated_text):
                 error, projected = validate_candidate(candidate)
                 if error is None:
@@ -684,6 +684,15 @@ class XMLTranslator:
         # structure already contains the exact canonical text. The caller must
         # still validate the complete text and formula projection before submit.
         candidate = hill_climbing.request_element()
+        if canonical == '':
+            # An accepted empty translation has one possible allocation even
+            # across multiple styled slots: keep every element/attribute and
+            # clear its text. Validate and submit through the ordinary path;
+            # never ask the engineer to translate the source again.
+            for node in candidate.iter():
+                node.text = node.tail = None
+            yield candidate
+            return
         yield candidate
         # One leaf block has exactly one allocation. Insert XML text, never
         # parse canonical prose as markup or guess boundaries between fields.
