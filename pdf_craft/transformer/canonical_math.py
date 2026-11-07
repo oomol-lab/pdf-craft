@@ -16,7 +16,11 @@ from xml.etree.ElementTree import Element
 # rather than swallowing prose/other units up to that later formula's close.
 # Newlines are ordinary content here: valid multi-line math remains atomic.
 _OPENING = r'(?:\\+[\[(]|(?<!\\)\$)'
-_BODY = rf'(?:(?!{_OPENING}).)*?'
+# TeX's \\[spacing] (also \\*[spacing]) is a row-break command, not
+# a nested display opener. Consume the complete command before checking for
+# openers so its second backslash cannot be reinterpreted as \[.
+_ROW_SPACING = r'\\\\\*?[ \t\r\n]*\[[^\[\]]*\]'
+_BODY = rf'(?>{_ROW_SPACING}|(?!{_OPENING}).)*?'
 _MATH = re.compile(
     rf'\\+\({_BODY}\\+\)|\\+\[{_BODY}\\+\]|'
     rf'(?<!\\)\$\${_BODY}(?<!\\)\$\$|(?<![\\$])\$(?!\$){_BODY}(?<![\\$])\$(?!\$)',

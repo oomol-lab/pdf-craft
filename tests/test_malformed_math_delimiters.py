@@ -58,6 +58,36 @@ class MalformedMathDelimitersTests(TestCase):
                 self.assertEqual([m.group() for m in CanonicalMath.matches(text)], [value, r'\(y\)', value])
         self.assertFalse(CanonicalMath.matches(r'Price \$3 and ordinary (x) [y].'))
 
+    def test_tex_row_spacing_keeps_complete_formula_in_all_delimiters(self):
+        for opening, closing in ((r'\[', r'\]'), (r'\(', r'\)'), ('$', '$'), ('$$', '$$')):
+            for spacing in ('[2mm]', '*[3pt]', r' [\dimexpr 2\baselineskip-1pt\relax]', '\n[0.5em]'):
+                with self.subTest(opening=opening, spacing=spacing):
+                    raw = opening+r'\begin{aligned}a&=b\\'+spacing+r'c&=d\end{aligned}'+closing
+                    self.assertEqual([m.group() for m in CanonicalMath.matches(raw)], [raw])
+                    table = CanonicalMath(raw)
+                    self.assertEqual(table.values, {'m1': raw})
+                    root = Element('xml')
+                    root.append(Element('math-ref', key='m1'))
+                    self.assertIsNone(table.expand(root))
+                    self.assertEqual(''.join(root.itertext()), raw)
+
+    def test_row_spacing_and_abandoned_opener_preserve_real_allocation(self):
+        for raw in (r'\[\begin{aligned}a&=b\\[2mm]c&=d\end{aligned}\]',
+                    r'\(\begin{matrix}a & b \\[3pt] c & d\end{matrix}\)'):
+            with self.subTest(raw=raw):
+                prefix = r'Reference \(unfinished.'+'\n\n'
+                text = prefix+raw
+                source = Element('formula', source='row-spaced-math')
+                math = SourceMathTranslation([SourceMath(raw, source)])
+                units = [dict(id='0', text=prefix, formulas=[]),
+                         dict(id='1', text=raw, formulas=[dict(key='s1', target='t1')])]
+                self.assertEqual([item['text'] for item in translated_math_evidence(text)], [raw])
+                self.assertEqual(translated_math_targets(units, text)['t1'][0], '1')
+                self.assertEqual(allocate(json.dumps(units), [SimpleNamespace(source_math=None),
+                    SimpleNamespace(source_math=math)], text), {'0': prefix, '1': raw})
+                self.assertEqual(math.bindings, [[math.values['s1']]])
+                self.assertIs(math.values['s1'].element, source)
+
 
 class MalformedMathPipelineTests(IsolatedAsyncioTestCase):
     async def test_real_artist_fill_entry_keeps_unclosed_prose_and_source_identity(self):
