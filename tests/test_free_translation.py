@@ -10,6 +10,28 @@ from pdf_craft.transformer.canonical_projection import SourceMath
 
 
 class FreeTranslationTests(TestCase):
+    def test_missing_units_get_specific_feedback_and_may_own_empty_text(self):
+        calls = [SimpleNamespace(source_math=None) for _ in range(25)]
+        units = [dict(id=str(i), text='Body text.' if i == 0 else '', formulas=[])
+                 for i in range(13)]
+        with self.assertRaises(ValueError) as caught:
+            allocate(json.dumps(units), calls, 'Body text.')
+        details = json.loads(str(caught.exception).split(': ', 1)[1])
+        self.assertEqual(details, dict(expected_count=25, received_count=13,
+            missing_ids=[str(i) for i in range(13, 25)], duplicate_ids=[], unexpected_ids=[]))
+        units.extend(dict(id=str(i), text='', formulas=[]) for i in range(13, 25))
+        result = allocate(json.dumps(units), calls, 'Body text.')
+        self.assertEqual(result, {str(i): 'Body text.' if i == 0 else '' for i in range(25)})
+
+    def test_identity_feedback_reports_duplicate_and_unexpected_ids_together(self):
+        units = [dict(id=key, text='', formulas=[]) for key in ('0', '0', 'rogue')]
+        with self.assertRaises(ValueError) as caught:
+            allocate(json.dumps(units), [SimpleNamespace(source_math=None)]*3, '')
+        details = json.loads(str(caught.exception).split(': ', 1)[1])
+        self.assertEqual(details['duplicate_ids'], ['0'])
+        self.assertEqual(details['unexpected_ids'], ['rogue'])
+        self.assertEqual(details['missing_ids'], ['1', '2'])
+
     def test_semantic_formula_order_is_not_source_order(self):
         zero, one = Element('formula', id='zero'), Element('formula', id='one')
         math = SourceMathTranslation([SourceMath(r'\(=0\)', zero), SourceMath(r'\(=1\)', one)])

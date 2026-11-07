@@ -1,6 +1,7 @@
 # pylint: disable=unused-argument
 """Engineering allocation of an immutable, free-form group translation."""
 import json
+from collections import Counter
 from xml.etree.ElementTree import tostring
 
 from ..llm import Message, MessageRole
@@ -43,13 +44,20 @@ def allocate(response, calls, raw):
             raise ValueError('Engineering JSON objects must not contain duplicate fields.')
         return result
     units = json.loads(response, object_pairs_hook=unique_object)
-    if not isinstance(units, list) or len(units) != len(calls):
-        raise ValueError('Return exactly one allocation for each source unit.')
+    if not isinstance(units, list):
+        raise ValueError(f'Expected a JSON array containing {len(calls)} source-unit allocations; '
+                         f'received {type(units).__name__}.')
     if any(not isinstance(unit, dict) or not isinstance(unit.get('id'), str) for unit in units):
         raise ValueError('Each allocation must be an object with a string source id.')
+    expected = {str(index) for index in range(len(calls))}
+    counts = Counter(unit['id'] for unit in units)
+    if len(units) != len(calls) or set(counts) != expected:
+        raise ValueError('Allocation identity mismatch: ' + json.dumps(dict(
+            expected_count=len(calls), received_count=len(units),
+            missing_ids=sorted(expected-counts.keys(), key=int),
+            duplicate_ids=sorted(key for key, count in counts.items() if count > 1),
+            unexpected_ids=sorted(counts.keys()-expected))))
     by_id = {unit['id']: unit for unit in units}
-    if set(by_id) != {str(index) for index in range(len(calls))}:
-        raise ValueError('Allocation identities must match the source units exactly once.')
     if any(not isinstance(unit['text'], str) for unit in units):
         raise ValueError('Each allocated text must be a string.')
     if not _covers([unit['text'] for unit in units], raw):
