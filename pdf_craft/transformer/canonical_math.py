@@ -10,22 +10,8 @@ from functools import lru_cache
 from pathlib import Path
 from jinja2 import Template
 from xml.etree.ElementTree import Element
+from .math_spans import math_matches
 
-# Another opening delimiter cannot belong to the current mathematical span.
-# Leave an abandoned opener in the artist text and resume at the later opener,
-# rather than swallowing prose/other units up to that later formula's close.
-# Newlines are ordinary content here: valid multi-line math remains atomic.
-_OPENING = r'(?:\\+[\[(]|(?<!\\)\$)'
-# TeX's \\[spacing] (also \\*[spacing]) is a row-break command, not
-# a nested display opener. Consume the complete command before checking for
-# openers so its second backslash cannot be reinterpreted as \[.
-_ROW_SPACING = r'\\\\\*?[ \t\r\n]*\[[^\[\]]*\]'
-_BODY = rf'(?>{_ROW_SPACING}|(?!{_OPENING}).)*?'
-_MATH = re.compile(
-    rf'\\+\({_BODY}\\+\)|\\+\[{_BODY}\\+\]|'
-    rf'(?<!\\)\$\${_BODY}(?<!\\)\$\$|(?<![\\$])\$(?!\$){_BODY}(?<![\\$])\$(?!\$)',
-    re.DOTALL,
-)
 _REFERENCE_TAG = 'math-ref'
 
 
@@ -35,12 +21,14 @@ class CanonicalMath:
     def __init__(self, text: str):
         self.values: dict[str, str] = {}
 
-        def reference(match):
+        parts, cursor = [], 0
+        for match in self.matches(text):
             key = f'm{len(self.values) + 1}'
             self.values[key] = match.group(0)
-            return f'<{_REFERENCE_TAG} key="{key}"/>'
-
-        self.text = _MATH.sub(reference, text)
+            parts.extend((text[cursor:match.start()], f'<{_REFERENCE_TAG} key="{key}"/>'))
+            cursor = match.end()
+        parts.append(text[cursor:])
+        self.text = ''.join(parts)
 
     def instructions(self) -> str:
         if not self.values:
@@ -49,7 +37,7 @@ class CanonicalMath:
 
     @staticmethod
     def matches(text: str) -> list[re.Match[str]]:
-        return list(_MATH.finditer(text))
+        return math_matches(text)
 
     def expand(self, root: Element, *, require_complete: bool = True) -> str | None:
         """Expand validated references, retaining all canonical delimiter bytes.
