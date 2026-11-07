@@ -10,6 +10,7 @@ from pdf_craft.transformer.allocation_text import translated_math_targets, trans
 from pdf_craft.transformer.canonical_projection import SourceMath
 from pdf_craft.transformer.source_math import SourceMathTranslation
 from pdf_craft.transformer.free_translation import allocate
+from pdf_craft.expression import ExpressionKind, to_markdown_string
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem, Chapter
 from tests.test_canonical_math_projection import expression, content_of
@@ -41,10 +42,13 @@ class MalformedMathDelimitersTests(TestCase):
                     self.assertEqual(matches[0].span(), (len(prefix), len(text)))
                     self.assertEqual(translated_math_evidence(text)[0]['text'], raw)
                     source = Element('formula', name='complete-outer')
-                    math = SourceMathTranslation([SourceMath(raw, source)])
+                    math = SourceMathTranslation([SourceMath(to_markdown_string(ExpressionKind.INLINE_PAREN, body), source)])
                     units = [dict(id='0', text=prefix, formulas=[]),
                              dict(id='1', text=raw, formulas=[dict(key='s1', target='t1')])]
                     self.assertEqual(translated_math_targets(units, text)['t1'][0], '1')
+                    self.assertEqual(allocate(json.dumps(units), [SimpleNamespace(source_math=None),
+                        SimpleNamespace(source_math=math)], text), {'0': prefix, '1': raw})
+                    units[1]['formulas'] = [dict(key='s1', text=raw, before='', after='')]
                     self.assertEqual(allocate(json.dumps(units), [SimpleNamespace(source_math=None),
                         SimpleNamespace(source_math=math)], text), {'0': prefix, '1': raw})
                     self.assertEqual(math.bindings, [[math.values['s1']]])
