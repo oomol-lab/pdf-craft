@@ -11,8 +11,15 @@ from pathlib import Path
 from jinja2 import Template
 from xml.etree.ElementTree import Element
 
+# Another opening delimiter cannot belong to the current mathematical span.
+# Leave an abandoned opener in the artist text and resume at the later opener,
+# rather than swallowing prose/other units up to that later formula's close.
+# Newlines are ordinary content here: valid multi-line math remains atomic.
+_OPENING = r'(?:\\+[\[(]|(?<!\\)\$)'
+_BODY = rf'(?:(?!{_OPENING}).)*?'
 _MATH = re.compile(
-    r'\\+\(.*?\\+\)|\\+\[.*?\\+\]|(?<!\\)\$\$.*?(?<!\\)\$\$|(?<!\\)\$(?!\$).*?(?<!\\)\$',
+    rf'\\+\({_BODY}\\+\)|\\+\[{_BODY}\\+\]|'
+    rf'(?<!\\)\$\${_BODY}(?<!\\)\$\$|(?<![\\$])\$(?!\$){_BODY}(?<![\\$])\$(?!\$)',
     re.DOTALL,
 )
 _REFERENCE_TAG = 'math-ref'
