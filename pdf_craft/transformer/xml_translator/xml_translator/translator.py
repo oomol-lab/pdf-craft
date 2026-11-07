@@ -74,6 +74,19 @@ class TranslationTask(Generic[T]):
 
 
 class XMLTranslator:
+    async def retain_failure(self, error: Exception, *, stage: str, context: dict[str, Any]) -> None:
+        """Retain adapter acceptance evidence in the configured failure directory."""
+        from ....llm.failure_log import FailureLog
+        log = FailureLog(self._fill_llm.failure_log_path, {'stage': stage, **context})
+        if self._fill_llm.key:
+            log.secrets.add(self._fill_llm.key)
+        try:
+            identifier = await log.retain(error, 0)
+            if identifier is not None:
+                setattr(error, 'failure_log_id', identifier)
+        finally:
+            await log.close()
+
     def __init__(
         self,
         translation_llm: LLM,
@@ -469,6 +482,8 @@ class XMLTranslator:
                 allow_direct_fill=(translation_protocol is not None
                                    and translation_protocol.is_text_unit(translation_protocol.unit(primary[0]))),
             )
+            if translation_protocol is not None and all(mapping is not None for mapping in result):
+                translation_protocol.accepted_unit(translation_protocol.unit(primary[0]))
             if on_round is not None:
                 await on_round(group)
             results = iter(result)
@@ -618,7 +633,7 @@ class XMLTranslator:
                 error = hill_climbing.submit(element)
             return error, projected
 
-        if allow_direct_fill and canonical_text_validator is not None:
+        if (allow_direct_fill or translated_text == '') and canonical_text_validator is not None:
             for candidate in self._direct_fill_candidates(hill_climbing, translated_text):
                 error, projected = validate_candidate(candidate)
                 if error is None:
@@ -684,6 +699,15 @@ class XMLTranslator:
         # structure already contains the exact canonical text. The caller must
         # still validate the complete text and formula projection before submit.
         candidate = hill_climbing.request_element()
+        if canonical == '':
+            # An accepted empty translation has one possible allocation even
+            # across multiple styled slots: keep every element/attribute and
+            # clear its text. Validate and submit through the ordinary path;
+            # never ask the engineer to translate the source again.
+            for node in candidate.iter():
+                node.text = node.tail = None
+            yield candidate
+            return
         yield candidate
         # One leaf block has exactly one allocation. Insert XML text, never
         # parse canonical prose as markup or guess boundaries between fields.

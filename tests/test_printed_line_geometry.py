@@ -15,7 +15,7 @@ from pdf_craft.common import AssetHub
 from pdf_craft.extractor.chapter.primary import project_window
 from pdf_craft.extractor.chapter.page_repair import build_page_repair_messages
 from pdf_craft.extractor.chapter.reading_serials import _vertical_text
-from pdf_craft.pdf.line_geometry import first_line_inset, has_vertical_columns
+from pdf_craft.pdf.line_geometry import first_line_inset, has_vertical_columns, printed_line_metrics
 from pdf_craft.pdf.page_extractor import PageExtractorNode
 from pdf_craft.pdf.types import Page, PageLayout, encode, decode
 
@@ -29,6 +29,18 @@ def _printed_lines(*, indented=True):
 
 
 class PrintedLineGeometryTests(TestCase):
+    def test_ink_height_and_count_are_observations_even_for_one_line(self):
+        with _printed_lines() as image:
+            self.assertEqual(printed_line_metrics(image, (0, 0, 100, 70)), (3, 11.0, (25, 5, 5)))
+            self.assertEqual(printed_line_metrics(image, (0, 0, 100, 20)), (1, 11.0, (25,)))
+        with Image.new('RGB', (100, 70), 'white') as image:
+            self.assertIsNone(printed_line_metrics(image, (0, 0, 100, 70)))
+            self.assertIsNone(printed_line_metrics(image, (0, 0, 20, 70)))
+        image = Mock()
+        image.mode, image.width, image.height = 'RGB', 3000, 2000
+        self.assertIsNone(printed_line_metrics(image, (0, 0, 3000, 2000)))
+        image.crop.assert_not_called()
+
     def test_first_line_is_measured_against_two_later_full_lines(self):
         with _printed_lines() as image:
             inset = first_line_inset(image, (0, 0, 100, 70))
@@ -108,6 +120,19 @@ class PrintedLineGeometryTests(TestCase):
         self.assertIsNotNone(observed.first_line_inset)
         assert observed.first_line_inset is not None
         self.assertGreater(observed.first_line_inset, 1)
+        self.assertEqual(observed.printed_line_count, 3)
+        self.assertEqual(observed.printed_line_height, 11.0)
+        self.assertEqual(observed.printed_line_lefts, (25, 5, 5))
+        for includes_footnotes in (False, True):
+            restored = decode(encode(page))
+            projected = project_window([restored], includes_footnotes)[0]
+            assert projected is not None
+            messages = build_page_repair_messages(previous_page=None, target_page=projected,
+                next_page=None, previous_pass_probability=None, next_pass_probability=None,
+                includes_footnotes=includes_footnotes)
+            packet = json.loads(messages[1].message)['target_page']['layouts'][0]
+            self.assertEqual(packet['printed_lines'], dict(count=3, median_ink_height=11.0,
+                                                         left_offsets=[25, 5, 5]))
         self.assertFalse(observed.vertical_columns)
 
     def test_repair_model_receives_measured_first_line_inset_without_a_boundary_verdict(self):

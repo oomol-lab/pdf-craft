@@ -19,7 +19,7 @@ from ..ocr_config import (
 )
 from .ngrams import has_repetitive_ngrams
 from .types import DeepSeekOCRSize, Page, PageLayout
-from .line_geometry import first_line_inset, has_vertical_columns, number_ink_bbox
+from .line_geometry import first_line_inset, has_vertical_columns, number_ink_bbox, printed_line_metrics
 from .ruled_forms import preserve_ruled_forms
 
 _LAYOUT_KIND_TO_REF = {
@@ -391,6 +391,8 @@ class PageExtractorNode:
             if ref in ASSET_TAGS:
                 asset_hash = asset_hub.clip(image, det)
 
+            lines = (printed_line_metrics(image, det)
+                     if stage_index == 1 and ref == 'text' and '<' not in text else None)
             yield PageLayout(
                 ref=ref,
                 det=det,
@@ -400,6 +402,9 @@ class PageExtractorNode:
                 first_line_inset=(first_line_inset(image, det, obstructions)
                                   if stage_index == 1 and ref == "text" and not is_footnote
                                   and "<" not in text else None),
+                printed_line_count=lines.line_count if lines is not None else None,
+                printed_line_height=lines.median_ink_height if lines is not None else None,
+                printed_line_lefts=lines.left_offsets if lines is not None else None,
                 number_ink_bbox=(number_ink_bbox(number_image, det, text)
                                  if ref == "text" and number_image is not None
                                  and number_image.size == image.size else None),

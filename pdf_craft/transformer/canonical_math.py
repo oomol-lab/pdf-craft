@@ -10,11 +10,8 @@ from functools import lru_cache
 from pathlib import Path
 from jinja2 import Template
 from xml.etree.ElementTree import Element
+from .math_spans import math_matches
 
-_MATH = re.compile(
-    r'\\+\(.*?\\+\)|\\+\[.*?\\+\]|(?<!\\)\$\$.*?(?<!\\)\$\$|(?<!\\)\$(?!\$).*?(?<!\\)\$',
-    re.DOTALL,
-)
 _REFERENCE_TAG = 'math-ref'
 
 
@@ -24,12 +21,14 @@ class CanonicalMath:
     def __init__(self, text: str):
         self.values: dict[str, str] = {}
 
-        def reference(match):
+        parts, cursor = [], 0
+        for match in self.matches(text):
             key = f'm{len(self.values) + 1}'
             self.values[key] = match.group(0)
-            return f'<{_REFERENCE_TAG} key="{key}"/>'
-
-        self.text = _MATH.sub(reference, text)
+            parts.extend((text[cursor:match.start()], f'<{_REFERENCE_TAG} key="{key}"/>'))
+            cursor = match.end()
+        parts.append(text[cursor:])
+        self.text = ''.join(parts)
 
     def instructions(self) -> str:
         if not self.values:
@@ -38,7 +37,7 @@ class CanonicalMath:
 
     @staticmethod
     def matches(text: str) -> list[re.Match[str]]:
-        return list(_MATH.finditer(text))
+        return math_matches(text)
 
     def expand(self, root: Element, *, require_complete: bool = True) -> str | None:
         """Expand validated references, retaining all canonical delimiter bytes.

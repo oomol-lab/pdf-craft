@@ -43,6 +43,10 @@ class PrintedEvidenceReplayTests(TestCase):
                 note = observed.find('footnotes/layout')
                 assert note is not None
                 self.assertIsNone(note.get('first_line_inset'))
+                for item in (block, note):
+                    self.assertEqual(item.get('printed_line_count'), '3')
+                    self.assertEqual(item.get('printed_line_height'), '11.0')
+                    self.assertEqual(item.get('printed_line_lefts'), '25,5,5')
                 if obstruction:
                     self.assertIsNone(block.get('first_line_inset'))
                 else:

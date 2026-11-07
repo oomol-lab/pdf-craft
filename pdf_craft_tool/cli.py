@@ -577,7 +577,7 @@ async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
     )
     executor = ConcurrentExecutor(FixedCapacity(args.concurrency))
     runtime = runtime_for(
-        llm, executor, protocol_version="page-repair-json-v2",
+        llm, executor, protocol_version="page-repair-json-v3",
     )
     llm_raw_path = args.output / "llm-raw"
     llm_raw_path.mkdir(parents=True, exist_ok=True)

@@ -33,13 +33,14 @@ class StructuredTranslation:
     def __init__(self, *, owner: Callable[[InlineSegment], Element] | None = None,
                  is_text_unit: Callable[[Element], bool] = lambda _owner: True,
                  formulas: FormulaProjection | None = None, identity: Callable[[Element], str] | None = None, context: Callable[[list[InlineSegment]], str] | None = None,
-                 record_math_units: bool = False):
+                 record_units: bool = False):
         self.owner = owner
         self.identity = identity
         self.is_text_unit = is_text_unit
         self.formulas = formulas
         self.context = context
-        self._record_math_units = record_math_units
+        self._record_units = record_units
+        self.validated_text_units: set[str] = set()
         self.projected_math_units: set[str] = set()
 
     def unit(self, segment: InlineSegment) -> Element:
@@ -126,9 +127,14 @@ class StructuredTranslation:
             return None
         projected = project_canonical_math(mappings, canonical, math.bindings,
                                            self.formulas.residual_math if self.formulas is not None else None)
-        if projected is not None and self._record_math_units and owner is not None:
+        if projected is not None and self._record_units and owner is not None:
             self.projected_math_units.add(self.key(owner))
         return projected
+
+    def accepted_unit(self, owner: Element) -> None:
+        """Record only units whose complete canonical fill has succeeded."""
+        if self._record_units:
+            self.validated_text_units.add(self.key(owner))
 
     def finish(self, root: Element) -> None:
         if self.formulas is not None:

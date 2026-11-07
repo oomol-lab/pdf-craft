@@ -50,7 +50,13 @@ def allocate_math(unit, math, targets):
             raise ValueError('Formula text and before/after context must be strings.')
     assigned = [key for item in formulas for key in _source_keys(item)]
     if sorted(assigned) != sorted(values):
-        raise ValueError(f'Assign each source identity once. Missing: {sorted(set(values)-set(assigned))}; duplicated: {sorted({key for key in assigned if assigned.count(key)>1})}; unknown: {sorted(set(assigned)-set(values))}. Additional mathematical occurrences must use preserve=true instead of reusing a source key.')
+        missing = sorted(set(values)-set(assigned))
+        source_values = {key: values[key].latex for key in missing}
+        available = [key for key, (owner, _) in targets.items() if owner == unit['id']]
+        raise ValueError(f'Assign each source identity once. Missing: {missing}; duplicated: {sorted({key for key in assigned if assigned.count(key)>1})}; unknown: {sorted(set(assigned)-set(values))}. '
+                         f'Missing source contents: {json.dumps(source_values, ensure_ascii=False)}. '
+                         f'Available target ids in this unit: {available}; allocated text excerpt: {text[:300]!r}. '
+                         'Additional mathematical occurrences must use preserve=true instead of reusing a source key.')
     selected_targets = [item['target'] for item in formulas if 'target' in item]
     if len(set(selected_targets)) != len(selected_targets):
         raise ValueError('Formula allocations cannot overlap; combine source keys for one target.')
@@ -61,7 +67,8 @@ def allocate_math(unit, math, targets):
             entry = targets.get(item['target'])
             if entry is None or entry[0] != unit['id']:
                 available = [key for key, (owner, _) in targets.items() if owner == unit['id']]
-                issues.append(f"Formula {keys}: target {item['target']!r} is not in unit {unit['id']}; available targets={available}.")
+                issues.append(f"Formula {keys}: target {item['target']!r} is not in unit {unit['id']}; available targets={available}. "
+                              f"Defined global target ids={list(targets)}; allocated text excerpt={text[:300]!r}.")
                 continue
             matches = [entry[1]]
         else:
