@@ -10,6 +10,20 @@ _MAX_CROP_PIXELS = 4_000_000
 _DARK_PIXELS = [255 if value < 110 else 0 for value in range(256)]
 
 
+def printed_line_metrics(image: Image, bbox: tuple[int, int, int, int]) -> tuple[int, float] | None:
+    """Observe horizontal ink-band count and median height, without classifying text."""
+    left, top, right, bottom = bbox
+    width, height = right - left, bottom - top
+    if (image.mode not in ('L', 'RGB') or not 0 <= left < right <= image.width
+            or not 0 <= top < bottom <= image.height
+            or width < height or width * height > _MAX_CROP_PIXELS):
+        return None
+    with image.crop(bbox) as region, region.convert('L') as crop:
+        with crop.point(_DARK_PIXELS, mode='1') as ink:
+            bands = _ink_bands(ink.getprojection()[1])
+    return (len(bands), float(median(end-start for start, end in bands))) if bands else None
+
+
 def first_line_inset(
     image: Image,
     bbox: tuple[int, int, int, int],

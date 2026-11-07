@@ -447,6 +447,7 @@ def _layout_packet(
         "source_type": getattr(layout.source, "ref", "text"),
         "bbox": list(layout.bbox),
         "first_line_extra_indent_vs_later_lines_in_same_box": getattr(getattr(layout.source, "origin", None), "first_line_inset", None),
+        "printed_lines": _printed_lines_packet(layout),
         "text": text,
         "text_scale_estimate": text_scale_estimate(text, layout.bbox) if layout.source_order is not None else None,
         "definition_mark": definition_mark,
@@ -467,6 +468,13 @@ def _layout_packet(
     if association is not None:
         packet['asset_text_association'] = association
     return packet
+
+
+def _printed_lines_packet(layout):
+    origin = getattr(layout.source, 'origin', None)
+    count = getattr(origin, 'printed_line_count', None)
+    height = getattr(origin, 'printed_line_height', None)
+    return dict(count=count, median_ink_height=height) if count is not None and height is not None else None
 
 
 def _initial_stream_key(layout: AnalysedLayout) -> tuple[str, str | None] | None:

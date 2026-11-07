@@ -43,6 +43,8 @@ class TextSource:
     text: str
     content: tuple
     first_line_inset: float | None = None
+    printed_line_count: int | None = None
+    printed_line_height: float | None = None
 
 
 @dataclass
