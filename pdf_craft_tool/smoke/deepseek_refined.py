@@ -16,7 +16,7 @@ from pypdf import PdfReader
 import pdf_craft
 from pdf_craft import (
     AsyncPDFCraft, ConcurrentExecutor, FixedCapacity, ExtractionOptions,
-    Refinement, RetryPolicy, XMLTranslator, PDFOptions,
+    Refinement, RetryPolicy, XMLTranslator, PDFOptions, OCRMode,
 )
 from pdf_craft.pdf.handler import DefaultPDFHandler
 from ..runtime import create_jev_from_env, create_llm_from_env, create_ocr_config_from_env, load_project_env, model_request_options
@@ -26,7 +26,8 @@ SOURCE_SHA256 = 'dd5cec9ee94ebf4fa755a9e8d6155d83156df50af0294495910f5ac2d3cde5e
 
 async def run(source: Path, output: Path, profile: str, *,
               source_sha256=SOURCE_SHA256, source_bytes=1234259, pages=6,
-              target_language='zh-CN', strict=False, generate_plot=False, footnotes=True):
+              target_language='zh-CN', strict=False, generate_plot=False, footnotes=True,
+              ocr_mode: OCRMode = 'deepseek-ocr-vendor'):
     data = source.read_bytes()
     if len(data) != source_bytes or hashlib.sha256(data).hexdigest() != source_sha256:
         raise ValueError('This gate requires the unchanged original PDF (hash/size mismatch)')
@@ -37,7 +38,7 @@ async def run(source: Path, output: Path, profile: str, *,
     executor = ConcurrentExecutor(FixedCapacity(2))
     llm = create_llm_from_env(profile, cache_path=output / 'llm-cache', log_dir_path=output / 'llm-logs')
     jev = create_jev_from_env()
-    craft = AsyncPDFCraft(pdf=PDFOptions(ocr=create_ocr_config_from_env('deepseek-ocr-vendor'), ocr_executor=executor))
+    craft = AsyncPDFCraft(pdf=PDFOptions(ocr=create_ocr_config_from_env(ocr_mode), ocr_executor=executor))
     retry = RetryPolicy(translation=8, analysis=6, fill=12)
     failures, counts = [], Counter()
 
@@ -96,7 +97,7 @@ async def run(source: Path, output: Path, profile: str, *,
         finally:
             document.close()
     summary = {'source_sha256': source_sha256, 'source_bytes': len(data), 'pages': result_pages,
-               'parameters': {'input_format': 'pdf', 'footnotes': footnotes, 'refinement': True, 'output_format': 'pdf',
+               'parameters': {'ocr_mode': ocr_mode, 'input_format': 'pdf', 'footnotes': footnotes, 'refinement': True, 'output_format': 'pdf',
                               'rendering_mode': 'replace', 'target_language': target_language},
                'extraction': {'includes_cover': True, 'includes_furniture': True,
                               'extract_book_metadata': False, 'toc_assumed': True, 'preview_callbacks': True},
