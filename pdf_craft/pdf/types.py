@@ -33,6 +33,7 @@ class PageLayout:
     semantic_id: int | None = None
     printed_line_count: int | None = None
     printed_line_height: float | None = None
+    printed_line_lefts: tuple[int, ...] | None = None
 
     @property
     def anchor_order(self) -> int:
@@ -119,6 +120,7 @@ def _decode_layout(element: Element, order: int) -> PageLayout:
     text = element.text.strip() if element.text else ""
     hash_value = element.get("hash")
     inset = element.get("first_line_inset")
+    line_lefts = element.get('printed_line_lefts')
     observation = element.get("number_ink_bbox")
     number_box = None
     if observation is not None:
@@ -139,6 +141,7 @@ def _decode_layout(element: Element, order: int) -> PageLayout:
         semantic_id=int(element.attrib["semantic_id"]) if "semantic_id" in element.attrib else None,
         printed_line_count=int(element.attrib['printed_line_count']) if 'printed_line_count' in element.attrib else None,
         printed_line_height=float(element.attrib['printed_line_height']) if 'printed_line_height' in element.attrib else None,
+        printed_line_lefts=tuple(map(int, line_lefts.split(','))) if line_lefts else None,
     )
 
 
@@ -154,6 +157,8 @@ def _encode_layout(layout: PageLayout) -> Element:
         layout_element.set('printed_line_count', str(layout.printed_line_count))
     if layout.printed_line_height is not None:
         layout_element.set('printed_line_height', str(layout.printed_line_height))
+    if layout.printed_line_lefts is not None:
+        layout_element.set('printed_line_lefts', ','.join(map(str, layout.printed_line_lefts)))
     if layout.vertical_columns:
         layout_element.set("vertical_columns", "true")
     if layout.number_ink_bbox is not None:

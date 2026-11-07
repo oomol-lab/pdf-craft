@@ -402,8 +402,9 @@ class PageExtractorNode:
                 first_line_inset=(first_line_inset(image, det, obstructions)
                                   if stage_index == 1 and ref == "text" and not is_footnote
                                   and "<" not in text else None),
-                printed_line_count=lines[0] if lines is not None else None,
-                printed_line_height=lines[1] if lines is not None else None,
+                printed_line_count=lines.line_count if lines is not None else None,
+                printed_line_height=lines.median_ink_height if lines is not None else None,
+                printed_line_lefts=lines.left_offsets if lines is not None else None,
                 number_ink_bbox=(number_ink_bbox(number_image, det, text)
                                  if ref == "text" and number_image is not None
                                  and number_image.size == image.size else None),

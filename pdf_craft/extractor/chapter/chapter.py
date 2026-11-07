@@ -45,6 +45,7 @@ class TextSource:
     first_line_inset: float | None = None
     printed_line_count: int | None = None
     printed_line_height: float | None = None
+    printed_line_lefts: tuple[int, ...] | None = None
 
 
 @dataclass

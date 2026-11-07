@@ -66,6 +66,7 @@ def capture_sources(pages: list[Page]) -> dict[tuple[int, int], tuple[int, TextS
                     first_line_inset=item.first_line_inset,
                     printed_line_count=item.printed_line_count,
                     printed_line_height=item.printed_line_height,
+                    printed_line_lefts=item.printed_line_lefts,
                 ))
     return sources
 

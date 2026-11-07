@@ -31,8 +31,8 @@ def _printed_lines(*, indented=True):
 class PrintedLineGeometryTests(TestCase):
     def test_ink_height_and_count_are_observations_even_for_one_line(self):
         with _printed_lines() as image:
-            self.assertEqual(printed_line_metrics(image, (0, 0, 100, 70)), (3, 11.0))
-            self.assertEqual(printed_line_metrics(image, (0, 0, 100, 20)), (1, 11.0))
+            self.assertEqual(printed_line_metrics(image, (0, 0, 100, 70)), (3, 11.0, (25, 5, 5)))
+            self.assertEqual(printed_line_metrics(image, (0, 0, 100, 20)), (1, 11.0, (25,)))
         with Image.new('RGB', (100, 70), 'white') as image:
             self.assertIsNone(printed_line_metrics(image, (0, 0, 100, 70)))
             self.assertIsNone(printed_line_metrics(image, (0, 0, 20, 70)))
@@ -122,6 +122,7 @@ class PrintedLineGeometryTests(TestCase):
         self.assertGreater(observed.first_line_inset, 1)
         self.assertEqual(observed.printed_line_count, 3)
         self.assertEqual(observed.printed_line_height, 11.0)
+        self.assertEqual(observed.printed_line_lefts, (25, 5, 5))
         for includes_footnotes in (False, True):
             restored = decode(encode(page))
             projected = project_window([restored], includes_footnotes)[0]
@@ -130,7 +131,8 @@ class PrintedLineGeometryTests(TestCase):
                 next_page=None, previous_pass_probability=None, next_pass_probability=None,
                 includes_footnotes=includes_footnotes)
             packet = json.loads(messages[1].message)['target_page']['layouts'][0]
-            self.assertEqual(packet['printed_lines'], dict(count=3, median_ink_height=11.0))
+            self.assertEqual(packet['printed_lines'], dict(count=3, median_ink_height=11.0,
+                                                         left_offsets=[25, 5, 5]))
         self.assertFalse(observed.vertical_columns)
 
     def test_repair_model_receives_measured_first_line_inset_without_a_boundary_verdict(self):

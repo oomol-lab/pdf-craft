@@ -3,6 +3,7 @@
 from collections.abc import Iterable
 from statistics import median
 import re
+from typing import NamedTuple
 
 from PIL.Image import Image
 
@@ -10,8 +11,14 @@ _MAX_CROP_PIXELS = 4_000_000
 _DARK_PIXELS = [255 if value < 110 else 0 for value in range(256)]
 
 
-def printed_line_metrics(image: Image, bbox: tuple[int, int, int, int]) -> tuple[int, float] | None:
-    """Observe horizontal ink-band count and median height, without classifying text."""
+class PrintedLineMetrics(NamedTuple):
+    line_count: int
+    median_ink_height: float
+    left_offsets: tuple[int, ...]
+
+
+def printed_line_metrics(image: Image, bbox: tuple[int, int, int, int]) -> PrintedLineMetrics | None:
+    """Observe band count, median height and local left edges, without classification."""
     left, top, right, bottom = bbox
     width, height = right - left, bottom - top
     if (image.mode not in ('L', 'RGB') or not 0 <= left < right <= image.width
@@ -21,7 +28,14 @@ def printed_line_metrics(image: Image, bbox: tuple[int, int, int, int]) -> tuple
     with image.crop(bbox) as region, region.convert('L') as crop:
         with crop.point(_DARK_PIXELS, mode='1') as ink:
             bands = _ink_bands(ink.getprojection()[1])
-    return (len(bands), float(median(end-start for start, end in bands))) if bands else None
+            lefts = []
+            for start, end in bands:
+                with ink.crop((0, start, width, end)) as band:
+                    bounds = band.getbbox()
+                if bounds is None:
+                    return None
+                lefts.append(bounds[0])
+    return PrintedLineMetrics(len(bands), float(median(end-start for start, end in bands)), tuple(lefts)) if bands else None
 
 
 def first_line_inset(

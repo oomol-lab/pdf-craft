@@ -474,7 +474,8 @@ def _printed_lines_packet(layout):
     origin = getattr(layout.source, 'origin', None)
     count = getattr(origin, 'printed_line_count', None)
     height = getattr(origin, 'printed_line_height', None)
-    return dict(count=count, median_ink_height=height) if count is not None and height is not None else None
+    return dict(count=count, median_ink_height=height,
+                left_offsets=getattr(origin, 'printed_line_lefts', None)) if count is not None and height is not None else None
 
 
 def _initial_stream_key(layout: AnalysedLayout) -> tuple[str, str | None] | None:
