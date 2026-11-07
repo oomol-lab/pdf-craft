@@ -155,7 +155,8 @@ def _collect(output, fingerprint):
         if path.exists():
             cases.extend(json.loads(path.read_text(encoding='utf-8')))
     passed = sum(row['status'] == 'passed' for row in cases)
-    return {'cases': cases, 'passed': passed, 'failed': len(cases)-passed,
+    return {'cases': cases, 'passed': passed, 'failed': sum(row['status'] not in ('passed', 'running') for row in cases),
+            'running': sum(row['status'] == 'running' for row in cases),
             'complete': (len(cases) == 14 and {row['name'] for row in cases} ==
                          {name for group in MATRICES for name, _ in matrix_cases(group)}
                          | {'citation-on', 'citation-off', 'pdf-size', 'formula-three-rounds'}

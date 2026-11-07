@@ -42,7 +42,7 @@ def proposal(source) -> dict[str, Any]:
     packet = json.loads(messages[1].message)['target_page']
     fields = set(RepairedLayout.model_fields)
     return dict(page_index=1, layouts=[dict({k: v for k, v in {**item, **item["initial_proposal"]}.items() if k in fields},
-                                          paragraph_evidence="Fixture boundary decision.")
+                                          ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.")
                                      for item in packet['layouts']], citations=packet['citations'], references=[])
 
 

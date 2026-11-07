@@ -99,7 +99,7 @@ class AssetSourceIntegrityTests(unittest.TestCase):
                    ('text', (10, 75, 90, 85), 'Notes: independent prose.'))
         original, = project_window((raw,), False)
         assert original is not None
-        proposed = [RepairedLayout(paragraph_evidence="Fixture boundary decision.", layout_id=f'layout-{x.document_order}',
+        proposed = [RepairedLayout(ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.", layout_id=f'layout-{x.document_order}',
                     ownership=x.ownership, continues_from_previous=False,
                     paragraph_role='body' if x.source_order is not None else None,
                     paragraph_level=-1 if x.source_order is not None else None,
@@ -151,7 +151,7 @@ class AssetSourceIntegrityTests(unittest.TestCase):
                    ('text', (10, 80, 90, 90), 'Notes: explanation.'))
         original, = project_window((raw,), False)
         assert original is not None
-        proposed = [RepairedLayout(paragraph_evidence="Fixture boundary decision.", layout_id=f'layout-{x.document_order}', ownership=x.ownership,
+        proposed = [RepairedLayout(ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.", layout_id=f'layout-{x.document_order}', ownership=x.ownership,
                     continues_from_previous=x.continues_from_previous,
                     paragraph_role='body' if x.source_order is not None else None,
                     paragraph_level=-1 if x.source_order is not None else None, citation_id=None)
@@ -223,7 +223,7 @@ class AssetSourceIntegrityTests(unittest.TestCase):
         original, = project_window((raw,), False)
         assert original is not None
         source = original.layouts[0]
-        proposed = RepairedLayout(paragraph_evidence="Fixture boundary decision.", layout_id=f'layout-{source.document_order}',
+        proposed = RepairedLayout(ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.", layout_id=f'layout-{source.document_order}',
             ownership='paragraph', continues_from_previous=False, paragraph_role='body',
             paragraph_level=-1, citation_id=None, keep_asset_attachment=True)
         with self.assertRaisesRegex(ValueError, r'\[ASSET_TEXT\].*no original local asset target'):

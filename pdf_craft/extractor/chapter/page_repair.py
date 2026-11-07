@@ -77,6 +77,7 @@ class RepairedReference(_StrictModel):
 class RepairedLayout(_StrictModel):
     layout_id: str
     source_range: SourceRange | None = None
+    ownership_evidence: str = Field(min_length=1)
     ownership: Literal["paragraph", "citation", "ignored"]
     paragraph_evidence: str = Field(min_length=1)
     continues_from_previous: bool
@@ -91,10 +92,10 @@ class RepairedLayout(_StrictModel):
 
 class RepairedCitation(_StrictModel):
     citation_id: str
-    index: int | None = Field(default=None, ge=1)
-    mark: str | None
     stream_order: int = Field(ge=0)
     continues_previous: bool = False
+    index: int | None = Field(default=None, ge=1)
+    mark: str | None
 
 
 class RepairedPage(_StrictModel):
@@ -713,7 +714,11 @@ def _compile_citations(page_index, proposed, issues):
         if item.continues_previous and position != 0:
             issues.append(f'[CITATION_ORDER] {prefix}: only the first note may append to the output cursor')
         if item.continues_previous and item.index is not None:
-            issues.append(f'[CITATION_ORIGIN] {prefix}: an indexed origin cannot continue a previous note')
+            issues.append(f'[CITATION_ORIGIN] {prefix}: choose the actual note operation first. '
+                          'For a continuing note, retain continues_previous=true and set index=null, mark=null; '
+                          'do not copy the earlier printed marker into a new local definition. '
+                          'Use continues_previous=false with a local index only for an independent new note, '
+                          'not merely to resolve this field conflict.')
         if item.citation_id in seen_ids:
             issues.append(f'[CITATION_ID_DUPLICATE] {prefix}: duplicate local identity')
         seen_ids.add(item.citation_id)

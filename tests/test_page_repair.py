@@ -43,7 +43,7 @@ def _response_from_message(message):
         "page_index": target["page_index"],
         "layouts": [
             dict({key: value for key, value in {**layout, **layout["initial_proposal"]}.items() if key in layout_fields},
-                 paragraph_evidence="Fixture boundary decision.")
+                 ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.")
             for layout in target["layouts"]
         ],
         "citations": target["citations"],
@@ -69,6 +69,33 @@ def _page_with_reference(text_before="Body", text_after=" end"):
 
 
 class PageRepairTests(unittest.IsolatedAsyncioTestCase):
+    async def test_continuation_feedback_repairs_definition_fields_not_the_reading_operation(self):
+        page = _page_with_reference()
+        attempts = []
+        async def request(messages, index, _maximum):
+            attempts.append(index)
+            data = _response_from_message(messages[1])
+            data['references'] = []
+            data['citations'][0]['continues_previous'] = True
+            if index:
+                self.assertIn('retain continues_previous=true', messages[-1].message)
+                self.assertIn('index=null, mark=null', messages[-1].message)
+                data['citations'][0].update(index=None, mark=None)
+                for layout in data['layouts']:
+                    if layout['ownership'] == 'citation':
+                        layout['citation_index'] = None
+            # The program validates the declared operation, not these words
+            # against original/neighbor semantic evidence.
+            for layout in data['layouts']:
+                layout['ownership_evidence'] = 'Opaque submitted reading finding.'
+            return json.dumps(data)
+        result = await repair_page_with_llm(previous_page=None, target_page=page, next_page=None,
+            previous_pass_probability=None, next_pass_probability=None, request=request)
+        self.assertEqual(attempts, [0, 1])
+        self.assertTrue(result.citations[0].continues_previous)
+        self.assertIsNone(result.citations[0].index)
+        self.assertIsNone(result.citations[0].mark)
+
     async def test_missing_local_boundary_evidence_repairs_shape_without_semantic_audit(self):
         page = _page_with_reference()
         attempts = []
