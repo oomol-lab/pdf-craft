@@ -33,8 +33,8 @@ def scan(paths, transformer=None, *, metadata, with_anchored, with_furniture):
         for source in sources:
             # Symbol-only narrative tasks still settle a unit even when they
             # contribute no words. Use the execution adapter's task predicate.
-            add(UnitKind.CONTENT, count_words(source), include_empty=(
-                streaming and NarrativeXMLTransformer.has_translatable_content(source)))
+            if not streaming or NarrativeXMLTransformer.has_translatable_content(source):
+                add(UnitKind.CONTENT, count_words(source), include_empty=streaming)
             if with_anchored:
                 for slot in _asset_slots(source):
                     if _asset_has_text(slot.asset):
@@ -58,20 +58,24 @@ def scan(paths, transformer=None, *, metadata, with_anchored, with_furniture):
 
 @asynccontextmanager
 async def pcex_progress(extraction, transformer, callback, *, metadata=None,
-                        with_anchored=False, with_furniture=False):
+                        with_anchored=False, with_furniture=False, with_metadata=False):
     progress = active_progress()
     if (callback is None and progress is None) or (progress is not None and progress.started):
         yield
         return
     owns = progress is None
     progress = progress or TranslationProgress(callback)
-    async with worker_context(extraction._materialize()) as paths:
-        counts, total = await IO_DOMAIN.run(scan, paths, transformer, metadata=metadata,
-                                           with_anchored=with_anchored, with_furniture=with_furniture)
-    await progress.start(counts, total)
+    async def prepare():
+        source_metadata = (await IO_DOMAIN.run(extraction._document_metadata)
+                           if with_metadata else metadata)
+        async with worker_context(extraction._materialize()) as paths:
+            counts, total = await IO_DOMAIN.run(scan, paths, transformer, metadata=source_metadata,
+                                               with_anchored=with_anchored, with_furniture=with_furniture)
+        await progress.start(counts, total)
+    await progress.attempt(prepare)
     with progress_context(progress):
         yield
-        if owns and not progress.pending_streams and all(progress.finished[kind] == count for kind, count in progress.counts.items()):
+        if owns and not progress.pending_streams:
             await progress.finish()
 
 
@@ -80,9 +84,8 @@ def report_pcex_translation(function):
     @wraps(function)
     async def wrapped(self, extraction, workspace, translator, **kwargs):
         from .narrative_xml import NarrativeXMLTransformer
-        metadata = await IO_DOMAIN.run(extraction._document_metadata)
         async with pcex_progress(extraction, NarrativeXMLTransformer(translator),
-                                 kwargs.get('on_translation_event'), metadata=metadata,
+                                 kwargs.get('on_translation_event'), with_metadata=True,
                                  with_anchored=kwargs.get('with_anchored', True),
                                  with_furniture=kwargs.get('with_furniture', False)):
             return await function(self, extraction, workspace, translator, **kwargs)

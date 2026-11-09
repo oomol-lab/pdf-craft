@@ -193,12 +193,13 @@ class ChapterExtractionTransformer:
         tasks = []
         for path in sorted((output_path / "chapters").glob("chapter*.xml")):
             chapter = decode(read_xml(path))
+            progress = active_progress()
             if isinstance(self.chapter_transformer, NarrativeXMLTransformer):
-                word_count = self.chapter_transformer.source_word_count(chapter)
+                word_count = progress.attempt_sync(self.chapter_transformer.source_word_count, chapter) if progress is not None else 0
                 has_content = self.chapter_transformer.has_translatable_content(chapter)
             else:
                 segments = list(search_text_segments(encode(chapter)))
-                word_count = count_xml_words(encode(chapter))
+                word_count = progress.attempt_sync(count_xml_words, encode(chapter)) if progress is not None else 0
                 has_content = any(segment.text.strip() for segment in segments)
             if has_content:
                 item_id: str | int = chapter.id if chapter.id is not None else "head"
@@ -206,7 +207,7 @@ class ChapterExtractionTransformer:
                     path,
                     chapter,
                     item_id,
-                    word_count,
+                    word_count or 0,
                 ))
         return tasks
 

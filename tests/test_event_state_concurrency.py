@@ -179,10 +179,13 @@ class EventStateConcurrencyTests(IsolatedAsyncioTestCase):
         progress = OperationProgress(callback, OperationKind.TRANSLATION)
         await progress.start({UnitKind.CONTENT: 1}, total_words=2)
         unit = await progress.unit(UnitKind.CONTENT, words=2)
-        results = await asyncio.gather(unit.finish(), unit.finish(), return_exceptions=True)
-        self.assertTrue(all(isinstance(error, Exception) for error in results))
+        with self.assertLogs('pdf_craft._progress', level='WARNING') as logs:
+            results = await asyncio.gather(unit.finish(), unit.finish(), return_exceptions=True)
+        self.assertEqual(results, [None, None])
+        self.assertEqual(len(logs.output), 1)
+        self.assertTrue(progress.disabled)
         self.assertEqual(calls, 1)
-        self.assertEqual(progress.finished[UnitKind.CONTENT], 0)
+        self.assertEqual(progress.finished[UnitKind.CONTENT], 1)
         self.assertEqual(progress.completed_words, 2)
 
     async def test_cancelled_completion_cannot_later_become_success(self):

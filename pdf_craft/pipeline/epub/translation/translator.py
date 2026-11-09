@@ -114,6 +114,7 @@ async def translate(
         fill_executor=fill_executor,
         cache_seed_content=f"{_get_version()}:{target_language}",
     )
+    progress = active_progress() or (TranslationProgress(on_translation_event) if on_translation_event is not None else None)
     archive: Zip | None = None
     book_metadata_context: MetadataContext | None = None
 
@@ -139,10 +140,11 @@ async def translate(
                     metadata_context=metadata_context,
                     submit=submit,
                     capture_cfi=on_body is not None or has_error_callback(),
+                    word_count=lambda element: progress.attempt_sync(count_xml_words, element) if progress is not None else None,
                 )
             from collections import Counter
-            counts, header_words, total = (scan_tasks(generate()) if on_translation_event is not None
-                                           else (Counter(), Counter(), 0))
+            totals = progress.attempt_sync(scan_tasks, generate()) if progress is not None else None
+            counts, header_words, total = totals if totals is not None else (Counter(), Counter(), 0)
             return generate(), counts, header_words, total
         except BaseException as error:
             archive.__exit__(type(error), error, error.__traceback__)
@@ -209,11 +211,9 @@ async def translate(
 
     delivery: DiskDelivery[EpubFragmentContent] | None = None
     failure: BaseException | None = None
-    progress = None
     try:
         tasks, counts, header_words, total = await ARCHIVE_DOMAIN.run(prepare)
         outer_progress = active_progress()
-        progress = outer_progress or (TranslationProgress(on_translation_event) if on_translation_event is not None else None)
         if progress is not None:
             await progress.start(counts, total)
         from ..adapter.metadata import translated_metadata_content
@@ -393,6 +393,7 @@ def _generate_tasks_from_book(
     metadata_context: MetadataContext,
     submit: SubmitKind,
     capture_cfi: bool = False,
+    word_count=count_xml_words,
 ) -> Generator[TranslationTask[_ElementContext], None, None]:
     from ....policies import FailureLocation
     from ...._policy import current
@@ -411,7 +412,7 @@ def _generate_tasks_from_book(
                 member_path=str(toc_context.toc_path), unit_id=str(index), field_path='navigation.title',
                 original=item.title) for index, item in enumerate(toc_list)),
             item_id="toc",
-            word_count=count_xml_words(element),
+            word_count=word_count(element),
         )
 
     if metadata_fields:
@@ -425,7 +426,7 @@ def _generate_tasks_from_book(
                 member_path=str(metadata_context.opf_path), unit_id=str(index), field_path=field.tag_name,
                 original=field.text) for index, field in enumerate(metadata_fields)),
             item_id="metadata",
-            word_count=count_xml_words(element),
+            word_count=word_count(element),
         )
 
     packages = spine_cfi_paths(zip) if capture_cfi else {}
@@ -459,7 +460,7 @@ def _generate_tasks_from_book(
                     member_path=str(chapter_path), unit_id='head/title', field_path='head/title',
                     original=title_element.text, media_type=media_type),),
                 item_id=f"{chapter_path}#title",
-                word_count=count_xml_words(title_wrapper),
+                word_count=word_count(title_wrapper),
             )
         if body_element is not None and any(
             segment.text.strip() for segment in search_text_segments(body_element)
@@ -485,7 +486,7 @@ def _generate_tasks_from_book(
                 ),
                 item_kind=UnitKind.CONTENT,
                 item_id=str(chapter_path),
-                word_count=count_xml_words(body_element),
+                word_count=word_count(body_element),
             )
 
 

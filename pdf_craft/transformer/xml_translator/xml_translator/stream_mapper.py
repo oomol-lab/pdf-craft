@@ -12,6 +12,7 @@ from tiktoken import Encoding
 
 from pdf_craft.transformer.xml_translator.segment import InlineSegment, TextSegment, search_inline_segments, search_text_segments
 from pdf_craft.runtime import invoke_callback
+from pdf_craft._progress import OperationProgress
 from ...request_batch import MAX_BATCH_UNITS
 from ...group_requests import GroupRequests, current_group
 import asyncio
@@ -63,7 +64,7 @@ class XMLStreamMapper:
         map: AsyncInlineSegmentGroupMap,
         window: int,
         on_mapping: Callable[[tuple[InlineSegment, list[TextSegment]]], object] | None = None,
-        track_progress: bool = False,
+        progress: OperationProgress | None = None,
         on_empty: Callable[[Element], object] | None = None,
         *, ownership=None, ordered_roots=True,
     ) -> AsyncGenerator[tuple[Element, list[InlineSegmentMapping]], None]:
@@ -149,7 +150,7 @@ class XMLStreamMapper:
         if isinstance(elements, AsyncIterable):
             async def work_items():
                 async with aclosing(self._async_groups(
-                    elements, callbacks, on_mapping is not None, track_progress,
+                    elements, callbacks, on_mapping is not None, progress,
                     on_empty is not None, ownership, expanded,
                 )) as groups:
                     async for group_batch in groups:
@@ -158,7 +159,7 @@ class XMLStreamMapper:
             results = run_async_parameters(work_items(), execute, capacity, preserve_sources=False, expand=lambda works: works, ordered=ordered_roots)
         else:
             work_items_sync = (works for group in self._split_into_serial_groups(
-                elements, callbacks, on_mapping is not None, track_progress, on_empty is not None, ownership, expanded,
+                elements, callbacks, on_mapping is not None, progress, on_empty is not None, ownership, expanded,
             ) for works in batch_works([group]))
             results = run_async_parameters(work_items_sync, execute, capacity, expand=lambda works: works)
         async with aclosing(results):
@@ -219,7 +220,7 @@ class XMLStreamMapper:
         if ordered_roots and current_element is not None:
             yield current_element, accepted(current_element, mapping_buffer)
 
-    async def _async_groups(self, elements, callbacks, track_origins, track_progress, include_empty, ownership, on_expanded):
+    async def _async_groups(self, elements, callbacks, track_origins, progress, include_empty, ownership, on_expanded):
         """Feed the same budget splitter across roots with bounded lookahead.
 
         A deadline bounds first delivery when input pauses; it is a source
@@ -260,7 +261,7 @@ class XMLStreamMapper:
                     while roots:
                         yield roots.popleft()
                 yield self._split_into_serial_groups(
-                    consume_roots(), callbacks, track_origins, track_progress, include_empty, ownership, on_expanded,
+                    consume_roots(), callbacks, track_origins, progress, include_empty, ownership, on_expanded,
                 )
         finally:
             if incoming is not None:
@@ -272,11 +273,11 @@ class XMLStreamMapper:
                 await close()
 
     def _split_into_serial_groups(self, elements: Iterable[Element], callbacks: Callbacks,
-                                  track_origins: bool = False, track_progress: bool = False,
+                                  track_origins: bool = False, progress: OperationProgress | None = None,
                                   include_empty: bool = False, ownership=None, on_expanded=None):
         def generate():
             for element in elements:
-                resources = self._expand_to_resources(element, callbacks, track_origins, track_progress, ownership, on_expanded)
+                resources = self._expand_to_resources(element, callbacks, track_origins, progress, ownership, on_expanded)
                 first = next(resources, None)
                 if first is None:
                     if include_empty:
@@ -343,18 +344,20 @@ class XMLStreamMapper:
             [r.payload[0] for r in tail],
         )
 
-    def _expand_to_resources(self, element: Element, callbacks: Callbacks, track_origins: bool = False, track_progress: bool = False, ownership=None, on_expanded=None):
+    def _expand_to_resources(self, element: Element, callbacks: Callbacks, track_origins: bool = False, progress: OperationProgress | None = None, ownership=None, on_expanded=None):
         def expand(element: Element):
             # Weights belong to original blocks, before formula/context transport
             # projection. Never count temporary tokens or prompt context.
             from ...word_count import xml_block_word_counts
-            original_blocks = {}
-            if track_progress:
+            def count_blocks():
+                counts = {}
                 for block, words in xml_block_word_counts(element):
-                    original_blocks[id(block)] = original_blocks.get(id(block), 0) + words
+                    counts[id(block)] = counts.get(id(block), 0) + words
+                return counts
+            original_blocks = progress.attempt_sync(count_blocks) or {} if progress is not None else {}
             def source_segments():
                 for text in search_text_segments(element, track_origins=track_origins):
-                    if track_progress:
+                    if progress is not None and not progress.disabled:
                         text.progress_blocks = (id(text.block_parent),)
                     yield text
             text_segments = callbacks.interrupt_source_text_segments(source_segments())

@@ -88,13 +88,17 @@ Metadata 只等所需前 N 页初级证据。操作级 COMPLETED 仍等最终产
 ## 完成与错误
 
 单元 `COMPLETED.outcome` 为 `PROCESSED`、`REUSED`、`FALLBACK` 或 `SKIPPED`。
-**只要整个方法继续执行并正常返回，所有已统计的 unit 都必须结清。** ignore、缓存、跳过、
+进度报告正常时，已规划的 unit 在实际处理边界结清。 ignore、缓存、跳过、
 保留原文、图片或占位都完成相应单元，words 也结清。重试不创建新单元，不重复累计原文。
 这些是处理事实，不是质量评分或商业计费规则。
 
 操作 `COMPLETED` 在所有单元结束且目标产物成功后发出：PDFExtractor 等 PCEX 导出成功，
 翻译 facade 等目标写入成功。一键 PDF 转换在已校验的内部 workspace 边界完成 extraction，
-随后可选翻译并渲染。异常、取消、致命服务错误和回调异常向外传播，不补造操作完成事件。
+随后可选翻译并渲染。业务异常、取消、致命服务错误和内容交付回调异常向外传播，不补造操作完成事件。
+进度是辅助观察：初始化、预扫描、计数更新、进度专用存储或两个进度回调的普通异常，
+只会停用本次报告并最多记录一次有界诊断，诊断日志失败也不影响交付。收尾预估/实际差异仅警告，
+记录各类预估、实际及差值，不否决成果、不补造事件或凑成 100%。取消继续传播；
+内容交付回调、模型/fill 验收、主业务存储与产物发布仍保留失败语义。缺少进度事件不代表转换失败。
 失败任务可能已经完成部分单元，甚至已处理全部 words。主动提前停止消费的低层内容流不报告操作完成。
 公开 XML task 在实际消费后若没有 segment，仍计一个单元，以 SKIPPED 结束，不请求模型。
 自定义 source projection 移除所有片段也遵守此规则，并结清其声明的原文 words。
@@ -165,8 +169,8 @@ counter.boundary()
 改为 `total_words`，`source_character_count` 改为 `source_word_count`。
 数值采用上面的 words 口径，不再是字符数。
 
-高级调用者直接向 `XMLTranslator.translate_elements` 提供一次性 iterator 或异步任务流且需要回调时，必须显式提供
-预统计的 `unit_counts` 和 `total_words`；未知计数在模型执行前拒绝，不能用 None 或伪 0 代替。
+高级调用者直接向 `XMLTranslator.translate_elements` 提供一次性 iterator 或异步任务流且需要回调时，应显式提供
+预统计的 `unit_counts` 和 `total_words`；缺失计数只停用报告并诊断，翻译继续，不以伪 0 代替。
 可重复遍历的同步 iterable 可以直接统计，不额外收集任务列表。高层 PCEX/PDF/EPUB 自动进行标量预扫描。
 
 移除旧高级接口的 `completed_words` 偏移及 `emit_scope_events` / `emit_item_events` 开关；启用回调即使用一致的作用域生命周期。

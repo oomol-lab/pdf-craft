@@ -1,11 +1,43 @@
 """Bounded operation accounting shared by both public event adapters."""
 import asyncio
+import inspect
+import logging
+from functools import wraps
+from concurrent.futures import CancelledError as FutureCancelledError
 from collections import Counter
-from contextlib import closing
+from contextlib import AsyncExitStack, asynccontextmanager, closing
 from types import MappingProxyType
 
 from .progress import ProgressEvent, ProgressEventKind, OperationKind, UnitKind, UnitOutcome
-from .runtime import invoke_callback
+from .runtime import invoke_callback, temporary_directory
+
+
+def isolated(function):
+    """Only for progress-only work: never wrap conversion or content delivery."""
+    if inspect.iscoroutinefunction(function):
+        @wraps(function)
+        async def asynchronous(self, *args, **kwargs):
+            owner = getattr(self, 'owner', self)
+            return await owner.attempt(function, self, *args, **kwargs)
+        return asynchronous
+
+    @wraps(function)
+    def synchronous(self, *args, **kwargs):
+        owner = getattr(self, 'owner', self)
+        return owner.attempt_sync(function, self, *args, **kwargs)
+    return synchronous
+
+
+@asynccontextmanager
+async def progress_directory(progress, prefix):
+    """Optional scratch state, separate from directories holding actual content."""
+    resources = AsyncExitStack()
+    async def prepare():
+        return await resources.enter_async_context(temporary_directory(prefix))
+    try:
+        yield await progress.attempt(prepare)
+    finally:
+        await progress.cleanup(resources.aclose)
 
 
 class OperationProgress:
@@ -21,17 +53,64 @@ class OperationProgress:
         self.completed_words = 0
         self.started = False
         self.callback_lock = asyncio.Lock()
+        self.disabled = False
+        self._diagnosed = False
+        self._finished = False
 
+    def diagnose(self, detail):
+        """At most one bounded diagnostic, even with broken logging handlers."""
+        if self._diagnosed:
+            return
+        self._diagnosed = True
+        try:
+            logging.getLogger(__name__).warning('Progress %s: %s', self.operation, detail[:2000])
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass  # Observability cannot become another delivery prerequisite.
+
+    def disable(self, error, stage='progress'):
+        self.disabled = True
+        self.diagnose(f'reporting disabled in {stage} ({type(error).__name__})')
+
+    async def attempt(self, function, *args, **kwargs):
+        if self.disabled:
+            return None
+        try:
+            return await function(*args, **kwargs)
+        except FutureCancelledError as error:
+            raise asyncio.CancelledError() from error
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            self.disable(error, getattr(function, '__qualname__', type(function).__name__))
+            return None
+
+    async def cleanup(self, function):
+        """Release progress resources even after reporting was disabled."""
+        try:
+            await function()
+        except FutureCancelledError as error:
+            raise asyncio.CancelledError() from error
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            self.disable(error)
+
+    def attempt_sync(self, function, *args, **kwargs):
+        if self.disabled:
+            return None
+        try:
+            return function(*args, **kwargs)
+        except FutureCancelledError as error:
+            raise asyncio.CancelledError() from error
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            self.disable(error, getattr(function, '__qualname__', type(function).__name__))
+            return None
+
+    @isolated
     async def emit(self, kind, **fields):
         async with self.callback_lock:
-            try:
+            if not self.disabled:
                 await invoke_callback(self.callback, ProgressEvent(
                     kind, self.operation, completed_words=self.completed_words if self.total_words is not None else None,
                     **fields))
-            except Exception as error:
-                from .policies import ErrorCallbackError
-                raise ErrorCallbackError('progress callback failed') from error
 
+    @isolated
     async def start(self, counts, total_words=None):
         if self.started:
             return
@@ -53,13 +132,18 @@ class OperationProgress:
                         total_words=words, max_stage=max_stage, unit_completed_words=0 if words is not None else None)
         return unit
 
+    @isolated
     async def finish(self):
-        if not self.started:
+        if not self.started or self._finished:
             return
-        if any(self.finished[kind] != count for kind, count in self.counts.items()):
-            raise RuntimeError('completed unit counts do not match the operation start')
-        if self.total_words is not None and self.completed_words != self.total_words:
-            raise RuntimeError('completed words do not match the operation start')
+        self._finished = True
+        if (any(self.finished[kind] != count for kind, count in self.counts.items()) or
+                (self.total_words is not None and self.completed_words != self.total_words)):
+            units = {kind.name: (count, self.finished[kind], self.finished[kind] - count)
+                     for kind, count in self.counts.items()}
+            delta = None if self.total_words is None else self.completed_words - self.total_words
+            self.diagnose(f'accounting mismatch: units(expected, actual, delta)={units}; '
+                          f'words(expected, actual, delta)=({self.total_words}, {self.completed_words}, {delta})')
         await self.emit(ProgressEventKind.COMPLETED)
 
 
@@ -79,6 +163,7 @@ class WorkUnit:
     def fields(self):
         return dict(unit_id=self.id, unit_kind=self.kind, page_index=self.page_index)
 
+    @isolated
     async def progress(self, stage=None, words=0):
         async with self._lock:
             if self._failure is not None:
@@ -103,6 +188,7 @@ class WorkUnit:
         await self.owner.emit(ProgressEventKind.PROGRESS, **self.fields(), stage=self.stage,
                               unit_completed_words=self.words if self.total_words is not None else None)
 
+    @isolated
     async def finish(self, outcome=None, *, refinement_status=None):
         async with self._lock:
             if self._failure is not None:
@@ -130,12 +216,17 @@ class DiskUnits:
     """Pending units across whole-book barriers live on disk, not in a registry."""
 
     def __init__(self, path, owner):
-        import sqlite3
         self.path, self.owner = path, owner
-        with closing(sqlite3.connect(path)) as db:
+        self._create()
+
+    @isolated
+    def _create(self):
+        import sqlite3
+        with closing(sqlite3.connect(self.path)) as db:
             with db:
                 db.execute('CREATE TABLE units (key TEXT PRIMARY KEY, state BLOB NOT NULL)')
 
+    @isolated
     def save(self, key, unit):
         import pickle
         import sqlite3
@@ -145,6 +236,7 @@ class DiskUnits:
             with db:
                 db.execute('INSERT OR REPLACE INTO units VALUES (?, ?)', (str(key), pickle.dumps(state)))
 
+    @isolated
     def load(self, key):
         import pickle
         import sqlite3
@@ -158,6 +250,7 @@ class DiskUnits:
         unit.words, unit.stage, unit.outcome, unit.closed = done, stage, outcome, closed
         return unit
 
+    @isolated
     def delete(self, key):
         import sqlite3
         with closing(sqlite3.connect(self.path)) as db:
