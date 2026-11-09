@@ -8,6 +8,7 @@ from pdf_craft.usage import UsageCollector, request_attempt, observe_tokens
 from collections.abc import Mapping
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Awaitable, Iterable, Callable, Coroutine
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
@@ -398,8 +399,16 @@ def _provider_error(error: Exception) -> OperationError:
 
 
 def _input_limit_exceeded(error: TypeSafeAPIError) -> bool:
-    return (error.status == 400 and isinstance(error.body, dict)
-            and error.body.get('error_type') == 'max_tokens_exceeded')
+    if error.status != 400:
+        return False
+    body = error.body
+    if isinstance(body, str):
+        # The SDK also exposes response bodies as text, including JSON strings on the wire.
+        try:
+            body = json.loads(body)
+        except ValueError:
+            return False
+    return isinstance(body, dict) and body.get('error_type') == 'max_tokens_exceeded'
 
 
 def _is_retryable(error: OperationError) -> bool:
