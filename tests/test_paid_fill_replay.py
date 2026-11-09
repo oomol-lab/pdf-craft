@@ -9,13 +9,20 @@ import os
 import re
 from functools import lru_cache, partial
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+from xml.etree.ElementTree import Element, SubElement, tostring, fromstring
+from zipfile import ZipFile
+import unicodedata
+from typing import cast
 from unittest import IsolatedAsyncioTestCase, skipUnless
 
-from pdf_craft.extractor.chapter.chapter import Chapter, TextFlowItem, SourceTextFragment
+from pdf_craft.extractor.chapter.chapter import Chapter, TextFlowItem, SourceTextFragment, InlineExpression, encode, decode
 from pdf_craft.transformer.canonical_math import CanonicalMath
 from pdf_craft.transformer.canonical_projection import formula_content
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.common.whitespace import normalize_whitespace
+from pdf_craft.expression import to_markdown_string
 from tests.test_canonical_math_projection import expression
 from tests.test_service_364_replay import xml_oracle
 from tests.translation_model import translator_fixture
@@ -92,6 +99,9 @@ class PaidFillReplayTests(IsolatedAsyncioTestCase):
                         self.assertTrue(0 <= start < end <= len(text))
                         formula.update(text=text[start:end], before=text[:start], after=text[end:])
                     offset += len(text)
+                if identifier in CASES[1:3]:
+                    await self.through_epub(payload, units, texts)
+                    continue
                 items = []
                 for index, source in enumerate(payload['sources']):
                     rest = source['source'].split('Text to translate:\n', 1)[-1]
@@ -107,12 +117,80 @@ class PaidFillReplayTests(IsolatedAsyncioTestCase):
                 self.assertEqual(len(target.flow_items), len(items))
                 self.assertTrue(all(not getattr(item, '_translation_missing') for item in target.flow_items))
                 self.assertEqual(len(model.wire_calls), 2, 'One artist and one complete XML reply; no JSON allocation')
-                from pdf_craft.extractor.chapter.chapter import encode
-                # Flatten rendered formula notation through the adapter, not raw
-                # PCEX itertext (whose rich math deliberately restores notation).
-                self.assertEqual(len(list(encode(target).iter('inline_expr'))), sum(len(source['formulas']) for source in payload['sources']))
-                for item, expected in zip(target.flow_items, texts):
+                self.assertEqual(decode(encode(target), allow_legacy=False), target)
+                for index, (item, expected, unit, source) in enumerate(zip(target.flow_items, texts, units, payload['sources'], strict=True)):
                     assert isinstance(item, TextFlowItem)
-                    if not any(source['formulas'] for source in payload['sources']):
-                        actual = ''.join(part for fragment in item.children for part in fragment.content if isinstance(part, str))
-                        self.assertEqual(normalize_whitespace(actual, trim=True), normalize_whitespace(expected, trim=True))
+                    fragment, = item.children
+                    assert isinstance(fragment, SourceTextFragment)
+                    self.assertEqual((fragment.page_index, fragment.source_order), (1, index))
+                    self.assertTrue(all(isinstance(part, (str, InlineExpression)) for part in fragment.content))
+                    actual = ''.join(to_markdown_string(part.kind, part.content) if isinstance(part, InlineExpression) else cast(str, part) for part in fragment.content)
+                    # All five formula-bearing original occurrences here have
+                    # identical artist/source values. This is fixture evidence,
+                    # not an inference by the production correspondence code.
+                    locations = []
+                    for formula in unit['formulas']:
+                        self.assertEqual(formula['text'], source['formulas'][formula['key']])
+                        start = len(formula['before'])
+                        self.assertEqual(expected[start:start+len(formula['text'])], formula['text'])
+                        locations.append((start, start+len(formula['text']), formula))
+                    cursor, rendered, expected_formulas = 0, [], []
+                    for start, end, formula in sorted(locations):
+                        rendered.append(expected[cursor:start])
+                        node = expression(formula_content(source['formulas'][formula['key']])[0])
+                        rendered.append(to_markdown_string(node.kind, node.content))
+                        expected_formulas.append(node)
+                        cursor = end
+                    rendered.append(expected[cursor:])
+                    self.assertEqual([part for part in fragment.content if isinstance(part, InlineExpression)], expected_formulas)
+                    self.assertEqual(normalized(actual), normalized(''.join(rendered)))
+
+    async def through_epub(self, payload, units, texts):
+        """Actual EPUB archive, chapter adoption, CFI callbacks and output XHTML."""
+        from pdf_craft import AsyncPDFCraft, SubmitKind
+        from pdf_craft.llm.runtime import LLMRuntime
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            source, output = root/'source.epub', root/'translated.epub'
+            originals = [unit['source'].split('Text to translate:\n', 1)[-1] for unit in payload['sources']]
+            with ZipFile(source, 'w') as archive:
+                archive.writestr('mimetype', 'application/epub+zip')
+                archive.writestr('META-INF/container.xml', '<container><rootfiles><rootfile full-path="EPUB/book.opf"/></rootfiles></container>')
+                manifest = ''.join(f'<item id="c{i}" href="c{i}.xhtml" media-type="application/xhtml+xml"/>' for i in range(len(originals)))
+                spine = ''.join(f'<itemref idref="c{i}"/>' for i in range(len(originals)))
+                # No translatable headers are added to the retained artist group.
+                archive.writestr('EPUB/book.opf', '<package><metadata><identifier>offline-local-replay</identifier><language>en</language></metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'+manifest+'</manifest><spine>'+spine+'</spine></package>')
+                archive.writestr('EPUB/toc.ncx', '<ncx><navMap/></ncx>')
+                for i, original in enumerate(originals):
+                    html = Element('html', xmlns='http://www.w3.org/1999/xhtml')
+                    SubElement(SubElement(html, 'body'), 'p', id=f'source-{i}').text = original
+                    archive.writestr(f'EPUB/c{i}.xhtml', tostring(html))
+            translator, model = translator_fixture(max_group_score=100000)
+            model.answer = partial(replay_answer, payload['translation'], texts, payload, units)
+            async def invoke(_runtime, messages, *args, **kwargs):
+                return await model.invoke(messages, *args, **kwargs)
+            callbacks = []
+            with patch.object(LLMRuntime, '_invoke_async', invoke):
+                await AsyncPDFCraft().translate_epub(source, output, llm=translator._translation_llm,
+                    target_language='English', submit=SubmitKind.REPLACE, window=1,
+                    max_group_tokens=100000, executor=translator._translation_runtime.executor,
+                    on_body=callbacks.append, error_policy=False)
+            self.assertEqual(len(model.wire_calls), 2)
+            self.assertEqual(len(callbacks), len(texts))
+            self.assertEqual(len({value.epubcfi for value in callbacks}), len(texts))
+            self.assertTrue(all(value.epubcfi is not None for value in callbacks))
+            self.assertEqual([normalized(value.original) for value in callbacks], [normalized(value) for value in originals])
+            self.assertEqual([normalized(value.translated) for value in callbacks], [normalized(value) for value in texts])
+            with ZipFile(output) as archive:
+                self.assertEqual(archive.read('mimetype'), b'application/epub+zip')
+                for i, expected in enumerate(texts):
+                    html = fromstring(archive.read(f'EPUB/c{i}.xhtml'))
+                    paragraph, = html.findall('.//{http://www.w3.org/1999/xhtml}p')
+                    self.assertEqual(paragraph.get('id'), f'source-{i}')
+                    self.assertEqual(normalized(''.join(paragraph.itertext())), normalized(expected))
+                    self.assertEqual(list(paragraph), [])
+                    self.assertNotIn('source-math', tostring(html, encoding='unicode'))
+
+
+def normalized(value):
+    return normalize_whitespace(unicodedata.normalize('NFD', value), trim=True)

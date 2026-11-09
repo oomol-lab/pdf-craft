@@ -14,6 +14,7 @@ class SourceMathTranslation:
         self.context = '\n\n'.join(source.latex for source in sources if source.context)
         self.values = {f's{index}': source for index, source in enumerate(self.sources, 1)}
         self.evidence = {}
+        self.blocks = {}
 
     def readable(self, segment: TextSegment) -> str:
         """Present original mathematical text without exposing engineering IDs."""
@@ -30,6 +31,7 @@ class SourceMathTranslation:
                 value = self.readable(text)
                 key = next((slots[id(node)] for node in text.parent_stack if id(node) in slots), None)
                 if key is not None:
+                    self.blocks[key] = segment
                     start, _ = spans.get(key, (offset, offset))
                     spans[key] = start, offset + len(value)
                 parts.append(value)
@@ -44,6 +46,15 @@ class SourceMathTranslation:
         for key, source in self.values.items():
             formula = SubElement(root, 'formula', key=key)
             SubElement(formula, 'value').text = source.latex
+            if key in self.blocks:
+                SubElement(formula, 'source-block').text = str(self.blocks[key].id)
             for name, value in self.evidence.get(key, {}).items():
                 SubElement(formula, name).text = value
         return encode_friendly(root)
+
+    def describe(self, key: str) -> str:
+        source = self.values[key]
+        context = self.evidence.get(key, {})
+        block = self.blocks.get(key)
+        return (f'{key}: source value {source.latex!r}, source block id={block.id if block is not None else "?"}, '
+                f'before={context.get("before", "")[-100:]!r}, after={context.get("after", "")[:100]!r}.')

@@ -31,13 +31,14 @@ class StructuredTranslation:
     def __init__(self, *, owner: Callable[[InlineSegment], Element] | None = None,
                  is_text_unit: Callable[[Element], bool] = lambda _owner: True,
                  formulas: FormulaProjection | None = None, identity: Callable[[Element], str] | None = None, context: Callable[[list[InlineSegment]], str] | None = None,
-                 record_units: bool = False):
+                 record_units: bool = False, require_nonempty_units: bool = False):
         self.owner = owner
         self.identity = identity
         self.is_text_unit = is_text_unit
         self.formulas = formulas
         self.context = context
         self._record_units = record_units
+        self.require_nonempty_units = require_nonempty_units
         self.validated_text_units: set[str] = set()
         self.projected_math_units: set[str] = set()
 
@@ -105,6 +106,24 @@ class StructuredTranslation:
                                         transparent_tags=frozenset({'source-math'}),
                                         formatting_tags=frozenset({'expression'}),
                                         virtual_roots=frozenset(separators)):
+            if self.require_nonempty_units:
+                by_owner = {}
+                for segment in segments:
+                    owner = self.unit(segment)
+                    entry = by_owner.setdefault(id(owner), [owner, [], []])
+                    entry[1].append(segment)
+                    entry[2].append(next(node for node in response if element_id(node) == segment.id))
+                for owner, parts, slots in by_owner.values():
+                    # Only judge complete source units in this group; a partial
+                    # long owner may legitimately be empty in one of its rounds.
+                    source = ''.join(part.text for segment in parts for part in segment)
+                    from ..common.whitespace import normalize_whitespace
+                    if (normalize_whitespace(source, trim=True)
+                            and normalize_whitespace(source, trim=True) == normalize_whitespace(''.join(owner.itertext()), trim=True)
+                            and not normalize_whitespace(''.join(''.join(slot.itertext()) for slot in slots), trim=True)):
+                        return (f'Nonempty source <{owner.tag}> must receive its own translated content. '
+                                f'Empty XML block ids={[slot.get("id") for slot in slots]}. '
+                                'Redistribute the same complete artist translation by semantic source ownership; do not invent text or retranslate.')
             original_response[:] = list(response)
             return None
         return canonical_difference(canonical, filled)

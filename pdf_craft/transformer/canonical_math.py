@@ -66,15 +66,19 @@ class CanonicalMath:
         the entire expanded text against canonical: it admits mixed literal and
         reference spellings, never missing or duplicate mathematical content.
         """
+        # With full-text validation, references are immutable VALUE shortcuts.
+        # Reusing one cannot change accepted text: the complete artist stream
+        # must still match, and independent source-math identities remain unique.
         references = [node for node in root.iter() if node.tag == _REFERENCE_TAG]
         if not references:
             return None
         seen = set()
         for node in references:
             key = node.get('key')
-            if (set(node.attrib) != {'key'} or key not in self.values
-                    or key in seen or len(node) or node.text):
-                return 'Invalid canonical math reference: use each known key once as an empty <math-ref key="mN"/>.'
+            if set(node.attrib) != {'key'} or key not in self.values or len(node) or node.text:
+                return f'Invalid math-ref key={key!r}: use a known key as an empty <math-ref key="mN"/>. Found attributes={node.attrib}, children={[child.tag for child in node]}, text={node.text!r}.'
+            if key in seen and require_complete:
+                return f'Duplicate canonical math reference {key}: use each occurrence once.'
             seen.add(key)
         missing = self.values.keys() - seen
         if missing and require_complete:

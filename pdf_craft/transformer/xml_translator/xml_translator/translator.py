@@ -117,7 +117,7 @@ class XMLTranslator:
             protocol_version="free-translation-v2",
         )
         self._fill_runtime = runtime_for(
-            fill_llm, fill_executor, protocol_version="xml-fill-group-v4",
+            fill_llm, fill_executor, protocol_version="xml-fill-group-v5",
         )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
@@ -501,6 +501,7 @@ class XMLTranslator:
                  translation_protocol.project_math(mappings, canonical, math, response, primary))
                 if translation_protocol is not None else None),
             source_math=source_math,
+            require_nonempty_units=bool(translation_protocol and translation_protocol.require_nonempty_units),
             allow_direct_fill=(translation_protocol is not None
                                and translation_protocol.is_text_unit(translation_protocol.unit(primary[0]))),
         )
@@ -524,6 +525,7 @@ class XMLTranslator:
         source_context: str = '',
         canonical_math_projector: CanonicalMathProjector | None = None,
         source_math: SourceMathTranslation | None = None,
+        require_nonempty_units: bool = False,
         allow_direct_fill: bool = False,
     ) -> list[InlineSegmentMapping | None]:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
@@ -574,6 +576,7 @@ class XMLTranslator:
                 ),
                 canonical_math_projector=canonical_math_projector,
                 allow_direct_fill=allow_direct_fill, source_math=source_math,
+                require_nonempty_units=require_nonempty_units,
             )
         except Exception as error:
             await recover(error, FailureCategory.FILL, 'xml_fill', 'omit_translation',
@@ -621,6 +624,7 @@ class XMLTranslator:
         canonical_text_validator: Callable[[Element, str], str | None] | None = None,
         failure_locations: tuple = (),
         canonical_math_projector: CanonicalMathProjector | None = None,
+        require_nonempty_units: bool = False,
         allow_direct_fill: bool = False,
         source_math: SourceMathTranslation | None = None,
     ) -> list[InlineSegmentMapping | None] | None:
@@ -659,8 +663,8 @@ class XMLTranslator:
             source_text=source_text, xml_template=encode_friendly(hill_climbing.request_element()),
             translated_text=canonical_math.encode() if canonical_math is not None else translated_text,
             math_instructions=canonical_math.instructions() if canonical_math is not None else '',
-            source_formulas=source_math.encode() if source_math is not None else '')
-        canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render()
+            source_formulas=source_math.encode() if source_math is not None else encode_friendly(Element('source-formulas')))
+        canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render(has_source_math=bool(getattr(source_math, 'values', {})), require_nonempty_units=require_nonempty_units)
                                   if canonical_math is not None else '')
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [

@@ -8,12 +8,22 @@ rewrite, summarize, translate again or omit text. Every required block and
 formatting ID must occur exactly once. IDs select source ownership; do not
 assign by array position. Keep required empty formatting slots when necessary.
 
+{% if require_nonempty_units %}
+DELIVERY CONSTRAINT: every nonempty source block needs its own translated content.
+Do not put the whole group translation in one section and leave other nonempty
+source sections empty. Allocate by semantic source ownership, preserving every
+artist word. Empty inner formatting tags remain permitted.
+{% endif %}
+
+{% if has_source_math %}
 Source formula identities are independent of formatting expression slots.
 For EVERY key in source-formulas, wrap its corresponding translated span in
 <source-math key="sN">exact translated content</source-math> exactly once.
 This tag is an allowed engineering annotation inside an existing text slot;
-it is removed before structural adoption. It may contain one math-ref or exact
-literal text, without other document tags. It does not replace or create a
+it is removed before structural adoption, retaining any existing formatting
+nodes it wraps. Source-math annotations must never overlap or nest inside each
+other. It may contain one math-ref or exact literal text, including existing
+expression formatting. It does not replace or create a
 required expression slot. Keep required expression slots (empty when needed).
 Choose the identity by semantic meaning, not source order or physical slot.
 If two source formulas have identical values, their keys still differ.
@@ -25,9 +35,36 @@ Additional artist mathematics remains literal without inventing a source key.
 Keep code and mathematical whitespace exact; the caller normalizes ordinary
 Unicode spaces and padding and recovers unambiguous word boundaries.
 
+{% else %}
+No source formula identities exist in this group. Do NOT add source-math tags
+or invent sN keys for ordinary numbers or mathematical text. Fill the artist
+text directly into the required document structure.
+{% endif %}
+
 formula_context is read-only display-equation background. Keep its required tags
 but leave all its text and children empty; it is not part of the artist translation.
 Source expression slots are NOT independent mathematical boundaries. A complete
 artist formula can contain several source-math annotations for its component
 identities. Keep delimiters outside those component annotations; assign every
 source identity once without swallowing additional artist content.
+
+
+{% if has_source_math %}
+MERGED FORMULAS (important): source identities and artist math references have
+DIFFERENT purposes. One artist formula can cover several source identities.
+Example source s1 is \(x=\), source s2 is \(y\), artist m1 is \(x=y\).
+Do NOT duplicate m1 for both s1 and s2. Do NOT omit s2. Do NOT write two new
+pairs of delimiters. Instead copy the artist's single formula literally:
+<expression id="2">\(<source-math key="s1">x=</source-math><source-math key="s2">y</source-math>\)</expression><expression id="3"/>
+The required expression containers are formatting; an empty one is valid.
+This keeps the ONE artist formula and both source identities exactly once.
+If a formula is split across existing expression tags, its single source-math
+annotation may wrap those tags, provided no other source identity is inside it.
+
+{% endif %}
+
+On feedback, edit the named block/key and return the ENTIRE corrected XML.
+Preserve every other block and every word from the original translation.
+For a missing word gap next to an empty ref, put the space explicitly in its
+surrounding text or tail; an empty ref itself must remain empty. For example,
+"frame). From" can be represented by "frame).<ref/> From", not "frame).<ref/>From".

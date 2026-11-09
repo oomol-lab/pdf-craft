@@ -27,26 +27,38 @@ def binding_spans(root: Element, math) -> dict[int, list[Binding]]:
     result = {}
     def block_spans(block):
         offset, bindings = 0, []
-        def walk(node):
+        def walk(node, inside_binding=False):
             nonlocal offset
             start = offset
+            binding = node.tag == BINDING_TAG
+            key = node.get('key')
+            location = f'XML block id={block.get("id")}, source-math key={key!r}'
+            if binding:
+                if inside_binding:
+                    raise MathProjectionError(f'{location}: source identity spans overlap. Use adjacent source-math tags, not nested identities.')
+                if set(node.attrib) != {'key'}:
+                    raise MathProjectionError(f'{location}: only the key attribute is allowed; found {sorted(node.attrib)}.')
+                if key not in values:
+                    raise MathProjectionError(f'{location}: unknown source identity. Required keys: {list(values)}. '
+                                              'Unwrap an invented annotation while retaining its exact text and formatting; do not invent source keys for ordinary numerals.')
+                if key in seen:
+                    raise MathProjectionError(f'{location}: duplicate source identity. Keep its semantic occurrence once; every other source needs its own key.')
+                seen.add(key)
             offset += len(node.text or '')
             for child in node:
-                walk(child)
+                walk(child, inside_binding or binding)
                 offset += len(child.tail or '')
-            if node.tag == BINDING_TAG:
-                key = node.get('key')
-                if set(node.attrib) != {'key'} or key not in values or key in seen or len(node) or not node.text:
-                    raise MathProjectionError('Each source-math must contain exact translated text and one known, unique key.')
-                seen.add(key)
-                text = node.text
+            if binding:
+                # An annotation can wrap existing formatting. Unwrapping it
+                # retains those exact nodes for ordinary template validation.
+                text = ''.join(node.itertext())
                 left, right = 0, len(text)
                 while left < right and is_whitespace(text[left]):
                     left += 1
                 while right > left and is_whitespace(text[right-1]):
                     right -= 1
                 if left == right:
-                    raise MathProjectionError('A source formula must have a nonempty translated value.')
+                    raise MathProjectionError(f'{location}: empty translated value. Wrap the corresponding existing artist text; do not copy source padding.')
                 bindings.append(Binding(start + left, start + right, values[key], text[left:right]))
         walk(block)
         return sorted(bindings, key=lambda item: item.start)
@@ -60,8 +72,14 @@ def binding_spans(root: Element, math) -> dict[int, list[Binding]]:
                 raise MathProjectionError('Keep the required block ID around source formulas.') from error
             result[identifier] = bindings
     if seen != values.keys():
-        raise MathProjectionError(f'Missing formula source identities: {sorted(values.keys()-seen)}. '
-                                  'Wrap each corresponding translated span in source-math with its source key exactly once.')
+        missing = [key for key in values if key not in seen]
+        details = [math.describe(key) for key in missing[:6]]
+        raise MathProjectionError(f'Missing formula source identities: {sorted(missing)}. '
+                                  + ' '.join(details) +
+                                  ' Bind each missing key to its translated semantic span once. '
+                                  'If the artist merged source formulas, write ONE literal complete artist formula with adjacent source-math annotations INSIDE its delimiters; '
+                                  'a whole math-ref cannot represent two independent source keys. Never duplicate the whole reference or split the artist delimiters. '
+                                  'Keep the other required expression containers empty. Do not add source text to the artist translation.')
     return result
 
 
@@ -72,11 +90,20 @@ def strip_bindings(root: Element) -> Element:
         for child in list(parent):
             walk(child)
             if child.tag == BINDING_TAG:
-                text = (child.text or '') + (child.tail or '')
                 if previous is None:
-                    parent.text = (parent.text or '') + text
+                    parent.text = (parent.text or '') + (child.text or '')
                 else:
-                    previous.tail = (previous.tail or '') + text
+                    previous.tail = (previous.tail or '') + (child.text or '')
+                index = list(parent).index(child)
+                for nested in list(child):
+                    child.remove(nested)
+                    parent.insert(index, nested)
+                    previous = nested
+                    index += 1
+                if previous is None:
+                    parent.text = (parent.text or '') + (child.tail or '')
+                else:
+                    previous.tail = (previous.tail or '') + (child.tail or '')
                 parent.remove(child)
             else:
                 previous = child

@@ -29,7 +29,9 @@ PDF_CRAFT_PAID_FILL_FIXTURES=/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft
 ```
 
 此命令使用原始来源文本和完整译文重建工程局部，每组只允许 1 次艺术家调用和
-1 次完整 XML 工程回答。仅在测试中从旧证据准备参考 XML，生产路径不接受旧 JSON。
+1 次完整 XML 工程回答。两个 EPUB 局部走真实 EPUB 归档、章节回填、CFI 回调并核对
+导出的各 XHTML 内容与身份；公式组逐单元比对完整渲染文本、公式顺序和值及来源位置。
+仅在测试中从旧证据准备参考 XML，生产路径不接受旧 JSON。
 
 `test_single_xml_fill.py` 还包含公开裁切的段落空白/重复来源条件；旧 JSON 回答
 只作为失败来源证据，新模型替身返回完整 XML，不再尝试修补旧分配协议。

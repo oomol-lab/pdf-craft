@@ -5,7 +5,7 @@ import unicodedata
 from typing import NamedTuple
 from xml.etree.ElementTree import Element
 
-from ..common.whitespace import is_whitespace
+from ..common.whitespace import is_whitespace, normalize_whitespace
 from .whitespace import WhiteSpace, collapses_breaks, mode_for, normalize
 from .xml_translator.xml.matching import element_id, match_children
 
@@ -260,7 +260,32 @@ def canonical_difference(canonical: str, blocks: list[Element]) -> str:
                   f' Expected {expected[max(0, left-40):min(right+80, left+500)]!r}.'
                   f' Received {actual[max(0, start-40):min(end+80, start+500)]!r}.')
     else:
-        detail = ' Characters match, but whitespace ownership or protected code/TeX gaps are ambiguous.'
+        old = normalize_whitespace(unicodedata.normalize('NFD', canonical), trim=True)
+        new = normalize_whitespace(unicodedata.normalize('NFD', ''.join(''.join(block.itertext()) for block in blocks)), trim=True)
+        expected_gaps, actual_gaps = _gaps(old), _gaps(new)
+        positions = sorted(position for position in expected_gaps.keys() | actual_gaps.keys()
+                           if expected_gaps[position] != actual_gaps[position])
+        if positions:
+            position = positions[0]
+            cursor, locations = 0, []
+            def fields(node):
+                yield node, 'text', node.text or ''
+                for child in node:
+                    yield from fields(child)
+                    yield child, 'tail', child.tail or ''
+            for block in blocks:
+                for node, field, value in fields(block):
+                    end = cursor + len(visible(unicodedata.normalize('NFD', value)))
+                    if cursor <= position <= end:
+                        locations.append(f'block {block.get("id", "separator")}: <{node.tag} id={node.get("id", "none")}>.{field}={value[:90]!r}')
+                    cursor = end
+            detail = (f' Whitespace difference at non-whitespace offset {position}: '
+                      f'expected gap {expected_gaps[position]!r}, received {actual_gaps[position]!r}.'
+                      f' Text near boundary: {expected[max(0, position-60):position]!r} | {expected[position:position+90]!r}.'
+                      f' Candidate fields: {"; ".join(locations[:8])}.'
+                      ' Put the gap explicitly in the correct surrounding text/tail, outside empty reference or anchor tags.')
+        else:
+            detail = ' Characters match, but whitespace ownership or protected code/TeX gaps are ambiguous. Preserve protected gaps and keep visible spaces outside empty structural tokens.'
     return ('Visible text differs from the canonical translation after whitespace normalization.'
             f' Missing {missing}, added {added} non-whitespace characters.'
             + detail + ' Fill the complete XML from the same original translation; do not rewrite it.')
