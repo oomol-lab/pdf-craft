@@ -47,6 +47,7 @@ def deduplicate_objects(writer):
 def append_windows(writer, composed, source_reader):
     """Read each contiguous window once and release it after cloning its pages."""
     from pypdf import PdfReader
+    from .visual_base import add_page_without_annotations
 
     def window_path(index):
         entry = composed.get(index)
@@ -55,7 +56,7 @@ def append_windows(writer, composed, source_reader):
     for path, indexes in groupby(range(1, len(source_reader.pages) + 1), window_path):
         if path is None:
             for index in indexes:
-                writer.add_page(source_reader.pages[index - 1], excluded_keys=("/Annots",))
+                add_page_without_annotations(writer, source_reader.pages[index - 1])
             continue
         with path.open('rb') as stream, PdfReader(stream) as reader:
             for index in indexes:

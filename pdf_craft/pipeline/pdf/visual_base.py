@@ -102,21 +102,13 @@ def write_annotation_free_copy(reader: Any, target_path: Path) -> None:
     for page in reader.pages:
         # Exclude graph edges before cloning: deleting them afterwards leaves
         # their target pages/resources in the writer and pays the cloning cost.
-        writer.add_page(page, excluded_keys=("/Annots", "/AA", "/B"))
+        add_page_without_annotations(writer, page, visual_only=True)
         target_page: Any = writer.pages[-1]
         visual_stamps = ArrayObject(
-            annotation.clone(writer, ignore_fields=("/P",))
+            _clone_annotation(annotation, writer, {}, {}, None, {})
             for annotation in _annotation_items(page.get("/Annots"))
             if _is_full_page_visual_stamp(annotation, page)
         )
-        # These page-level entries can trigger actions or article navigation.
-        # They are not Annotation objects and must not survive in the visual
-        # base. The writer starts a new document root, so catalog-level actions
-        # and outlines are not inherited either.
-        for key in ("/AA", "/B"):
-            name = NameObject(key)
-            if name in target_page:
-                del target_page[name]
         annots_name = NameObject("/Annots")
         if visual_stamps:
             target_page[annots_name] = visual_stamps  # pylint: disable=unsupported-assignment-operation
@@ -127,6 +119,63 @@ def write_annotation_free_copy(reader: Any, target_path: Path) -> None:
         compress_streams(writer)
         deduplicate_objects(writer)
         writer.write(output)
+
+
+def add_page_without_annotations(writer: Any, page: Any, *, visual_only: bool = False) -> Any:
+    """Cut page-level interaction edges before pypdf traverses the object graph.
+
+    Never pass these names as recursive exclusions: they can also name images,
+    fonts or other resources. Clone retained values before adding the page, so
+    pypdf's own recursive /Parent exclusion cannot strip nested resources either.
+    """
+    from pypdf import PageObject
+
+    detached: Any = PageObject()
+    detached.pdf = page.pdf
+    excluded = {"/Annots", "/Parent", "/StructParents"}
+    if visual_only:
+        excluded.update(("/AA", "/B"))
+    for key, value in page.items():
+        if key not in excluded:
+            detached[key] = _clone_field_value(value, writer)
+    # An object already owned by this writer bypasses add_page's recursive clone.
+    _annotation_reference(writer, detached)
+    target = writer.add_page(detached)
+    target.pdf = None  # Match cloned PageObject ownership; do not retain the source reader.
+    return target
+
+
+def _clone_annotation(
+    annotation: Any, writer: Any, memo: dict[Any, Any],
+    target_pages: dict[tuple[int, int], Any],
+    names: dict[str, Any] | None, action_memo: dict[Any, Any],
+) -> Any:
+    """Clone annotation relationships, keeping their page/form edges out of clone()."""
+    from pypdf.generic import DictionaryObject, NameObject
+
+    key = _object_key(annotation)
+    if key in memo:
+        return memo[key]
+    source = _dereference(annotation)
+    target = DictionaryObject()
+    reference = _annotation_reference(writer, target)
+    memo[key] = reference
+    relations = {"/Popup", "/IRT"}
+    if source.get("/Subtype") == "/Popup":
+        relations.add("/Parent")
+    excluded = {"/P", "/Dest", "/A", "/AA"} | relations
+    if _is_widget(source):
+        excluded.update(("/Parent", "/Kids"))
+    for name, value in source.items():
+        if name not in excluded:
+            target[name] = _clone_field_value(value, writer)
+    for name in relations:
+        if name in source:
+            target[NameObject(name)] = _clone_annotation(
+                source.raw_get(name), writer, memo, target_pages, names, action_memo,
+            )
+    _restore_annotation_actions(source, target, writer, target_pages, names, action_memo)
+    return reference
 
 
 def _annotation_items(annotations: Any | None) -> tuple[Any, ...]:
@@ -182,8 +231,8 @@ def reattach_annotations(
     """Attach every source Annotation to its corresponding output page.
 
     Annotation dictionaries are cloned into the new document only after all
-    visual, erase, and translation layers have been composed.  Ignoring ``/P``
-    while cloning prevents the source page (and its selectable text) from
+    visual, erase, and translation layers have been composed. Cutting ``/P``
+    at each annotation boundary prevents the source page (and its selectable text) from
     being pulled into the output through a back-reference.  The relevant
     annotation graph then receives the new page reference.
     """
@@ -202,6 +251,8 @@ def reattach_annotations(
 
     selected_indexes = set(page_indexes) if page_indexes is not None else set(range(1, len(writer.pages) + 1))
     lifted_widgets: dict[tuple[str, int, int], tuple[Any, Any]] = {}
+    annotation_memo: dict[Any, Any] = {}
+    action_memo: dict[Any, Any] = {}
     for index, (target_page, source_annotations) in enumerate(
         zip(writer.pages, annotation_pages, strict=True), 1,
     ):
@@ -217,17 +268,9 @@ def reattach_annotations(
             raise RuntimeError("output page has no indirect reference")
         copied_annotations = ArrayObject()
         for source_annotation in source_annotations:
-            ignored_fields = ("/P", "/Dest", "/A", "/AA")
-            if _is_widget(source_annotation):
-                # A Widget /Parent starts its AcroForm field tree, which is
-                # rebuilt selectively below. Other Annotation /Parent links
-                # (notably Popup → Text) are annotation relationships and
-                # must remain intact.
-                ignored_fields += ("/Parent", "/Kids")
-            cloned = source_annotation.clone(writer, ignore_fields=ignored_fields)
-            reference = _annotation_reference(writer, cloned)
-            _restore_annotation_actions(
-                source_annotation, reference, writer, target_pages, source_named_destinations,
+            reference = _clone_annotation(
+                source_annotation, writer, annotation_memo, target_pages,
+                source_named_destinations, action_memo,
             )
             _rebind_annotation_page(reference, page_reference)
             if _is_widget(source_annotation):
@@ -236,7 +279,7 @@ def reattach_annotations(
         target_page[NameObject("/Annots")] = copied_annotations
     if source_acroform is not None and lifted_widgets:
         _reattach_acroform(
-            writer, source_acroform, target_pages, source_named_destinations, lifted_widgets,
+            writer, source_acroform, target_pages, source_named_destinations, lifted_widgets, action_memo,
         )
 
 
@@ -258,6 +301,7 @@ def _reattach_acroform(
     target_pages: dict[tuple[int, int], Any],
     source_named_destinations: dict[str, Any] | None,
     lifted_widgets: dict[tuple[str, int, int], tuple[Any, Any]],
+    action_memo: dict[Any, Any],
 ) -> None:
     """Rebuild only the form ancestry required by lifted Widget Annotations.
 
@@ -279,7 +323,7 @@ def _reattach_acroform(
         target = _copy_field_without_structure(field_source, writer)
         target_fields[key] = writer._add_object(target)  # pylint: disable=protected-access
         _restore_annotation_actions(
-            field_source, target, writer, target_pages, source_named_destinations,
+            field_source, target, writer, target_pages, source_named_destinations, action_memo,
         )
 
     for widget_key, (_source_widget, widget_reference) in lifted_widgets.items():
@@ -463,6 +507,7 @@ def _restore_annotation_actions(
     writer: Any,
     target_pages: dict[tuple[int, int], Any],
     source_named_destinations: dict[str, Any] | None,
+    action_memo: dict[Any, Any],
 ) -> None:
     """Restore Annotation destinations without retaining source page objects."""
     from pypdf.generic import DictionaryObject, NameObject
@@ -479,13 +524,13 @@ def _restore_annotation_actions(
             target[NameObject("/Dest")] = destination
     if "/A" in source:
         action = _clone_action(
-            source.raw_get("/A"), writer, target_pages, source_named_destinations,
+            source.raw_get("/A"), writer, target_pages, source_named_destinations, action_memo,
         )
         if action is not None:
             target[NameObject("/A")] = action
     if "/AA" in source:
         target[NameObject("/AA")] = _clone_additional_actions(
-            source.raw_get("/AA"), writer, target_pages, source_named_destinations,
+            source.raw_get("/AA"), writer, target_pages, source_named_destinations, action_memo,
         )
 
 
@@ -494,6 +539,7 @@ def _clone_additional_actions(
     writer: Any,
     target_pages: dict[tuple[int, int], Any],
     source_named_destinations: dict[str, Any] | None,
+    action_memo: dict[Any, Any],
 ) -> Any:
     """Clone an Annotation's additional action dictionary without old page refs."""
     from pypdf.generic import DictionaryObject, NameObject
@@ -504,7 +550,7 @@ def _clone_additional_actions(
     cloned = DictionaryObject()
     for key, action in source.items():
         restored = _clone_action(
-            action, writer, target_pages, source_named_destinations,
+            action, writer, target_pages, source_named_destinations, action_memo,
         )
         if restored is not None:
             cloned[NameObject(key)] = restored
@@ -516,6 +562,7 @@ def _clone_action(
     writer: Any,
     target_pages: dict[tuple[int, int], Any],
     source_named_destinations: dict[str, Any] | None,
+    action_memo: dict[Any, Any],
 ) -> Any:
     """Clone an action, remapping a GoTo destination when it names a source page."""
     from pypdf.generic import DictionaryObject, NameObject
@@ -523,16 +570,41 @@ def _clone_action(
     source = source_action.get_object() if hasattr(source_action, "get_object") else source_action
     if not isinstance(source, DictionaryObject):
         return source.clone(writer) if hasattr(source, "clone") else source
-    cloned = source.clone(writer, ignore_fields=("/D",))
-    cloned_reference = _annotation_reference(writer, cloned)
-    cloned_object = cloned_reference.get_object()
+    key = _object_key(source_action)
+    if key in action_memo:
+        return action_memo[key]
+    # Resolve the current destination before allocating a placeholder. Invalid
+    # actions must never import the source page tree, including through /Next.
+    destination = None
     if "/D" in source:
         names = source_named_destinations if str(source.get("/S", "")) == "/GoTo" else None
         destination = _clone_destination(source.raw_get("/D"), writer, target_pages, names)
-        if destination is not None:
-            cloned_object[NameObject("/D")] = destination
-        else:
+        if destination is None:
+            action_memo[key] = None
             return None
+    cloned_object = DictionaryObject()
+    cloned_reference = _annotation_reference(writer, cloned_object)
+    action_memo[key] = cloned_reference
+    for name, value in source.items():
+        if name not in ("/D", "/Next"):
+            cloned_object[name] = _clone_field_value(value, writer)
+    if destination is not None:
+        cloned_object[NameObject("/D")] = destination
+    if "/Next" in source:
+        from pypdf.generic import ArrayObject
+
+        following = _dereference(source.raw_get("/Next"))
+        if isinstance(following, ArrayObject):
+            actions = ArrayObject()
+            for action in following:
+                restored = _clone_action(action, writer, target_pages, source_named_destinations, action_memo)
+                if restored is not None:
+                    actions.append(restored)
+            cloned_object[NameObject("/Next")] = actions
+        else:
+            restored = _clone_action(following, writer, target_pages, source_named_destinations, action_memo)
+            if restored is not None:
+                cloned_object[NameObject("/Next")] = restored
     return cloned_reference
 
 

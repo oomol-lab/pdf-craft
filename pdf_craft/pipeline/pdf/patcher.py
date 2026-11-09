@@ -40,7 +40,7 @@ from .text_layout import (
 
 _LOGGER = logging.getLogger(__name__)
 from .visual_base import (
-    extract_annotations, reattach_annotations,
+    add_page_without_annotations, extract_annotations, reattach_annotations,
     VisualBaseCompiler, write_annotation_free_copy,
 )
 
@@ -355,7 +355,7 @@ class PDFPatcher:
                 else:
                     output = writer
                     for index in range(next_page_index, window.first_page_index):
-                        writer.add_page(source_reader.pages[index - 1], excluded_keys=("/Annots",))
+                        add_page_without_annotations(writer, source_reader.pages[index - 1])
                 self._compose_window(
                     pypdf, canvas, source_path, source_reader, reader, output, root,
                     page_sizes, window, target_page_indexes, error_policy, failed_page_indexes,
@@ -371,7 +371,7 @@ class PDFPatcher:
                 append_windows(writer, composed, source_reader)
             else:
                 for index in range(next_page_index, len(reader.pages) + 1):
-                    writer.add_page(source_reader.pages[index - 1], excluded_keys=("/Annots",))
+                    add_page_without_annotations(writer, source_reader.pages[index - 1])
             self._failed_page_indexes = tuple(sorted(failed_page_indexes))
             # A paragraph is accepted only if all of its pages survived. Small
             # auxiliary successes must never conceal total primary failure.
@@ -457,10 +457,10 @@ class PDFPatcher:
         try:
             for index in range(window.first_page_index, window.last_page_index + 1):
                 if index not in target_page_indexes:
-                    writer.add_page(source_reader.pages[index - 1], excluded_keys=("/Annots",))
+                    add_page_without_annotations(writer, source_reader.pages[index - 1])
                     continue
                 if index in failed_page_indexes:
-                    writer.add_page(source_reader.pages[index - 1], excluded_keys=("/Annots",))
+                    add_page_without_annotations(writer, source_reader.pages[index - 1])
                     continue
                 try:
                     # Keep merged content out of the long-lived visual reader.
@@ -516,7 +516,7 @@ class PDFPatcher:
                         if any(region.page_index == index for region in summary.replacement.source_regions())), stage="page_compose"):
                         raise
                     record_page_failure(index, error)
-                    writer.add_page(source_reader.pages[index - 1], excluded_keys=("/Annots",))
+                    add_page_without_annotations(writer, source_reader.pages[index - 1])
             if preview is not None:
                 from .feed import write_record
                 assert self._preview_path is not None
