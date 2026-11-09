@@ -2,7 +2,6 @@
 """Engineering allocation of an immutable, free-form group translation."""
 import json
 from collections import Counter
-from xml.etree.ElementTree import tostring
 
 from ..llm import Message, MessageRole
 from ..llm.loop import ProtocolRetry, ProtocolSuccess, RepairLoopOptions, run_repair_loop
@@ -11,6 +10,7 @@ from ..policies import RetryScope
 from .allocation_text import allocation_difference, recover_allocation_text, translated_math_targets, translated_math_evidence
 from .allocation_math import allocate_math
 from .allocation_boundaries import expand_boundaries
+from .xml_translator.xml.friendly import encode_friendly
 
 
 class AllocationFillError(ValueError):
@@ -107,7 +107,7 @@ async def fill_translation_group(runtime, calls, raw):
                     formula_context=call.source_math.evidence if call.source_math is not None else {},
                     formulas={key: value.latex for key, value in call.source_math.values.items()}
                     if call.source_math is not None else {},
-                    formula_nodes={key: tostring(value.element, encoding='unicode')
+                    formula_nodes={key: encode_friendly(value.element, preserve_whitespace=True)
                                    for key, value in call.source_math.values.items()}
                     if call.source_math is not None else {}) for index, call in enumerate(calls)]
     messages = [Message(MessageRole.SYSTEM, (await runtime.template('allocate')).render()),

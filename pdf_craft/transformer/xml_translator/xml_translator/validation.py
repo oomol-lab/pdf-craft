@@ -20,7 +20,7 @@ from pdf_craft.transformer.xml_translator.segment import (
     InlineWrongTagCountError,
 )
 from ..utils import ensure_list
-from pdf_craft.transformer.xml_translator.xml import plain_text
+from pdf_craft.transformer.xml_translator.xml import plain_text, encode_friendly
 
 _LEVEL_WEIGHT = 3
 _MAX_TEXT_HINT_TOKENS_COUNT = 6
@@ -298,15 +298,15 @@ def _format_block_error(error: BlockError | FoundInvalidIDError) -> str:
     if isinstance(error, BlockWrongTagError):
         if error.block is None:
             return (
-                f"Root tag mismatch: expected `<{error.expected_tag}>`, but found `<{error.instead_tag}>`. "
-                f"Fix: Change the root tag to `<{error.expected_tag}>`."
+                f"Root tag mismatch: expected `{_xml_hint(error.expected_tag)}`, but found `{_xml_hint(error.instead_tag)}`. "
+                f"Fix: Change the root tag to `{_xml_hint(error.expected_tag)}`."
             )
         else:
             return (
                 f"Wrong tag for block at `{error.instead_tag}#{error.block[0]}`: "
-                f'expected `<{error.expected_tag} id="{error.block[0]}">`, '
-                f'but found `<{error.instead_tag} id="{error.block[0]}">`. '
-                f"Fix: Change the tag to `<{error.expected_tag}>`."
+                f'expected `{_xml_hint(error.expected_tag, error.block[0])}`, '
+                f'but found `{_xml_hint(error.instead_tag, error.block[0])}`. '
+                f"Fix: Change the tag to `{_xml_hint(error.expected_tag)}`."
             )
     elif isinstance(error, BlockExpectedIDsError):
         # Add context hints with original text content
@@ -316,13 +316,13 @@ def _format_block_error(error: BlockError | FoundInvalidIDError) -> str:
             if original_text:
                 # Truncate to first 30 chars for block-level hints
                 text_preview = original_text[:30] + "..." if len(original_text) > 30 else original_text
-                context_hints.append(f'  - `<{elem.tag} id="{id}">`: "{text_preview}"')
+                context_hints.append(f'  - `{_xml_hint(elem.tag, id)}`: "{text_preview}"')
 
         if context_hints:
             message = "Missing block elements (find translation and wrap):\n" + "\n".join(context_hints)
         else:
             # Fallback if no text hints available
-            missing_elements = [f'<{elem.tag} id="{id}">' for id, elem in sorted(error.id2element.items())]
+            missing_elements = [_xml_hint(elem.tag, id) for id, elem in sorted(error.id2element.items())]
             elements_str = ", ".join(missing_elements)
             message = f"Missing expected blocks: {elements_str}. Fix: Add these missing blocks with the correct IDs."
 
@@ -336,9 +336,9 @@ def _format_block_error(error: BlockError | FoundInvalidIDError) -> str:
         if error.reason is not None:
             return error.reason
         if error.invalid_id is None:
-            example = f"<{error.element.tag}>"
+            example = _xml_hint(error.element.tag)
         else:
-            example = f'<{error.element.tag} id="{error.invalid_id}">'
+            example = _xml_hint(error.element.tag, error.invalid_id)
         return f"Invalid or missing ID attribute: {example}. Fix: Ensure all blocks have valid numeric IDs."
     elif isinstance(error, BlockImmutableElementsError):
         expected = ", ".join(_format_immutable(element) for element in error.expected)
@@ -352,10 +352,14 @@ def _format_block_error(error: BlockError | FoundInvalidIDError) -> str:
         return "Unknown block error. Fix: Review the block structure."
 
 
+def _xml_hint(tag: str, identity: object = None) -> str:
+    attributes = {} if identity is None else {'id': str(identity)}
+    return encode_friendly(Element(tag, attributes))
+
+
 def _format_immutable(element) -> str:
     tag, attributes, text, tail, children = element
-    rendered_attributes = " ".join(f'{name}="{value}"' for name, value in attributes)
-    rendered = f"<{tag}{(' ' + rendered_attributes) if rendered_attributes else ''}/>"
+    rendered = encode_friendly(Element(tag, dict(attributes)))
     if text or tail or children:
         return f"{rendered} (must be self-closing with no text or children)"
     return rendered
@@ -373,13 +377,13 @@ def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidID
             original_text = plain_text(elem).strip()
             if original_text:
                 text_hint = _extract_text_hint(encoding, elem)
-                context_hints.append(f'  - `<{elem.tag} id="{id}">`: "{text_hint}"')
+                context_hints.append(f'  - `{_xml_hint(elem.tag, id)}`: "{text_hint}"')
 
         if context_hints:
             message = "Missing inline elements (find translation and wrap):\n" + "\n".join(context_hints)
         else:
             # Fallback if no text hints available
-            missing_elements = [f'<{elem.tag} id="{id}">' for id, elem in sorted(error.id2element.items())]
+            missing_elements = [_xml_hint(elem.tag, id) for id, elem in sorted(error.id2element.items())]
             elements_str = ", ".join(missing_elements)
             message = f"Missing expected inline elements: {elements_str}. Fix: Add these missing inline elements."
 
@@ -429,9 +433,9 @@ def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidID
         if error.reason is not None:
             return error.reason
         if error.invalid_id is None:
-            example = f"<{error.element.tag}>"
+            example = _xml_hint(error.element.tag)
         else:
-            example = f'<{error.element.tag} id="{error.invalid_id}">'
+            example = _xml_hint(error.element.tag, error.invalid_id)
         return f"Invalid inline ID: {example}. Fix: Ensure inline elements have valid numeric IDs."
     else:
         return "Unknown inline error. Fix: Review the inline structure."

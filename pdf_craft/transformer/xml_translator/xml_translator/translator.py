@@ -117,7 +117,7 @@ class XMLTranslator:
             protocol_version="free-translation-v2",
         )
         self._fill_runtime = runtime_for(
-            fill_llm, fill_executor, protocol_version="xml-fill-v2",
+            fill_llm, fill_executor, protocol_version="xml-fill-friendly-v3",
         )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
@@ -662,7 +662,7 @@ class XMLTranslator:
 
         user_message = (await self._fill_runtime.template('fill_input')).render(
             source_text=source_text, xml_template=encode_friendly(hill_climbing.request_element()),
-            translated_text=canonical_math.text if canonical_math is not None else translated_text,
+            translated_text=canonical_math.encode() if canonical_math is not None else translated_text,
             math_instructions=canonical_math.instructions() if canonical_math is not None else '')
         canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render()
                                   if canonical_math is not None else '')
@@ -683,13 +683,18 @@ class XMLTranslator:
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
                         error, projected = validated, None
+                        history = None
                     else:
+                        # Encode the original parsed candidate before validators
+                        # expand references or recover its engineering text.
+                        history = encode_friendly(validated)
                         error, projected = validate_candidate(validated)
                     if error is None:
                         last_error = None
                         return ProtocolSuccess(projected, state)
                     last_error = error
-                    return ProtocolRetry(error, state, include_response=True, reset_history=True)
+                    return ProtocolRetry(error, state, include_response=history is not None,
+                                         response_for_history=history, reset_history=True)
 
                 async def empty(self, state, attempt: int, max_attempts: int):
                     nonlocal last_error

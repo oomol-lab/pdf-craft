@@ -2,7 +2,8 @@
 import json
 from copy import deepcopy
 import unicodedata
-from xml.etree.ElementTree import Element, tostring
+from xml.etree.ElementTree import Element, SubElement, tostring
+from pdf_craft.transformer.xml_translator.xml.friendly import encode_friendly, decode_friendly
 from pdf_craft.transformer.canonical_projection import SourceMath, formula_content, MathProjectionError
 from pdf_craft.transformer.canonical_math import CanonicalMath
 
@@ -84,3 +85,17 @@ def allocation_answer(payload):
                                  before=text[:match.start()], after=text[match.end():]))
         result.append(dict(id=source['id'], text=text, formulas=formulas))
     return json.dumps(result)
+
+
+def canonical_fill_response(text):
+    """Script an engineering response from explicit canonical reference nodes."""
+    translated = next(decode_friendly(CanonicalMath(text).encode(), tags='translation'))
+    root = Element('xml')
+    fragment = SubElement(root, 'fragment', id='1')
+    fragment.text = translated.text
+    for index, reference in enumerate(translated, 2):
+        node = SubElement(fragment, 'expression', id=str(index))
+        node.tail = reference.tail
+        reference.tail = None
+        node.append(reference)
+    return encode_friendly(root)

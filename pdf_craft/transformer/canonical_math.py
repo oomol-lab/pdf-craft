@@ -9,7 +9,8 @@ import re
 from functools import lru_cache
 from pathlib import Path
 from jinja2 import Template
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import Element, SubElement
+from .xml_translator.xml.friendly import encode_friendly
 from .math_spans import math_matches
 
 _REFERENCE_TAG = 'math-ref'
@@ -20,15 +21,31 @@ class CanonicalMath:
 
     def __init__(self, text: str):
         self.values: dict[str, str] = {}
+        self.original = text
 
-        parts, cursor = [], 0
         for match in self.matches(text):
-            key = f'm{len(self.values) + 1}'
-            self.values[key] = match.group(0)
-            parts.extend((text[cursor:match.start()], f'<{_REFERENCE_TAG} key="{key}"/>'))
+            self.values[f'm{len(self.values) + 1}'] = match.group(0)
+
+    def encode(self) -> str:
+        """Encode the engineering XML payload without promoting literal prose to tags."""
+        root = Element('translation')
+        previous = None
+        cursor = 0
+        for index, match in enumerate(self.matches(self.original), 1):
+            text = self.original[cursor:match.start()]
+            if previous is None:
+                root.text = text
+            else:
+                previous.tail = text
+            previous = SubElement(root, _REFERENCE_TAG, key=f'm{index}')
             cursor = match.end()
-        parts.append(text[cursor:])
-        self.text = ''.join(parts)
+        if previous is None:
+            root.text = self.original
+        else:
+            previous.tail = self.original[cursor:]
+        # Canonical source formatting is data, even when it contains newlines.
+        root.set('xml:space', 'preserve')
+        return encode_friendly(root)
 
     def instructions(self) -> str:
         if not self.values:

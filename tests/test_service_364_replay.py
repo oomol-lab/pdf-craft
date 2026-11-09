@@ -6,7 +6,6 @@ Only provider responses are replaced; grouping, allocation, XML fill and adoptio
 # pylint: disable=protected-access
 import json
 import os
-import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, skipUnless
@@ -18,7 +17,6 @@ from pdf_craft.transformer.whitespace import normalize
 from pdf_craft.transformer.free_translation import allocate
 from pdf_craft.transformer.source_math import SourceMathTranslation
 from pdf_craft.transformer.canonical_projection import SourceMath, formula_content
-from pdf_craft.transformer.canonical_math import CanonicalMath
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from tests.test_canonical_math_projection import chapter, expression, content_of
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Chapter, TextFlowItem, SourceTextFragment
@@ -122,10 +120,8 @@ class Service364ReplayTests(IsolatedAsyncioTestCase):
                 return raw
             if messages[0]['content'].startswith('You are the structural fill engineer.'):
                 return json.dumps([unit])
-            filled = re.sub(r'<math-ref key="m(\d+)"/>',
-                            lambda match: f'<expression id="{int(match[1])+1}">{match[0]}</expression>',
-                            CanonicalMath(canonical).text)
-            return '<xml><fragment id="1">'+filled+'</fragment></xml>'
+            from tests.free_translation_model import canonical_fill_response
+            return canonical_fill_response(canonical)
         model.answer = answer
         target = await NarrativeXMLTransformer(translator).transform(chapter(content), error_policy=False)
         translated = content_of(target)
