@@ -103,7 +103,7 @@ class ProviderExecutorRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(executor.calls, 2)
         self.assertEqual(executor.recovered, 1)
         self.assertEqual(executor.peak, 1)
-        self.assertEqual(set(seen), {'toc-json-v1', 'book-metadata-json-v1'})
+        self.assertEqual(set(seen), {'toc-json-v1', 'book-metadata-json-v2'})
 
     async def test_protocol_retries_reenter_each_selected_executor(self):
         title_executor, metadata_executor = _ObservedExecutor(), _ObservedExecutor()
@@ -185,7 +185,7 @@ class ProviderExecutorRoutingTests(unittest.IsolatedAsyncioTestCase):
                                                             extraction=options)
                     else:
                         await craft.extract_pdf('source.pdf', self.root / 'async-real.pcex', options)
-                self.assertEqual(sorted(seen), ['book-metadata-json-v1', 'toc-json-v1'])
+                self.assertEqual(sorted(seen), ['book-metadata-json-v2', 'toc-json-v1'])
                 self.assertEqual((toc.calls, metadata.calls), (1, 1))
 
     async def test_transport_retries_and_bounded_fallback_use_selected_executor(self):

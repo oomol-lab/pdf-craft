@@ -2,6 +2,7 @@
 # pylint: disable=protected-access,cell-var-from-loop
 import asyncio
 import gc
+import json
 import sqlite3
 import threading
 from copy import deepcopy
@@ -78,9 +79,9 @@ class FrontInputTests(IsolatedAsyncioTestCase):
                 await commit(4)
                 await wait(second)
                 self.assertFalse(task.done())
-                self.assertIn('index="4"', model.assertion)
-                self.assertIn('index="5"', model.assertion)
-                self.assertNotIn('index="6"', model.assertion)
+                payload = json.loads(model.assertion)
+                self.assertEqual([page['page_index'] for page in payload['pages']], [4, 5])
+                self.assertEqual(payload['remaining_pages'], 3)
             finally:
                 release.set()
                 await task
@@ -123,9 +124,7 @@ class FrontInputTests(IsolatedAsyncioTestCase):
                 await wait(requested)
                 self.assertFalse(front.ended)
                 self.assertFalse(task.done())
-                for index in (2, 4, 8):
-                    self.assertIn(f'index="{index}"', messages[0])
-                self.assertNotIn('index="12"', messages[0])
+                self.assertEqual([page['page_index'] for page in json.loads(messages[0])['pages']], [2, 4, 8])
             finally:
                 release.set()
                 if not requested.is_set():
