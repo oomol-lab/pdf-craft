@@ -22,6 +22,7 @@ from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
 from pdf_craft.transformer.anchored_translation import _asset_slots
 from pdf_craft.transformer.package import AnchoredContentExtractionTransformer
 from pdf_craft.transformer.structured_translation import StructuredTranslation
+from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
 from tests.test_anchored_content_translation import _repairing_translator, _ResponseRuntime
 from tests.translation_model import translator_fixture
@@ -69,7 +70,9 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
                     candidate = fromstring(source_answer(messages))
                     unit = candidate.find('unit')
                     assert unit is not None
-                    unit.text = messages[-1]['content'].split('Translated text:\n', 1)[1].strip()
+                    payload = messages[1]['content'].split('Translated text:\n', 1)[1]
+                    translated = next(decode_friendly(payload, tags='translation'))
+                    unit.text = ''.join(translated.itertext())
                     return tostring(candidate, encoding='unicode')
 
                 # The provider echoes the actual envelope IDs in reverse response order.

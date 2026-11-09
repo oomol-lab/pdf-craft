@@ -10,7 +10,7 @@ from .transform import element_to_tag
 
 # why implement XML encoding?
 # https://github.com/oomol-lab/pdf-craft/issues/149
-def encode_friendly(element: Element, indent: int = 2) -> str:
+def encode_friendly(element: Element, indent: int = 2, *, preserve_whitespace: bool = False) -> str:
     buffer = StringIO()
     _encode_element(
         buffer=buffer,
@@ -18,6 +18,7 @@ def encode_friendly(element: Element, indent: int = 2) -> str:
         indent=indent,
         depth=0,
         escape=_escape_text,
+        inherited=WhiteSpace.PRE if preserve_whitespace else WhiteSpace.NORMAL,
     )
     return buffer.getvalue()
 

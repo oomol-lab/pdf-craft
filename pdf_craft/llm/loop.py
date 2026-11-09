@@ -27,6 +27,7 @@ class ProtocolRetry(Generic[S]):
     state: S
     include_response: bool = True
     reset_history: bool = True
+    response_for_history: str | None = None
 
 
 @dataclass(frozen=True)
@@ -115,7 +116,8 @@ async def _run(options: RepairLoopOptions[T, S], log: FailureLog) -> T:
         if result.reset_history:
             retry_history = []
         additions = (
-            [Message(MessageRole.ASSISTANT, response)]
+            [Message(MessageRole.ASSISTANT, result.response_for_history
+                     if result.response_for_history is not None else response)]
             if result.include_response and response else []
         )
         additions.append(Message(MessageRole.USER, result.feedback))

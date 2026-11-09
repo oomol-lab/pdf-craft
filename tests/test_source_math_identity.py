@@ -3,6 +3,7 @@
 from types import MethodType
 from unittest import IsolatedAsyncioTestCase
 from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
+from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly
 
 from pdf_craft import SubmitKind
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
@@ -39,7 +40,9 @@ class SourceMathIdentityTests(IsolatedAsyncioTestCase):
                 self.assertEqual(''.join(result.itertext()), ' '.join(raw.split()))
                 self.assertEqual(len(calls), 1)
                 self.assertEqual(runtime.context_value.calls, 1)
-                self.assertIn('Translated text:\n' + raw, runtime.context_value.messages[0][0][1].message)
+                payload = runtime.context_value.messages[0][0][1].message.split('Translated text:\n', 1)[1]
+                decoded = next(decode_friendly(payload, tags='translation'))
+                self.assertEqual(''.join(decoded.itertext()), raw)
 
     async def test_free_formula_translation_has_no_identity_instructions(self):
         translator, runtime = _repairing_translator([

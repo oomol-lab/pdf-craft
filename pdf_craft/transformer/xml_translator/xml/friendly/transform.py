@@ -1,7 +1,9 @@
 from xml.etree.ElementTree import Element
 from html import escape
 
-from .tag import Tag, TagKind
+from pdf_craft.common import safe_text
+
+from .tag import Tag, TagKind, is_valid_value_char
 from .entities import unescape_text
 
 _XML_SPACE = '{http://www.w3.org/XML/1998/namespace}space'
@@ -24,7 +26,7 @@ def element_to_tag(element: Element, kind: TagKind, proto: str = "") -> Tag:
     if kind != TagKind.CLOSING:
         for attr_name in sorted(list(element.keys())):
             attr_value = element.get(attr_name, "")
-            tag.attributes.append(('xml:space' if attr_name == _XML_SPACE else attr_name, escape(attr_value, quote=True)))
+            tag.attributes.append(('xml:space' if attr_name == _XML_SPACE else attr_name, _escape_attribute(attr_value)))
 
     # To make LLM easier to understand, the naming here is restricted in a more strict way.
     # https://github.com/oomol-lab/pdf-craft/issues/149
@@ -38,3 +40,11 @@ def element_to_tag(element: Element, kind: TagKind, proto: str = "") -> Tag:
         raise ValueError(f'find invalid attribute value: {attr_name}="{attr_value}"')
 
     return tag
+
+
+def _escape_attribute(value: str) -> str:
+    """Keep the friendly parser's small alphabet without rejecting source attributes."""
+    if safe_text(value) != value:
+        raise ValueError('XML attributes must contain XML-safe characters')
+    return ''.join(char if is_valid_value_char(char) else f'&#{ord(char)};'
+                   for char in escape(value, quote=True))

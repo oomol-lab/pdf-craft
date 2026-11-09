@@ -6,6 +6,7 @@ from unittest import TestCase, IsolatedAsyncioTestCase
 from xml.etree.ElementTree import Element
 
 from pdf_craft.transformer.canonical_math import CanonicalMath
+from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly
 from pdf_craft.transformer.allocation_text import translated_math_targets, translated_math_evidence
 from pdf_craft.transformer.canonical_projection import SourceMath
 from pdf_craft.transformer.source_math import SourceMathTranslation
@@ -118,7 +119,8 @@ class MalformedMathDelimitersTests(TestCase):
                     text = opening+'reference (ordinary brackets)\n\n'+complete
                     self.assertEqual([m.group() for m in CanonicalMath.matches(text)], [complete])
                     table = CanonicalMath(text)
-                    self.assertTrue(table.text.startswith(opening+'reference'))
+                    payload = next(decode_friendly(table.encode(), tags='translation'))
+                    self.assertTrue((payload.text or '').startswith(opening+'reference'))
 
     def test_valid_multiline_repeated_and_reordered_math_remains_atomic(self):
         for value in ('\\(a\n+b\\)', '\\[a\n\n+b\\]', '$a\n+b$', '$$a\n\n+b$$'):

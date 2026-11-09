@@ -1,7 +1,6 @@
 """Reduced public OCR evidence through the real artist/engineer entry points."""
 # pylint: disable=protected-access
 import json
-import re
 from types import SimpleNamespace
 from xml.etree.ElementTree import Element
 from pathlib import Path
@@ -10,7 +9,6 @@ from unittest.mock import patch
 from xml.etree.ElementTree import fromstring
 
 from pdf_craft.extractor.chapter.chapter import InlineExpression, decode
-from pdf_craft.transformer.canonical_math import CanonicalMath
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from tests.test_canonical_math_projection import content_of
 from tests.test_canonical_math_projection import chapter, expression
@@ -165,9 +163,8 @@ class OnlineFormulaAllocationTests(IsolatedAsyncioTestCase):
             if messages[0]['content'].startswith('You are a translator.'):
                 return raw
             if not messages[0]['content'].startswith('You are the structural fill engineer.'):
-                canonical = CanonicalMath(raw)
-                filled = re.sub(r'<math-ref key="m(\d+)"/>', lambda match: f'<expression id="{int(match[1])+1}">{match[0]}</expression>', canonical.text)
-                return '<xml><fragment id="1">' + filled + '</fragment></xml>'
+                from tests.free_translation_model import canonical_fill_response
+                return canonical_fill_response(raw)
             payload = json.loads(messages[1]['content'])
             allocation_attempts.append(payload['translation'])
             formulas = []
