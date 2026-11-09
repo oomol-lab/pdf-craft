@@ -39,7 +39,7 @@ class OnlineFormulaAllocationTests(IsolatedAsyncioTestCase):
             return '<xml><fragment id="1">模 <math-ref key="m1"/> 的特征 <expression><math-ref key="m2"/></expression>。</fragment></xml>'
         model.answer = answer
         target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
-        self.assertEqual(content_of(target), [r'模 \(q\) 的特征 ', expression(r'\chi\mod q'), '。'])
+        self.assertEqual(content_of(target), [r'模 \(q\) 的特征 ', expression(r'\chi'), '。'])
         self.assertEqual(len(model.wire_calls), 3)
 
     async def test_source_formula_restoration_retains_artist_math_residuals(self):
@@ -63,24 +63,26 @@ class OnlineFormulaAllocationTests(IsolatedAsyncioTestCase):
                 allocations.append(json.loads(messages[1]['content'])['translation'])
                 formula: dict = (dict(key='s1', text=value, before='', after='') if plain
                                  else dict(key='s1', target='t1'))
-                if len(allocations) > 1:
-                    parts = ([dict(text=before)] if before else [])
-                    parts += [dict(keys=['s1'], text=r'0<\Re(s)<')]
-                    parts += [dict(text=after)] if after else []
-                    formula['parts'] = parts
+                parts = ([dict(text=before)] if before else [])
+                parts += [dict(keys=['s1'], text=r'0<\Re(s)<')]
+                parts += [dict(text=after)] if after else []
+                formula['parts'] = parts
                 return json.dumps([dict(id='0', text=raw, formulas=[formula])])
             return '<xml><fragment id="1">零点满足 <expression><math-ref key="m1"/></expression>。</fragment></xml>'
         model.answer = answer
         target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
         content = content_of(target)
-        expected = ([before] if before else []) + [r'0<\Re(s)<'] + ([after] if after else [])
+        expected = ([r'0<\Re(s)<'] if plain else
+                    ([before] if before else []) + [r'0<\Re(s)<'] + ([after] if after else []))
+        if plain:
+            self.assertEqual(content, ['零点满足 ' + before, expression(r'0<\Re(s)<'), after + '。'])
         self.assertEqual([part.content for part in content if isinstance(part, InlineExpression)], expected)
         patch_text, formulas = _to_pdf_patch_content(content)
         self.assertNotIn(r'\(', patch_text)
         self.assertNotIn(r'\)', patch_text)
         self.assertEqual([formula.latex for formula in formulas], expected)
-        self.assertEqual(allocations, [raw, raw])
-        self.assertEqual(len(model.wire_calls), 4)
+        self.assertEqual(allocations, [raw])
+        self.assertEqual(len(model.wire_calls), 3)
 
     async def test_complete_partition_ids_are_adopted_without_an_empty_math_node(self):
         source = chapter([expression(r'\chi(n)='), ' ', expression(r"\chi'(n)")])

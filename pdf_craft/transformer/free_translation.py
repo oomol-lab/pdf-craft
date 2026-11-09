@@ -10,6 +10,7 @@ from .._policy import current
 from ..policies import RetryScope
 from .allocation_text import allocation_difference, recover_allocation_text, translated_math_targets, translated_math_evidence
 from .allocation_math import allocate_math
+from .allocation_boundaries import expand_boundaries
 
 
 class AllocationFillError(ValueError):
@@ -57,8 +58,9 @@ def allocate(response, calls, raw):
             missing_ids=sorted(expected-counts.keys(), key=int),
             duplicate_ids=sorted(key for key, count in counts.items() if count > 1),
             unexpected_ids=sorted(counts.keys()-expected))))
+    units = expand_boundaries(units, raw)
     by_id = {unit['id']: unit for unit in units}
-    if any(not isinstance(unit['text'], str) for unit in units):
+    if any(not isinstance(unit.get('text'), str) for unit in units):
         raise ValueError('Each allocated text must be a string.')
     if not _covers([unit['text'] for unit in units], raw):
         recovered = recover_allocation_text(units, calls, raw)
@@ -119,7 +121,7 @@ async def fill_translation_group(runtime, calls, raw):
                 return ProtocolRetry(str(error), state)
 
         async def empty(self, state, attempt, max_attempts):
-            return ProtocolRetry('Return the complete allocation JSON array.', state)
+            return ProtocolRetry('Return the complete compact allocation JSON array using exact end anchors, not repeated full passages.', state)
 
         async def exhausted(self, state, attempts, response):
             error = AllocationFillError('Translation allocation fill exhausted its repair budget.')

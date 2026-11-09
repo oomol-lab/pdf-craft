@@ -1,11 +1,11 @@
-"""Project accepted math using original source occurrences, never generated values.
+"""Project accepted math using explicit source identities and accepted translated values.
 
 Source expression nodes are allocation containers. They are transparent when
 the canonical text declares mathematical boundaries: replacing their contents
 with an unrelated source formula would invalidate the text just accepted.
 """
 from copy import deepcopy
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 import re
 import unicodedata
@@ -31,6 +31,14 @@ class SourceMath:
     element: Element
     slot: Element | None = None
     context: bool = False
+    translated_latex: str | None = None
+
+
+@dataclass(frozen=True)
+class MathProse:
+    """An explicitly partitioned residual outside a plain translated formula."""
+
+    text: str
 
 
 def formula_content(value: str) -> tuple[str, bool]:
@@ -50,7 +58,7 @@ def _normalized(value: str) -> str:
 
 
 def project_canonical_math(
-    mappings: list[MathMapping | None], canonical: str, bindings: list[list[SourceMath | str]],
+    mappings: list[MathMapping | None], canonical: str, bindings: Sequence[Sequence[SourceMath | str | MathProse]],
     residual_factory: Callable[[str], Element] | None = None,
 ) -> list[MathMapping | None] | None:
     values = list(CanonicalMath(canonical).values.values())
@@ -95,6 +103,10 @@ def project_canonical_math(
                                           parent_stack=stack, block_depth=find_block_depth(stack)))
                 elif offset <= match.start():
                     for source in binding:
+                        if isinstance(source, MathProse):
+                            output.append(replace(field, text=source.text, parent_stack=stack,
+                                                  block_depth=find_block_depth(stack)))
+                            continue
                         if isinstance(source, str):
                             if not source.strip(' \t\r\n'):
                                 output.append(replace(field, text=source, parent_stack=stack,
@@ -104,7 +116,13 @@ def project_canonical_math(
                                 raise MathProjectionError('A format adapter must materialize residual mathematics.')
                             node = residual_factory(source)
                         else:
-                            node = deepcopy(source.element)
+                            if source.translated_latex is None:
+                                node = deepcopy(source.element)
+                            else:
+                                if residual_factory is None:
+                                    raise MathProjectionError('A format adapter must materialize changed mathematics.')
+                                node = residual_factory(source.translated_latex)
+                                node.attrib = {**source.element.attrib, **node.attrib}
                         node.tail = None
                         for part in search_text_segments(node, normalize_whitespace=False):
                             parents = stack + part.parent_stack

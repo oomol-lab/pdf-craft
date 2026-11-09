@@ -1,6 +1,6 @@
 """Bind source identities to engineering-selected translated occurrences."""
 import json
-from .canonical_projection import MathProjectionError, SourceMath
+from .canonical_projection import MathProjectionError, SourceMath, MathProse
 from .canonical_math import CanonicalMath
 from .allocation_text import formula_occurrences
 from .whitespace import normalize
@@ -46,7 +46,8 @@ def allocate_math(unit, math, targets):
         if 'target' in item:
             if not isinstance(item['target'], str):
                 raise ValueError('Formula target must be a translated occurrence id.')
-        elif any(not isinstance(item.get(field), str) for field in ('text', 'before', 'after')):
+        elif (not isinstance(item.get('text'), str)
+              or any(not isinstance(item.get(field, ''), str) for field in ('before', 'after'))):
             raise ValueError('Formula text and before/after context must be strings.')
     assigned = [key for item in formulas for key in _source_keys(item)]
     if sorted(assigned) != sorted(values):
@@ -72,7 +73,7 @@ def allocate_math(unit, math, targets):
                 continue
             matches = [entry[1]]
         else:
-            value, before, after = item['text'], item['before'], item['after']
+            value, before, after = item['text'], item.get('before', ''), item.get('after', '')
             if not value:
                 issues.append(f'Formula {keys}: a span must name nonempty translated text.')
                 continue
@@ -87,7 +88,7 @@ def allocate_math(unit, math, targets):
                 available = {key: match.group() for key, (owner, match) in targets.items() if owner == unit['id']}
                 issues.append(f'Formula {keys}: span {value!r} with before={before!r}, after={after!r} matches {len(matches)} occurrences. Literal occurrences={len(occurrences)}. Exact candidate contexts: {json.dumps(candidates, ensure_ascii=False)}. Translated targets: {json.dumps(available, ensure_ascii=False)}')
                 continue
-        group: list[SourceMath | str] = [values[key] for key in keys]
+        group: list[SourceMath | str | MathProse] = [values[key] for key in keys]
         original = matches[0].group()
         complete = CanonicalMath.matches(original)
         delimited = len(complete) == 1 and complete[0].group() == original
@@ -102,7 +103,7 @@ def allocate_math(unit, math, targets):
                 parts = [dict(text=part.get('text'), keys=[keys.index(key) if key in keys else -1
                               for key in part.get('keys', [])]) for part in parts]
             try:
-                group = partition_math(canonical, [values[key] for key in keys], parts, require_parts='target' in item)
+                group = partition_math(canonical, [values[key] for key in keys], parts, residual_math=delimited)
             except ValueError as error:
                 issues.append(f'Formula {keys}: {error}')
                 continue
