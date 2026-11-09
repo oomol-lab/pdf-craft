@@ -82,3 +82,53 @@ class XMLFillRecoveryTests(IsolatedAsyncioTestCase):
         self.assertIn("expected gap ' '", feedback)
         self.assertIn('ref id=none', feedback)
         self.assertIn(".tail='From there.'", feedback)
+
+    async def test_one_merged_reference_can_declare_two_ordered_source_identities(self):
+        translator, model = translator_fixture()
+        bad = '<xml><fragment id="1"><expression id="2"><source-math key="s1"><math-ref key="m1"/></source-math></expression></fragment></xml>'
+        good = '<xml><fragment id="1"><expression id="2"><source-math keys="s1 s2"><math-ref key="m1"/></source-math></expression><expression id="3"/></fragment></xml>'
+        model_replies(model, r'\(x=y\)', [bad, good])
+        target = await NarrativeXMLTransformer(translator).transform(chapter([expression('x='), expression('y')]), error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(content_of(target), [expression('x='), expression('y')])
+        feedback = model.wire_calls[-1][-1].message
+        self.assertIn('Missing formula source identities', feedback)
+        self.assertIn('Missing expected inline', feedback)
+        self.assertEqual(len(model.wire_calls), 3)
+
+    async def test_changed_combined_math_needs_explicit_subspans_not_source_value_inference(self):
+        translator, model = translator_fixture()
+        bad = '<xml><fragment id="1"><expression id="2"><source-math keys="s1 s2"><math-ref key="m1"/></source-math></expression><expression id="3"/></fragment></xml>'
+        good = r'<xml><fragment id="1"><expression id="2">\(<source-math key="s1">40</source-math><source-math key="s2">x</source-math>\)</expression><expression id="3"/></fragment></xml>'
+        model_replies(model, r'\(40x\)', [bad, good])
+        target = await NarrativeXMLTransformer(translator).transform(chapter([expression('4'), expression('x')]), error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(content_of(target), [expression('40'), expression('x')])
+        self.assertIn('unique unchanged syntax partition', model.wire_calls[-1][-1].message)
+        self.assertEqual(len(model.wire_calls), 3)
+
+    async def test_formula_projection_cannot_erase_required_rich_structure(self):
+        from xml.etree.ElementTree import fromstring
+        from pdf_craft import SubmitKind
+        from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
+        from pdf_craft.transformer.structured_translation import StructuredTranslation
+        from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
+        translator, model = translator_fixture()
+        bad = '<xml><p id="1"><source-math key="s1"><em><expression>x</expression></em><strong> word</strong></source-math></p></xml>'
+        good = '<xml><p id="1"><em><expression><source-math key="s1">x</source-math></expression></em><strong> word</strong></p></xml>'
+        model_replies(model, 'x word', [bad, good])
+        source = fromstring('<body><p><em><math><mi>x</mi></math></em><strong> word</strong></p></body>')
+        target, _ = await StructuredTranslation(formulas=XMLInterrupter()).translate(translator, TranslationTask(source, SubmitKind.REPLACE, None), error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(target[0].findtext('strong'), ' word')
+        self.assertIsNotNone(target[0].find('em/math'))
+        self.assertIn('incompatible formatting scopes', model.wire_calls[-1][-1].message)
+
+    async def test_one_translated_sentence_can_fill_multiple_nonempty_furniture_lines(self):
+        translator, model = translator_fixture()
+        model_replies(model, '同一个完整句子。', [
+            '<xml><section id="1">同一个完整句子。</section><section id="2"/><section id="3"/></xml>',
+            '<xml><section id="1">同一个</section><section id="2">完整</section><section id="3">句子。</section></xml>'])
+        sections = [FurnitureSection(1, (0, 0, 10, 10), value) for value in ['One complete', 'sentence split', 'over physical lines.']]
+        target = await FurnitureXMLTransformer(translator).transform_sections(1, sections, error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(target, ['同一个', '完整', '句子。'])
+        self.assertIn('LINE FRAGMENTS', model.wire_calls[-1][-1].message)
+        self.assertIn('Neighboring current allocations', model.wire_calls[-1][-1].message)
+        self.assertEqual(len(model.wire_calls), 3)

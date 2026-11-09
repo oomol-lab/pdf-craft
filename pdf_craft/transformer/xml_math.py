@@ -1,6 +1,7 @@
 """Read formula identities directly from accepted XML fill, then project typed nodes."""
 from copy import deepcopy
 from dataclasses import dataclass, replace
+import re
 from xml.etree.ElementTree import Element
 
 from ..common.whitespace import is_whitespace
@@ -31,19 +32,20 @@ def binding_spans(root: Element, math) -> dict[int, list[Binding]]:
             nonlocal offset
             start = offset
             binding = node.tag == BINDING_TAG
-            key = node.get('key')
-            location = f'XML block id={block.get("id")}, source-math key={key!r}'
+            keys = node.get('keys', '').split() if 'keys' in node.attrib else [node.get('key')]
+            location = f'XML block id={block.get("id")}, source-math identities={keys}'
             if binding:
                 if inside_binding:
                     raise MathProjectionError(f'{location}: source identity spans overlap. Use adjacent source-math tags, not nested identities.')
-                if set(node.attrib) != {'key'}:
-                    raise MathProjectionError(f'{location}: only the key attribute is allowed; found {sorted(node.attrib)}.')
-                if key not in values:
-                    raise MathProjectionError(f'{location}: unknown source identity. Required keys: {list(values)}. '
-                                              'Unwrap an invented annotation while retaining its exact text and formatting; do not invent source keys for ordinary numerals.')
-                if key in seen:
-                    raise MathProjectionError(f'{location}: duplicate source identity. Keep its semantic occurrence once; every other source needs its own key.')
-                seen.add(key)
+                if set(node.attrib) not in ({'key'}, {'keys'}) or not keys:
+                    raise MathProjectionError(f'{location}: use exactly key="sN" or ordered keys="sN sM".')
+                for key in keys:
+                    if key not in values:
+                        raise MathProjectionError(f'{location}: unknown source identity {key!r}. Required keys: {list(values)}. '
+                                                  'Unwrap an invented annotation while retaining its exact text and formatting.')
+                    if key in seen:
+                        raise MathProjectionError(f'{location}: duplicate source identity {key}. Keep its semantic occurrence once; every other source needs its own key.')
+                    seen.add(key)
             offset += len(node.text or '')
             for child in node:
                 walk(child, inside_binding or binding)
@@ -59,7 +61,11 @@ def binding_spans(root: Element, math) -> dict[int, list[Binding]]:
                     right -= 1
                 if left == right:
                     raise MathProjectionError(f'{location}: empty translated value. Wrap the corresponding existing artist text; do not copy source padding.')
-                bindings.append(Binding(start + left, start + right, values[key], text[left:right]))
+                if len(keys) == 1:
+                    bindings.append(Binding(start + left, start + right, values[keys[0]], text[left:right]))
+                else:
+                    for begin, end, key in _partition_unchanged(text[left:right], keys, values):
+                        bindings.append(Binding(start+left+begin, start+left+end, values[key], text[left+begin:left+end]))
         walk(block)
         return sorted(bindings, key=lambda item: item.start)
 
@@ -78,9 +84,46 @@ def binding_spans(root: Element, math) -> dict[int, list[Binding]]:
                                   + ' '.join(details) +
                                   ' Bind each missing key to its translated semantic span once. '
                                   'If the artist merged source formulas, write ONE literal complete artist formula with adjacent source-math annotations INSIDE its delimiters; '
-                                  'a whole math-ref cannot represent two independent source keys. Never duplicate the whole reference or split the artist delimiters. '
+                                  'or wrap the ONE existing complete formula reference in <source-math keys="sN sM"> with your explicitly ordered source identities. '
                                   'Keep the other required expression containers empty. Do not add source text to the artist translation.')
     return result
+
+
+
+def _partition_unchanged(text, keys, values):
+    """Partition syntax only AFTER the model explicitly provides ordered identities.
+
+    Never select source IDs, search prose for matching values or guess semantic
+    correspondence. A changed/nonliteral combined span requires individual XML
+    annotations; only a unique unchanged syntax concatenation is automatic.
+    """
+    matches = CanonicalMath.matches(text)
+    if matches:
+        if len(matches) != 1 or matches[0].group() != text:
+            raise MathProjectionError(f'Combined source identities {keys} require one complete artist formula; otherwise use individual annotations.')
+        content, _ = formula_content(text)
+        opening = (2 if text.startswith('$$') else 1) if text.startswith('$') else len(text)-len(text.lstrip('\\'))+1
+    else:
+        content, opening = text, 0
+    originals = [formula_content(values[key].latex)[0] for key in keys]
+    tokenize = lambda value: list(re.finditer(r'\\[A-Za-z]+|\\.|[^\s]', value))
+    tokens = tokenize(content)
+    source_tokens = [[token.group() for token in tokenize(value)] for value in originals]
+    if (not all(source_tokens) or [token.group() for token in tokens] != [token for group in source_tokens for token in group]
+            or not any(unchanged_formula(separator.join(originals), content) for separator in ('', ' '))):
+        raise MathProjectionError(f'Combined identities {keys} do not have a unique unchanged syntax partition. '
+                                  'Use adjacent single-key source-math annotations around the exact translated subspans, inside the original delimiters; changed values are allowed.')
+    cursor = 0
+    for key, group in zip(keys, source_tokens, strict=True):
+        end = cursor+len(group)
+        yield opening+tokens[cursor].start(), opening+tokens[end-1].end(), key
+        cursor = end
+
+
+def _format_shape(node, math_tags):
+    """Formula projection cannot erase or invent surrounding rich structure."""
+    return (node.tag, tuple(sorted(node.attrib.items())), tuple(
+        _format_shape(child, math_tags) for child in node if child.tag not in math_tags))
 
 
 def strip_bindings(root: Element) -> Element:
@@ -213,6 +256,12 @@ def project_xml_math(mappings, response, math, factory):
         if len(roots) > 1:
             raise MathProjectionError('Formula projection must retain its owning block.')
         root = roots[0][0] if roots else Element(block.tag, block.attrib)
+        original_roots = list(combine_text_segments(fields))
+        original_root = original_roots[0][0] if original_roots else Element(block.tag, block.attrib)
+        math_tags = {'expression', *(source.element.tag for source in math.values.values())}
+        if _format_shape(root, math_tags) != _format_shape(original_root, math_tags):
+            raise MathProjectionError(f'Formula annotation in XML block id={identifier} spans incompatible formatting scopes. '
+                                      'Keep every surrounding rich tag. Put source-math inside its intended formatting scope, not around unrelated styled text.')
         result = list(search_text_segments(root))
         projected.append((block, result or [TextSegment('', [root], 0, 0, 1, TextPosition.TEXT)]))
     return projected

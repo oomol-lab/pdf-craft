@@ -117,7 +117,7 @@ class XMLTranslator:
             protocol_version="free-translation-v2",
         )
         self._fill_runtime = runtime_for(
-            fill_llm, fill_executor, protocol_version="xml-fill-group-v5",
+            fill_llm, fill_executor, protocol_version="xml-fill-group-v6",
         )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
@@ -635,14 +635,19 @@ class XMLTranslator:
             projected = None
             error = canonical_math.expand(element, require_complete=False) if canonical_math is not None else None
             if error is None:
+                problems = []
                 try:
                     binding_spans(element, source_math)
                 except MathProjectionError as failure:
-                    error = str(failure)
-            if error is None:
-                error = hill_climbing.validate(strip_bindings(element))
-            if error is None and canonical_text_validator is not None:
-                error = canonical_text_validator(element, translated_text)
+                    problems.append(str(failure))
+                shape_error = hill_climbing.validate(strip_bindings(element))
+                if shape_error is not None:
+                    problems.append(shape_error)
+                elif canonical_text_validator is not None:
+                    text_error = canonical_text_validator(element, translated_text)
+                    if text_error is not None:
+                        problems.append(text_error)
+                error = '\n\n'.join(problems) or None
             if error is None and canonical_math_projector is not None:
                 try:
                     projected = canonical_math_projector(

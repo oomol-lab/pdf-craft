@@ -121,9 +121,15 @@ class StructuredTranslation:
                     if (normalize_whitespace(source, trim=True)
                             and normalize_whitespace(source, trim=True) == normalize_whitespace(''.join(owner.itertext()), trim=True)
                             and not normalize_whitespace(''.join(''.join(slot.itertext()) for slot in slots), trim=True)):
+                        empty_index = list(response).index(slots[0])
+                        neighbors = [node for node in list(response)[max(0, empty_index-1):empty_index+2]
+                                     if node not in slots and normalize_whitespace(''.join(node.itertext()), trim=True)]
+                        nearby = '; '.join(f'block id={node.get("id")}: {"".join(node.itertext())[:260]!r}' for node in neighbors)
                         return (f'Nonempty source <{owner.tag}> must receive its own translated content. '
-                                f'Empty XML block ids={[slot.get("id") for slot in slots]}. '
-                                'Redistribute the same complete artist translation by semantic source ownership; do not invent text or retranslate.')
+                                f'Neighboring current allocations: {nearby}. '
+
+                                f'Empty XML block ids={[slot.get("id") for slot in slots]}, source text={source[:260]!r}. '
+                                'These sections can be physical LINE FRAGMENTS, not independent sentences. Split existing translated sentences or phrases across adjacent sections so every required section receives text. MOVE text out of neighboring full sections; do not COPY or duplicate it. Never add words or retranslate.')
             original_response[:] = list(response)
             return None
         return canonical_difference(canonical, filled)

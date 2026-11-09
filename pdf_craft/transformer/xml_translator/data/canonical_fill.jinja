@@ -11,8 +11,12 @@ assign by array position. Keep required empty formatting slots when necessary.
 {% if require_nonempty_units %}
 DELIVERY CONSTRAINT: every nonempty source block needs its own translated content.
 Do not put the whole group translation in one section and leave other nonempty
-source sections empty. Allocate by semantic source ownership, preserving every
-artist word. Empty inner formatting tags remain permitted.
+source sections empty. These sections may be PHYSICAL LINE FRAGMENTS, not
+sentences: a translated sentence may span several adjacent sections. Split its
+existing text across them. For example, if the artist writes "a final phrase",
+use <section id="11">a final</section><section id="12"> phrase</section> rather
+than putting everything in 11 and leaving 12 empty. Move text, never duplicate
+it or add words. Empty inner formatting tags remain permitted.
 {% endif %}
 
 {% if has_source_math %}
@@ -53,6 +57,11 @@ source identity once without swallowing additional artist content.
 MERGED FORMULAS (important): source identities and artist math references have
 DIFFERENT purposes. One artist formula can cover several source identities.
 Example source s1 is \(x=\), source s2 is \(y\), artist m1 is \(x=y\).
+For unchanged merged mathematics, the simplest answer is:
+<expression id="2"><source-math keys="s1 s2"><math-ref key="m1"/></source-math></expression><expression id="3"/>
+The ordered keys are YOUR semantic assignment, not an inference by the caller.
+The caller can split only an unchanged, unambiguous syntax concatenation. For
+changed merged values use the explicit individual annotations shown below.
 Do NOT duplicate m1 for both s1 and s2. Do NOT omit s2. Do NOT write two new
 pairs of delimiters. Instead copy the artist's single formula literally:
 <expression id="2">\(<source-math key="s1">x=</source-math><source-math key="s2">y</source-math>\)</expression><expression id="3"/>
