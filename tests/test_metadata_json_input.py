@@ -1,5 +1,6 @@
 """Offline service #375 regressions through the real metadata request boundary."""
 import json
+from pdf_craft.common.whitespace import normalize_whitespace
 from pathlib import Path
 from shutil import copyfile
 from tempfile import TemporaryDirectory
@@ -80,7 +81,7 @@ class MetadataJSONInputTests(IsolatedAsyncioTestCase):
             with patch.object(LLMRuntime, '_invoke_async', side_effect=respond) as transport:
                 result = await extract_book_metadata_from_ocr(root, self.llm())
 
-            self.assertEqual(result.title, text)
+            self.assertEqual(result.title, normalize_whitespace(text))
             self.assertEqual(transport.await_count, 2)
 
     async def test_entity_spelling_is_not_blindly_decoded_to_accept_wrong_evidence(self):
