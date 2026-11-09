@@ -13,7 +13,7 @@ from xml.etree.ElementTree import fromstring
 from zipfile import ZipFile
 
 import httpx2
-from typesafe_sdk import TypeSafeAPIError, TypeSafeBadRequestError
+from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy as SDKRetryPolicy, TypeSafeAPIError, TypeSafeBadRequestError
 
 from pdf_craft import AsyncPDFCraft, ExtractionOptions, NonContinuableError, OperationError, RetryPolicy
 from pdf_craft._policy import policy_operation
@@ -32,8 +32,8 @@ from tests.test_page_repair import _response_from_message
 from tests.test_toc_identity import IdentityOCR, refinement
 
 
-def input_limit():
-    return TypeSafeBadRequestError(400, {'error_type': 'max_tokens_exceeded'}, httpx2.Headers(),
+def input_limit(body=None):
+    return TypeSafeBadRequestError(400, body if body is not None else {'error_type': 'max_tokens_exceeded'}, httpx2.Headers(),
                                    endpoint='POST https://provider.invalid/v1/systemone')
 
 
@@ -45,6 +45,22 @@ def client_with(invoke):
     return client
 
 
+def sdk_client_with(invoke):
+    async def handle(request):
+        payload = json.loads(request.content)
+        try:
+            response = await invoke(state=payload['state'], questions=payload['questions'])
+        except TypeSafeAPIError as error:
+            # A JSON string on the wire becomes a text body in the real SDK.
+            return httpx2.Response(error.status, json=error.body)
+        return httpx2.Response(200, json={
+            'model': 'jev-latest', 'usage': response.usage,
+            'answers': {name: {'type': 'noul', 'noul': answer.noul} for name, answer in response.nouls.items()},
+        })
+    return AsyncTypeSafeClient(api_key='offline-test', base_url='https://provider.invalid',
+                               retry=SDKRetryPolicy(max_retries=0), transport=httpx2.MockTransport(handle))
+
+
 class JEVInputLimitTests(IsolatedAsyncioTestCase):
     async def test_first_and_later_round_reach_real_repair_and_adoption(self):
         for footnotes, round_number in ((False, 1), (True, 1), (True, 2)):
@@ -52,7 +68,14 @@ class JEVInputLimitTests(IsolatedAsyncioTestCase):
                 with self.subTest(footnotes=footnotes, round_number=round_number, failure=failure):
                     await self._extract(footnotes, round_number, failure)
 
-    async def _extract(self, footnotes, round_number, failure, *, enabled=True):
+    async def test_sdk_text_body_reaches_real_repair_and_adoption(self):
+        for footnotes, round_number in ((False, 1), (True, 1), (True, 2)):
+            for failure in (None, 'request', 'validation', 'commit'):
+                with self.subTest(footnotes=footnotes, round_number=round_number, failure=failure):
+                    await self._extract(footnotes, round_number, failure,
+                                        body='{"error_type":"max_tokens_exceeded"}')
+
+    async def _extract(self, footnotes, round_number, failure, *, enabled=True, body=None):
         calls, prompts, events, observations, decisions = Counter(), [], [], [], []
         options = refinement()
         options = replace(options, jev=replace(options.jev, on_request=observations.append))
@@ -62,7 +85,7 @@ class JEVInputLimitTests(IsolatedAsyncioTestCase):
             index = state['local_raw_evidence']['target_page']['page_index']
             calls[index] += 1
             if index == 1 and calls[index] == round_number:
-                raise input_limit()
+                raise input_limit(body)
             return SimpleNamespace(nouls={name: SimpleNamespace(noul=.5) for name in questions},
                                    usage={'input_tokens': 10, 'output_tokens': 2})
 
@@ -90,7 +113,7 @@ class JEVInputLimitTests(IsolatedAsyncioTestCase):
                 raise PageStructureError('candidate rejected by assembly', 1)
             return validate(page)
 
-        client = client_with(system_one)
+        client = sdk_client_with(system_one)
         with TemporaryDirectory() as folder:
             root = Path(folder)
             engine = PDFExtractionEngine('unused')
@@ -146,8 +169,10 @@ class JEVInputLimitTests(IsolatedAsyncioTestCase):
         await self._extract(False, 1, None, enabled=False)
 
     async def test_incomplete_review_retains_normalized_and_sdk_causes(self):
-        for wrapped in (False, True):
-            original = input_limit()
+        for wrapped, body in ((False, None), (True, None),
+                              (False, '{"error_type":"max_tokens_exceeded"}'),
+                              (True, '{"error_type":"max_tokens_exceeded"}')):
+            original = input_limit(body)
             error = OperationError('wrapped provider rejection', cause=original) if wrapped else original
             client = client_with(error)
             options = refinement()
@@ -186,8 +211,15 @@ class JEVInputLimitTests(IsolatedAsyncioTestCase):
             TypeSafeBadRequestError(400, {'error_type': 'invalid_request'}, httpx2.Headers()),
             TypeSafeBadRequestError(400, {'message': 'max_tokens_exceeded'}, httpx2.Headers()),
             TypeSafeBadRequestError(400, 'max_tokens_exceeded', httpx2.Headers()),
+            TypeSafeBadRequestError(400, '{"error_type":"invalid_request"}', httpx2.Headers()),
+            TypeSafeBadRequestError(400, '{"message":"max_tokens_exceeded"}', httpx2.Headers()),
+            TypeSafeBadRequestError(400, '{"error_type":"max_tokens_exceeded"} trailing', httpx2.Headers()),
+            TypeSafeBadRequestError(400, '[{"error_type":"max_tokens_exceeded"}]', httpx2.Headers()),
+            TypeSafeBadRequestError(400, '"max_tokens_exceeded"', httpx2.Headers()),
+            TypeSafeBadRequestError(400, '{"error":{"error_type":"max_tokens_exceeded"}}', httpx2.Headers()),
             TypeSafeBadRequestError(400, {'error_type': 'host_limit'}, httpx2.Headers()),
             TypeSafeAPIError(503, {'error_type': 'max_tokens_exceeded'}, httpx2.Headers()),
+            TypeSafeAPIError(503, '{"error_type":"max_tokens_exceeded"}', httpx2.Headers()),
             OperationError('network failure'),
             NonContinuableError('fatal provider failure', cause=input_limit()),
             TypeSafeAPIError(401, {'error_type': 'max_tokens_exceeded'}, httpx2.Headers()),
