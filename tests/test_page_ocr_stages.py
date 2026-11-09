@@ -145,7 +145,7 @@ class PageOCRStagesTests(IsolatedAsyncioTestCase):
                 finally:
                     _active.reset(token)
 
-    async def test_new_stage_callback_failure_and_cancellation_do_not_complete_pages(self):
+    async def test_new_stage_callback_failure_is_auxiliary_but_cancellation_stops_pages(self):
         for budget, cancelled in ((None, False), (None, True), (10000, False), (10000, True)):
             with self.subTest(budget=budget, cancelled=cancelled), TemporaryDirectory() as folder:
                 root, events = Path(folder), []
@@ -161,11 +161,12 @@ class PageOCRStagesTests(IsolatedAsyncioTestCase):
                     if started is not None:
                         started.set()
                     return VendorOCRResponse({}, raw_text='')
-                from pdf_craft import ErrorCallbackError
                 try:
                     ocr = OCR(DeepSeekOCRVendorConfig(base_url='https://example.invalid', api_key='x', model='x'), cast(Any, _Handler([])))
                     with patch.object(VendorOCRRuntime, '_request_deepseek', request):
-                        with self.assertRaises(asyncio.CancelledError if cancelled else ErrorCallbackError):
+                        expectation = (self.assertRaises(asyncio.CancelledError) if cancelled else
+                                       self.assertLogs('pdf_craft._progress', level='WARNING'))
+                        with expectation:
                             async for event in ocr.recognize_vendor(
                                     ConcurrentExecutor(FixedCapacity(1)), pdf_path=root / 'source.pdf',
                                     asset_path=root / 'assets', ocr_path=root / 'ocr', includes_footnotes=True,
@@ -173,7 +174,9 @@ class PageOCRStagesTests(IsolatedAsyncioTestCase):
                                     on_preparation_event=progress.ocr):
                                 await progress.ocr(event)
                     self.assertFalse(any(e.kind == ProgressEventKind.COMPLETED for e in events))
-                    self.assertFalse((root / 'ocr/page_1.xml').exists())
+                    self.assertEqual((root / 'ocr/page_1.xml').exists(), not cancelled)
+                    if not cancelled:
+                        self.assertTrue(progress.disabled)
                 finally:
                     _active.reset(token)
 

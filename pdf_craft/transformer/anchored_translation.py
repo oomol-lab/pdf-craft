@@ -127,7 +127,7 @@ async def _transform_batch_async(
     units = {}
     if progress is not None and progress.started:
         for item in payloads:
-            units[asset_unit_key(item)] = await progress.unit(UnitKind.ASSET, words=asset_word_count(item.asset))
+            units[asset_unit_key(item)] = await progress.unit(UnitKind.ASSET, words=progress.attempt_sync(asset_word_count, item.asset))
     with asset_unit_context(units if units else None):
         try:
             translated = await _transform_assets_async(transformer, payloads)

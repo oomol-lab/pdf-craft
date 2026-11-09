@@ -129,9 +129,8 @@ async def content_view(extraction, **kwargs):
         async with _content_view(extraction, **kwargs) as view:
             yield view
     else:
-        metadata = await IO_DOMAIN.run(extraction._document_metadata)
         async with pcex_progress(extraction, NarrativeXMLTransformer(translator),
-                                 callback, metadata=metadata,
+                                 callback, with_metadata=True,
                                  with_anchored=kwargs.get('with_anchored', True),
                                  with_furniture=kwargs.get('with_furniture', False)):
             async with _content_view(extraction, **kwargs) as view:

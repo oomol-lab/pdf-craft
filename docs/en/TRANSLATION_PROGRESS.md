@@ -119,7 +119,7 @@ units. Only operation COMPLETED promises successful artifact publication.
 ## Completion, fallback, and errors
 
 Unit `COMPLETED` carries `UnitOutcome.PROCESSED`, `REUSED`, `FALLBACK`, or `SKIPPED`.
-**Every planned unit must complete if the operation continues and returns normally.**
+When reporting is healthy, planned units settle at their actual execution boundaries.
 Accepted ignore/fallback, skipped work, cached results and preserved source all settle
 its count and words. Retrying a request neither creates another unit nor charges
 its source words again. A completion result is not a quality score or a billing rule.
@@ -128,7 +128,14 @@ Operation `COMPLETED` follows all units and the successful output boundary. The 
 extractor waits for PCEX export; translation facades wait for their target output.
 One-shot PDF conversions complete extraction at the validated workspace boundary,
 then optionally translate and render. Output failure, cancellation, fatal service
-errors, and callback errors propagate; they do not fabricate operation completion.
+errors, and content-delivery callback errors propagate; they do not fabricate operation completion.
+Progress is auxiliary: ordinary failures in initialization, pre-scans, accounting,
+progress-only storage or either progress callback disable reporting for this operation
+with at most one bounded diagnostic. Logging failures cannot block delivery. Final
+estimated/actual count differences produce a warning containing both values and deltas;
+they do not reject completed output or pad counters to 100%. Cancellation still propagates.
+Content callbacks, model/fill validation, business storage and output publication retain
+their failure semantics. Missing progress events are not evidence that conversion failed.
 A failed operation may already have completed some units or even processed all words.
 An intentionally partially consumed low-level content stream has no operation completion.
 A consumed public XML task that produces no segments still counts as one unit;
@@ -213,8 +220,8 @@ advanced `total_characters` to `total_words`, and `source_character_count` to
 `source_word_count`. Values follow the source-word rules above, not character counts.
 
 Advanced `XMLTranslator.translate_elements` users supplying a one-pass iterator or async stream
-and a callback must supply pre-counted `unit_counts` and `total_words`; unknown counts
-are rejected before model work. A reusable synchronous iterable can be counted directly, retaining no extra task list.
+and a callback should supply pre-counted `unit_counts` and `total_words`; missing counts
+disable reporting with a diagnostic while translation proceeds. A reusable synchronous iterable can be counted directly, retaining no extra task list.
 High-level PCEX/PDF/EPUB paths perform their own scalar pre-scan.
 
 The old advanced `completed_words` offset and `emit_scope_events` / `emit_item_events` switches are removed; scoped lifecycle reporting is consistent whenever a callback is supplied.

@@ -226,7 +226,6 @@ class TranslationWordProgressTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(events[-1].completed_words, total)
 
     async def test_progress_callback_failure_is_not_recovered_as_model_failure(self):
-        from pdf_craft import ErrorCallbackError
         events = []
         async def request(_self, _text):
             return 'accepted'
@@ -235,10 +234,11 @@ class TranslationWordProgressTests(unittest.IsolatedAsyncioTestCase):
             if event.kind == Kind.PROGRESS:
                 raise ValueError('consumer failed')
         with patch.object(XMLTranslator, '_translate_text_async', request), patch.object(XMLTranslator, '_request_and_submit_async', identity_fill):
-            with self.assertRaises(ErrorCallbackError):
-                await translator().translate_element(TranslationTask(fromstring('<body><p>hello</p></body>'),
+            with self.assertLogs('pdf_craft._progress', level='WARNING'):
+                result, _ = await translator().translate_element(TranslationTask(fromstring('<body><p>hello</p></body>'),
                     SubmitKind.REPLACE, None, item_kind=Item.CONTENT, item_id=1, word_count=1),
                     on_translation_event=record, error_policy=lambda _error: True)
+        self.assertIn('hello', ''.join(result.itertext()))
         self.assertFalse(any(event.kind == Kind.COMPLETED and event.unit_id is None for event in events))
 
     async def test_epub_totals_include_navigation_metadata_and_document_title(self):

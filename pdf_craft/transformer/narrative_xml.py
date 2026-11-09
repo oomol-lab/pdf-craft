@@ -22,7 +22,7 @@ from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, 
 from pdf_craft.transformer.xml_translator.xml import clone_element
 from pdf_craft.progress import ProgressEvent, UnitKind
 from .word_count import count_xml_words
-from .progress import translation_unit, active_progress
+from .progress import task_word_count, translation_unit, active_progress
 from .chapter_formula_interrupter import ChapterFormulaInterrupter
 from .structured_translation import StructuredTranslation
 from .anchored_xml import AnchoredContentXMLTransformer
@@ -182,7 +182,7 @@ class NarrativeXMLTransformer:
                 for _, key, index in fields),
             item_kind=UnitKind.METADATA,
             item_id="metadata",
-            word_count=count_xml_words(element),
+            word_count=task_word_count(element),
         )
         translated, _ = await self._translator.translate_element(
             task,
@@ -240,7 +240,7 @@ class NarrativeXMLTransformer:
                 source_locations=chapter_locations(chapter),
                 item_kind=UnitKind.CONTENT,
                 item_id=item_id if item_id is not None else chapter.id,
-                word_count=count_xml_words(element),
+                word_count=task_word_count(element),
         )
         translated, _ = await protocol.translate(
             async_translator, task,
@@ -301,7 +301,7 @@ class NarrativeXMLTransformer:
                 source_locations=chapter_locations(chapter),
                 item_kind=UnitKind.CONTENT,
                 item_id=item_id,
-                word_count=count_xml_words(element),
+                word_count=task_word_count(element),
             ))
 
         if not tasks:
@@ -333,7 +333,7 @@ class NarrativeXMLTransformer:
             apply_outcomes(results[index], tasks_by_index[index].outcomes)
             progress = active_progress()
             if not self.supports_stream and progress is not None and progress.started:
-                words = self.source_word_count(prepared[index][0])
+                words = progress.attempt_sync(self.source_word_count, prepared[index][0])
                 if words:
                     unit = await progress.unit(UnitKind.CONTENT, words=words)
                     await unit.progress(1)
@@ -356,16 +356,12 @@ class NarrativeXMLTransformer:
                     if not self.has_translatable_content(chapter):
                         await on_result(chapter, identity)
                         continue
-                    element = encode(chapter)
-                    _prepare_chapter_references(element)
-                    anchors = _NarrativeAnchorProjection(element)
-                    anchors.replace_assets()
-                    protocol.prepare(element)
+                    element, anchors = _project_narrative(chapter, protocol)
                     anchors_by_root[id(element)] = anchors
                     prepared[identity] = (element, anchors)
                     yield TranslationTask(element, self._mode, identity,
                         source_locations=chapter_locations(chapter), item_kind=UnitKind.CONTENT,
-                        item_id=str(identity), word_count=count_xml_words(element))
+                        item_id=str(identity), word_count=task_word_count(element))
             finally:
                 await chapters.aclose()
 
@@ -396,10 +392,7 @@ class NarrativeXMLTransformer:
     @staticmethod
     def source_word_count(chapter: Chapter) -> int:
         """Count the NarrativeFlow payload, excluding anchored asset text."""
-        element = encode(chapter)
-        _prepare_chapter_references(element)
-        anchors = _NarrativeAnchorProjection(element)
-        anchors.replace_assets()
+        element, _ = _project_narrative(chapter, _narrative_protocol())
         return count_xml_words(element)
 
     @staticmethod
@@ -611,3 +604,13 @@ def _content_has_text(content) -> bool:
         or (isinstance(part, InlineExpression) and part.content.strip())
         for part in flatten(content)
     )
+
+
+def _project_narrative(chapter, protocol):
+    """The same prepared source projection for streaming execution and estimates."""
+    element = encode(chapter)
+    _prepare_chapter_references(element)
+    anchors = _NarrativeAnchorProjection(element)
+    anchors.replace_assets()
+    protocol.prepare(element)
+    return element, anchors

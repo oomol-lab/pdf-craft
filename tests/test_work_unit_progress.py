@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 from pdf_craft import (
     ExtractionOptions, ProgressEventKind as Kind, UnitKind, UnitOutcome,
-    ErrorCallbackError,
 )
 from pdf_craft._progress import OperationProgress
 from pdf_craft.progress import OperationKind
@@ -97,16 +96,18 @@ class ExtractionUnitTests(TestCase):
         with TemporaryDirectory() as folder, patch.object(PDFExtractionEngine, '_resolve_llm_stages', resolve):
             self.run_extract(self.craft(), Path(folder), events)
 
-    def test_callback_failure_is_never_ignored(self):
+    def test_callback_failure_disables_reporting_but_returns_extraction(self):
         with TemporaryDirectory() as folder:
             events = []
             def callback(event):
                 events.append(event)
                 if event.unit_kind == UnitKind.PAGE:
                     raise ValueError('consumer failed')
-            with self.assertRaises(ErrorCallbackError):
-                self.craft().extract_pdf('scripted.pdf', Path(folder) / 'book.pcex',
+            with self.assertLogs('pdf_craft._progress', level='WARNING') as logs:
+                result = self.craft().extract_pdf('scripted.pdf', Path(folder) / 'book.pcex',
                     ExtractionOptions(includes_furniture=False, on_extraction_event=callback), error_policy=True)
+            self.assertEqual(len(logs.output), 1)
+            result._validate()
             self.assertFalse(any(event.kind == Kind.COMPLETED and
                                  event.unit_kind != UnitKind.METADATA for event in events))
 
@@ -145,7 +146,8 @@ class AccountingTests(IsolatedAsyncioTestCase):
         assert_lifecycle(self, events)
         self.assertEqual(events[-1].completed_words, 1000)
         self.assertEqual(set(progress.__dict__), {'callback', 'operation', 'counts', 'finished',
-                                                  'next_id', 'total_words', 'completed_words', 'started', 'callback_lock'})
+                                                  'next_id', 'total_words', 'completed_words', 'started', 'callback_lock',
+                                                  'disabled', '_diagnosed', '_finished'})
         self.assertLessEqual(len(progress.finished), len(UnitKind))
 
 
@@ -177,7 +179,7 @@ class RefinementProgressTests(TestCase):
 
 
 class DynamicTranslationTests(IsolatedAsyncioTestCase):
-    async def test_dynamic_stream_requires_counts_and_uses_lazy_integer_units(self):
+    async def test_dynamic_stream_without_counts_disables_reporting_and_with_counts_is_exact(self):
         from xml.etree.ElementTree import fromstring
         from pdf_craft import XMLTranslator, SubmitKind
         from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
@@ -192,9 +194,10 @@ class DynamicTranslationTests(IsolatedAsyncioTestCase):
             return text
         with patch.object(XMLTranslator, '_translate_text_async', request), patch.object(
                 XMLTranslator, '_request_and_submit_async', identity_fill):
-            with self.assertRaisesRegex(ValueError, 'unit_counts'):
-                await translator().translate_elements(stream(), on_translation_event=events.append)
-            self.assertEqual(calls, [])
+            with self.assertLogs('pdf_craft._progress', level='WARNING'):
+                results = await translator().translate_elements(stream(), on_translation_event=events.append)
+            self.assertEqual(len(results), 3)
+            self.assertTrue(calls)
             self.assertEqual(events, [])
             await translator().translate_elements(stream(), on_translation_event=events.append,
                 unit_counts={UnitKind.CONTENT: 3}, total_words=6)

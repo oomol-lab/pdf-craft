@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from typing import Protocol
 from xml.etree.ElementTree import Element, SubElement
 
-from .word_count import count_xml_words
+from .progress import task_word_count
 from .furniture import FurniturePosition, FurnitureSection
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
 from .._failure_sources import furniture_section_locations, task_locations
@@ -55,7 +55,7 @@ class FurnitureXMLTransformer:
                 action=self._mode,
                 payload=position,
                 item_id=f"pattern-{position.pattern_id}-position-{position.position_id}",
-                word_count=count_xml_words(element),
+                word_count=task_word_count(element),
             )
         translated, _ = await self._translator.translate_element(
             task
@@ -87,7 +87,7 @@ class FurnitureXMLTransformer:
                 action=self._mode,
                 payload=tuple(sections),
                 item_id=f"furniture-page-{page_index}",
-                word_count=count_xml_words(element),
+                word_count=task_word_count(element),
             )
         translated, _ = await self._translator.translate_element(
             task

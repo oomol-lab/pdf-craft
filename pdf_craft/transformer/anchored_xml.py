@@ -21,7 +21,7 @@ from pdf_craft.transformer.chapter_formula_interrupter import ChapterFormulaInte
 from .structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind, TranslationTask
 
-from .word_count import count_xml_words
+from .progress import task_word_count
 from .anchored_content import (
     AnchoredContent,
     AnchoredContentTranslation,
@@ -90,7 +90,7 @@ class AnchoredContentXMLTransformer:
                 action=self._mode,
                 payload=tuple(assets),
                 item_id=_batch_id(assets),
-                word_count=count_xml_words(element),
+                word_count=task_word_count(element),
             )
         translated, _ = await protocol.translate(self._translator, task)
         if task.outcomes and not all(task.outcomes.values()):

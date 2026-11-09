@@ -54,9 +54,11 @@ def translation_unit(kind, word_count):
         @wraps(function)
         async def wrapped(*args, **kwargs):
             progress = active_progress()
-            if progress is None or not progress.started:
+            if progress is None or progress.disabled or not progress.started:
                 return await function(*args, **kwargs)
-            words = word_count(*args, **kwargs)
+            words = progress.attempt_sync(word_count, *args, **kwargs)
+            if progress.disabled:
+                return await function(*args, **kwargs)
             if not words:
                 with progress_context(None):
                     return await function(*args, **kwargs)
@@ -101,3 +103,10 @@ def asset_unit_context(units):
 
 def selected_assets():
     return _assets.get()
+
+
+def task_word_count(element):
+    """Runtime-only accounting; source estimate APIs count explicitly instead."""
+    from .word_count import count_xml_words
+    progress = active_progress()
+    return progress.attempt_sync(count_xml_words, element) if progress is not None else None

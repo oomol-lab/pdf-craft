@@ -7,7 +7,7 @@ from unittest import TestCase, IsolatedAsyncioTestCase
 from unittest.mock import patch
 
 from pdf_craft import (
-    ConcurrentExecutor, ErrorCallbackError, ExtractionOptions, FixedCapacity,
+    ConcurrentExecutor, ExtractionOptions, FixedCapacity,
     JEV, LLM, ProgressEventKind, Refinement, RefinementStatus, UnitKind,
 )
 from pdf_craft.extractor.chapter.analysis_types import PageStructureError
@@ -114,16 +114,18 @@ class RefinementStatusTests(TestCase):
                     self.options(events.append, False), error_policy=False)
         self.assertFalse(self.completed(events))
 
-    def test_status_callback_failure_is_fatal_even_when_recovery_is_allowed(self):
+    def test_status_callback_failure_returns_readable_artifact_and_stops_reporting(self):
         events = []
         def callback(event):
             events.append(event)
             if event.refinement_status is not None:
                 raise ValueError('consumer failed')
         with TemporaryDirectory() as directory:
-            with self.assertRaises(ErrorCallbackError):
-                self.craft().extract_pdf('scripted.pdf', Path(directory) / 'book.pcex',
+            with self.assertLogs('pdf_craft._progress', level='WARNING') as logs:
+                result = self.craft().extract_pdf('scripted.pdf', Path(directory) / 'book.pcex',
                     self.options(callback, False, enabled=False), error_policy=True)
+            result._validate()
+            self.assertEqual(len(logs.output), 1)
         self.assertFalse(any(event.kind == ProgressEventKind.COMPLETED and event.unit_id is None
                              for event in events))
 
