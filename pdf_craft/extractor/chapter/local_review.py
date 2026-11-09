@@ -1,5 +1,6 @@
 """Local body-only review: one editable decision per named question."""
 
+from pdf_craft.common.whitespace import normalize_whitespace
 from collections.abc import Iterator
 from copy import deepcopy
 import re
@@ -37,7 +38,7 @@ def local_review_requests(state: dict[str, Any], *, concrete_joins: bool = False
             if layout["ownership"] == "paragraph":
                 previous, available = {}, []
             return
-        if (layout["source_type"] != "text" or not layout.get("raw_text", "").strip()
+        if (layout["source_type"] != "text" or not normalize_whitespace(layout.get("raw_text", ""), trim=True)
                 or layout["source_order"] is None):
             return
         key = f"p{page_index}_s{layout['source_order']}"

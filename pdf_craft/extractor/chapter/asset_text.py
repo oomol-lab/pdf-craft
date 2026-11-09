@@ -5,6 +5,7 @@ when adopted ownership agrees; output materialization leaves that adopted page
 unchanged. Review and repair expose the same candidate description.
 """
 from __future__ import annotations
+from pdf_craft.common.whitespace import normalize_whitespace
 
 import re
 from dataclasses import dataclass, field, replace
@@ -349,7 +350,7 @@ def _is_table_caption_text(text: str) -> bool:
 
 
 def _normalize_table_adjacent_text(text: str) -> str:
-    return " ".join(text.strip().split())
+    return normalize_whitespace(text, trim=True)
 
 
 def _is_block_above(block_det, table_det) -> bool:

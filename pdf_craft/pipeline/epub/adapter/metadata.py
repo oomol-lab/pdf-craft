@@ -1,3 +1,4 @@
+from pdf_craft.common.whitespace import normalize_whitespace
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,8 +49,8 @@ def read_metadata(zip: ReadOnlyZip) -> tuple[list[MetadataField], MetadataContex
     fields: list[MetadataField] = []
     for elem in metadata_elem:
         tag_name = elem.tag
-        if elem.text and elem.text.strip() and tag_name not in SKIP_FIELDS:
-            fields.append(MetadataField(tag_name=tag_name, text=elem.text.strip()))
+        if elem.text and normalize_whitespace(elem.text, trim=True) and tag_name not in SKIP_FIELDS:
+            fields.append(MetadataField(tag_name=tag_name, text=normalize_whitespace(elem.text, trim=True)))
 
     context = MetadataContext(opf_path=opf_path, xml_node=xml_node)
     return fields, context
@@ -76,7 +77,7 @@ def apply_metadata(root, fields, target_language):
         root.insert(0, metadata_elem)
     fields_by_tag: dict[str, list[str]] = {}
     for field in fields:
-        fields_by_tag.setdefault(field.tag_name, []).append(field.text)
+        fields_by_tag.setdefault(field.tag_name, []).append(normalize_whitespace(field.text))
     counters: dict[str, int] = {}
     has_language = False
     for elem in metadata_elem:
@@ -85,7 +86,7 @@ def apply_metadata(root, fields, target_language):
             has_language = True
             if target_language is not None:
                 elem.text = target_language
-        elif tag in fields_by_tag and elem.text and elem.text.strip():
+        elif tag in fields_by_tag and elem.text and normalize_whitespace(elem.text, trim=True):
             counter = counters.get(tag, 0)
             if counter < len(fields_by_tag[tag]):
                 elem.text = fields_by_tag[tag][counter]

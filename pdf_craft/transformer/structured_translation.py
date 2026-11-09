@@ -4,10 +4,12 @@ The first translation supplies prose and positions for immutable source formula
 identities. Fill distributes that validated text, then restores original nodes.
 Neither the allocator nor its whitespace rules know a document's XML schema.
 """
+from copy import deepcopy
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol
 from xml.etree.ElementTree import Element
 
+from ..common.whitespace import is_whitespace
 from .canonical_text import restore_canonical_whitespace
 from .canonical_projection import MathMapping, SourceMath, project_canonical_math
 from .source_math import SourceMathTranslation
@@ -80,6 +82,22 @@ class StructuredTranslation:
                 return 'Canonical fill must belong to one adapter-defined translation unit.'
             if not self.is_text_unit(owner):
                 return None
+        # Top-level tails are outside the adapter's adopted fragment fields.
+        # Plain fragments of this ONE adapter owner can retain their own
+        # trailing text. Never move it across an anchor or a rich inline tag.
+        original_response = response
+        response = deepcopy(response)
+        if any(not is_whitespace(char) for char in response.text or ''):
+            return 'Visible text outside the required translation fragments.'
+        for index, child in enumerate(response):
+            if not any(not is_whitespace(char) for char in child.tail or ''):
+                continue
+            if (self.owner is None or child.tag != 'fragment'
+                    or len(child) or element_id(child) not in {segment.id for segment in segments}
+                    or (index+1 < len(response) and response[index+1].tag != 'fragment')):
+                return 'Visible tail has ambiguous fragment ownership.'
+            child.text = (child.text or '') + (child.tail or '')
+            child.tail = None
         response_by_id = {element_id(child): child for child in response}
         filled, sources = [], []
         previous = None
@@ -100,10 +118,11 @@ class StructuredTranslation:
             previous = owner
         if restore_canonical_whitespace(filled, canonical, sources=sources,
                                         replaced_tags=frozenset({'expression'}), join_roots=self.owner is not None):
+            original_response[:] = list(response)
             return None
         actual = ''.join(t.text for slot in filled for t in search_text_segments(slot, preserve_whitespace=True))
-        return ('Visible text differs from the canonical translation. Preserve words, '
-                'punctuation, special spaces and zero-width anchors. '
+        return ('Visible text differs from the canonical translation after whitespace normalization. '
+                'Preserve words, punctuation and required structure. '
                 f'Expected {canonical!r}, got {actual!r}.')
 
     def prepare(self, root: Element) -> None:

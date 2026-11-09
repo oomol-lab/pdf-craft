@@ -4,6 +4,7 @@ Semantic units own their validation and retry budgets. This layer only packs
 ready conversations; it never holds model executor capacity while gathering.
 """
 from __future__ import annotations
+from pdf_craft.common.whitespace import normalize_whitespace
 
 import asyncio
 from contextlib import contextmanager, nullcontext
@@ -285,6 +286,6 @@ class RequestBatcher:
             # LLM ingress after decoding rather than letting escaped control
             # characters bypass the runtime's safe_text normalization.
             text = safe_text(fields['text'])
-            if text.strip():
+            if normalize_whitespace(text, trim=True):
                 answers[identity] = text
         return {identity: answer for identity, answer in answers.items() if identity not in ambiguous}

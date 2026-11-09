@@ -1,4 +1,5 @@
 
+from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft import ErrorPolicy
 # pylint: disable=protected-access
 
@@ -215,13 +216,13 @@ class TestBookMetadata(unittest.IsolatedAsyncioTestCase):
                 _validate_metadata_evidence(model, {1: source})
                 assert model.title is not None
                 self.assertEqual(model.title.evidence, evidence)
-                self.assertEqual(model.title.value, value)
+                self.assertEqual(model.title.value, normalize_whitespace(value, trim=True))
                 original_ocr = (pages_path / "page_1.xml").read_bytes()
                 llm = _ScriptedLLM([response])
 
                 metadata = await extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
 
-                self.assertEqual(metadata.title, value)
+                self.assertEqual(metadata.title, normalize_whitespace(value, trim=True))
                 self.assertEqual(len(llm.calls), 1)
                 self.assertEqual((pages_path / "page_1.xml").read_bytes(), original_ocr)
 

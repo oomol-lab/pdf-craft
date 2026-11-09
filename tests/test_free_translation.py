@@ -139,7 +139,7 @@ class FreeTranslationTests(TestCase):
         result = allocate(json.dumps([dict(id='0', text='The  bold\nword.', formulas=[])]),
                           [SimpleNamespace(source_math=None)], 'The bold word.')
         self.assertEqual(result['0'], 'The bold word.')
-        for raw in ('The\u00a0bold word.', 'The bold words.'):
+        for raw in ('The\u200dbold word.', 'The bold words.'):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 allocate(json.dumps([dict(id='0', text='The bold word.', formulas=[])]),
                          [SimpleNamespace(source_math=None)], raw)

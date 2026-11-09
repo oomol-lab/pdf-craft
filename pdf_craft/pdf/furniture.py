@@ -8,6 +8,7 @@ extraction module.
 """
 
 from __future__ import annotations
+from pdf_craft.common.whitespace import normalize_whitespace
 
 from collections import Counter
 from collections.abc import Callable, Mapping
@@ -998,7 +999,7 @@ def _canonical_content(sections: list[FurnitureSection]) -> str:
 
 
 def _normalize_content(content: str) -> str:
-    return " ".join(content.split())
+    return normalize_whitespace(content, trim=True)
 
 
 def _matching_text_template(content: str) -> _MatchingTextTemplate | None:

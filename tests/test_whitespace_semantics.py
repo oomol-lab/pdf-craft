@@ -29,10 +29,10 @@ class WhiteSpaceStandardsTests(TestCase):
                 self.assertEqual(normalize(text, mode), expected)
                 self.assertEqual(normalize(expected, mode), expected)
 
-    def test_special_spaces_are_not_document_whitespace(self):
+    def test_special_spaces_in_normal_prose_are_normalized(self):
         text = 'a\u00a0\u2009\u202f\u3000b'
-        self.assertEqual(normalize(text, trim=True), text)
-        self.assertEqual(normalize('\u00a0x\u00a0', trim=True), '\u00a0x\u00a0')
+        self.assertEqual(normalize(text, trim=True), 'a b')
+        self.assertEqual(normalize('\u00a0x\u00a0', trim=True), 'x')
 
     def test_context_inheritance_overrides_and_html_defaults(self):
         self.assertEqual(mode_for(fromstring('<pre/>')), WhiteSpace.PRE)
@@ -124,13 +124,13 @@ class WhitespaceRecoveryTests(TestCase):
                 ('<fragment>  Helloworld. \n</fragment>', 'Hello world.', 'Hello world.'),
                 ('<fragment>one word</fragment>', 'oneword', 'oneword'),
                 ('<fragment>Hello\n  world</fragment>', 'Hello   world', 'Hello world'),
-                ('<fragment>Hello\u00a0world</fragment>', 'Hello\u00a0world', 'Hello\u00a0world')):
+                ('<fragment>Hello\u00a0world</fragment>', 'Hello\u00a0world', 'Hello world')):
             root = fromstring(response)
             self.assertTrue(restore_canonical_whitespace([root], canonical))
             self.assertEqual(''.join(root.itertext()), expected)
         for response, canonical in (('<fragment>wrong word</fragment>', 'right word'),
                                     ('<fragment>word?</fragment>', 'word!'),
-                                    ('<fragment>a b</fragment>', 'a\u00a0b')):
+                                    ('<fragment>a b</fragment>', 'aXb')):
             root = fromstring(response)
             before = tostring(root)
             self.assertFalse(restore_canonical_whitespace([root], canonical))

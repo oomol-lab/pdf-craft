@@ -3,8 +3,8 @@
 Canonical visible-text constraint: For this translation unit, concatenating all visible
 text in its source slots must reproduce the corresponding canonical translation above
 after the caller's shared whitespace normalization and unambiguous recovery. Preserve
-words, punctuation and special spaces; normal cosmetic whitespace can be reconstructed
-by the caller. <anchor .../> nodes are zero-width structural tokens: do not add a space
+words and punctuation; ordinary Unicode spaces and invisible padding are normalized
+by the caller. Explicitly preserved code and mathematical payloads retain their whitespace. <anchor .../> nodes are zero-width structural tokens: do not add a space
 or any character on either side of one. Inline <expression> nodes are ordinary text
 slots like <span>: fill them with the corresponding canonical translated text. Their IDs identify
 allocation containers, not the mathematical values placed in those containers.

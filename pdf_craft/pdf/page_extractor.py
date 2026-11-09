@@ -1,4 +1,4 @@
-import re
+from pdf_craft.common.whitespace import normalize_whitespace
 import tempfile
 from pathlib import Path
 
@@ -431,9 +431,7 @@ class PageExtractorNode:
     def _normalize_text(self, text: str | None) -> str:
         if text is None:
             return ""
-        text = safe_text(text)
-        text = re.sub(r"\s+", " ", text)
-        return text.strip()
+        return safe_text(normalize_whitespace(text, trim=True))
 
     def _validate_ocr_size(self, ocr_size: DeepSeekOCRSize) -> None:
         if isinstance(self._ocr, DeepSeekOCR2LocalConfig) and ocr_size == "tiny":

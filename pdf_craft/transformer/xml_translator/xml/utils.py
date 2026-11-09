@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from xml.etree.ElementTree import Element
 
-from ...whitespace import WhiteSpace, normalize, collapses_breaks, DOCUMENT_SPACE
+from ...whitespace import WhiteSpace, normalize, collapses_breaks
 from .const import ID_KEY
 
 
@@ -10,7 +10,7 @@ def normalize_text_in_element(text: str | None, *, preserve_whitespace: bool = F
     if not text:
         return None
     text = normalize(text, mode)
-    if not text.strip(DOCUMENT_SPACE) and not preserve_whitespace and collapses_breaks(mode):
+    if not text.strip() and not preserve_whitespace and collapses_breaks(mode):
         return None
     return text
 

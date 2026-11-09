@@ -1,9 +1,9 @@
 """Page-level semantic review between resolution and stream restoration."""
 
 from __future__ import annotations
+from pdf_craft.common.whitespace import normalize_whitespace
 
 import json
-import re
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -395,7 +395,7 @@ def _content_text(content: Iterable[Any]) -> str:
 
 def _review_text(text: str) -> str:
     """Keep ownership and paragraph evidence in the middle of a layout too."""
-    return re.sub(r"\s+", " ", text).strip()
+    return normalize_whitespace(text, trim=True)
 
 
 def _mark_text(mark: Any) -> str | None:

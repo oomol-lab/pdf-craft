@@ -5,6 +5,7 @@ from unittest import IsolatedAsyncioTestCase
 from xml.etree.ElementTree import fromstring, tostring
 
 from pdf_craft import RetryPolicy, SubmitKind
+from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft._policy import policy_operation
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.request_batch import RequestBatcher
@@ -20,14 +21,18 @@ class TranslationProtocolGapTests(IsolatedAsyncioTestCase):
             with self.subTest(blank=repr(blank)):
                 translator, model = translator_fixture()
                 source = fromstring(f'<body><p>{blank}<em>{blank}</em>{blank}</p><p/></body>')
-                before = tostring(source)
+                expected = fromstring('<body><p/><p/></body>')
+                expected[0].text = normalize_whitespace(blank) or None
+                from xml.etree.ElementTree import SubElement
+                child = SubElement(expected[0], 'em')
+                child.text = child.tail = normalize_whitespace(blank) or None
                 result, _ = await StructuredTranslation().translate(
                     translator, TranslationTask(source, SubmitKind.REPLACE, None),
                     error_policy=False, retry_policy=RetryPolicy(translation=0, fill=0))
-                self.assertEqual(tostring(result), before)
+                self.assertEqual(tostring(result), tostring(expected))
                 self.assertEqual(model.calls, [])
 
-    async def test_blank_and_prose_units_share_operation_without_losing_special_spaces(self):
+    async def test_blank_and_prose_units_share_ordinary_whitespace_policy(self):
         translator, model = translator_fixture()
         source = fromstring('<body><p>\u00a0</p><p>Prose\u00a0<em>with\u202fspace</em>.</p><p/></body>')
         result, _ = await StructuredTranslation().translate(

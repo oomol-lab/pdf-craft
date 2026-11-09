@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft.usage import UsageCollector, adopted_result
 from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
@@ -527,7 +528,7 @@ class XMLTranslator:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
         if not primary:
             return [None] * len(inline_segments)
-        if not any(text.text.strip() for segment in primary for text in segment):
+        if not any(normalize_whitespace(text.text, trim=True) for segment in primary for text in segment):
             # Unicode whitespace needs no translation. Clone rather than strip
             # it so special spaces, inline nodes and empty block anchors survive;
             # read-only context must not turn a blank primary unit into work.
@@ -605,7 +606,7 @@ class XMLTranslator:
 
     async def _translate_text_async(self, text: str, *, context: str = "",
                                     source_math: SourceMathTranslation | None = None, preserve_space: bool = False) -> str:
-        if not text.strip() or _already_in_target_language(text, self._target_language):
+        if not normalize_whitespace(text, trim=True) or _already_in_target_language(text, self._target_language):
             return text
         template = await self._translation_runtime.template("translate")
         messages = [Message(MessageRole.SYSTEM, template.render(

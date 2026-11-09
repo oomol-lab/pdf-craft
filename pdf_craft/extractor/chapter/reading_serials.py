@@ -1,3 +1,4 @@
+from pdf_craft.common.whitespace import normalize_whitespace
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Generator, Generic, Iterable, TypeVar
@@ -125,7 +126,7 @@ def _vertical_text(layout: PageLayout) -> bool:
         return False
     x1, y1, x2, y2 = layout.det
     width, height = x2 - x1, y2 - y1
-    text = "".join(layout.text.split())
+    text = normalize_whitespace(layout.text).replace(" ", "")
     # At most about four glyph columns (area-based square-glyph estimate).
     # This rejects densely wrapped horizontal narrow columns of similar shape.
     return (width > 0 and len(text) >= 6

@@ -123,6 +123,9 @@ class InlineWhitespaceTests(TestCase):
     def test_canonical_edge_padding_stays_outside_formula_content(self):
         for canonical in (' x', 'x '):
             root = fromstring('<fragment><expression>x</expression></fragment>')
-            self.assertTrue(restore_canonical_whitespace([root], canonical))
+            # Match the real adapter: formula payload is syntax-preserved;
+            # its outer padding belongs to surviving prose fields.
+            self.assertTrue(restore_canonical_whitespace(
+                [root], canonical, replaced_tags=frozenset({'expression'})))
             self.assertEqual(''.join(root.itertext()), canonical.strip())
             self.assertEqual(root[0].text, 'x')

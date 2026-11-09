@@ -1,5 +1,6 @@
 """The public PDF Craft Extraction artifact and its internal workspace storage."""
 
+from pdf_craft.common.whitespace import normalize_whitespace
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
@@ -85,10 +86,10 @@ def _accept_metadata_text(metadata: DocumentAuthor | DocumentMetadata) -> None:
     for field in fields(metadata):
         value = getattr(metadata, field.name)
         if isinstance(value, str):
-            object.__setattr__(metadata, field.name, safe_text(value))
+            object.__setattr__(metadata, field.name, safe_text(normalize_whitespace(value)))
         elif isinstance(value, tuple):
             object.__setattr__(metadata, field.name, tuple(
-                safe_text(item) if isinstance(item, str) else item for item in value
+                safe_text(normalize_whitespace(item)) if isinstance(item, str) else item for item in value
             ))
 
 
@@ -99,7 +100,7 @@ def accept_metadata(value: Any) -> Any:
     Keeping the JSON shape preserves legacy authors and partial overlays.
     """
     if isinstance(value, str):
-        return safe_text(value)
+        return safe_text(normalize_whitespace(value))
     if isinstance(value, list):
         return [accept_metadata(item) for item in value]
     if isinstance(value, dict):

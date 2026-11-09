@@ -1,5 +1,6 @@
 # pylint: disable=protected-access
 
+from pdf_craft.common.whitespace import normalize_whitespace
 import json
 import re
 import time
@@ -86,7 +87,7 @@ def _read_titles(pages: XMLReader[Page]) -> list["_Title"]:
             _, top, _, bottom = layout.det
             titles.append(
                 _Title(
-                    text=re.sub(r"\s+", " ", layout.text).strip(),
+                    text=normalize_whitespace(layout.text, trim=True),
                     ref=(page.index, layout.anchor_order),
                     height=bottom - top,
                 )

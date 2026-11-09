@@ -31,26 +31,28 @@ EPUB 使用 MathML。图注上下文只用于理解，不作为译文的一部�
 无损边界：普通和流式章节写入都忠实保留已采纳的混合内容，不在保存时套用 friendly XML
 的空白归一化。
 
-恢复是事务性的：无法恢复时不修改候选。文字、标点、NBSP 和其他 Unicode 分隔符保持严格，
+恢复是事务性的：无法恢复时不修改候选。文字、标点保持严格；普通文本空白按公共规则归一化，
 来源 ID 与所需标签也继续校验。漏译、改字或有歧义的归属继续进入有限重试。本轮不扩展通用的
 标点、拼写纠错。
 
 ## 共享 HTML/CSS 空白规则
 
-`transformer/whitespace.py` 为 friendly XML、文本分段及译文恢复提供共同规则；block/inline
+`common/whitespace.py` 提供普通文本的唯一字符归一化规则，
+`transformer/whitespace.py` 为 friendly XML、文本分段及译文恢复选择保留上下文；block/inline
 复用现有 `xml/inline.py` 分类和显式 `display`，不维护第二份标签名单。
 
 | 上下文 | 处理方式 |
 | --- | --- |
-| `normal`、`nowrap` | 折叠普通空格、Tab 和分段换行；普通段落边缘可清理。 |
+| `normal`、`nowrap` | 折叠 Unicode 空白、退格和分段换行，清除明确的零宽填充；普通段落边缘可清理。 |
 | `pre-line` | 折叠空格、Tab，保留换行。 |
 | `pre`、`pre-wrap`、`break-spaces` | 保留空格、Tab 和换行。 |
-| NBSP 等特殊 Unicode 分隔符 | 保留，不能当普通空白删除或压缩。 |
+| 普通文本中的 NBSP、全角空格等 Unicode 空白 | 与普通空格统一处理，不要求模型精确重现展示差异。 |
 | 可折叠模式下的纯 block 容器 | 允许增加结构间换行与缩进。 |
 | 含 inline 的混合正文 | 不凭空增加分隔；跨槽位统一处理已有空白，不能逐节点 trim 粘词。 |
 
-参与折叠的只有 U+0020、U+0009 与 CR/LF；CRLF/CR 先统一为 LF。CSS Text 3 对普通分段换行
-转换留有浏览器自行决定的空间；本库统一转换成空格，不猜测中文上下文并删除换行。
+普通文本至少覆盖 Unicode `\s`，另处理退格和明确列出的零宽填充；ZWJ/ZWNJ、变体选择符
+不是填充。显式保留上下文及公式语法不使用普通文本压缩。原始模型回答保留在诊断中，fill 的
+工程视图与最终采用结果使用同一规则，不修改完整的 XML/JSON/Markdown 序列化字符串。
 本模块不实现浏览器布局、双向文本定位、自动折行或完整 CSS 层叠，也不宣称 DOM 源字符完全不变。
 
 规则按树继承，支持 HTML `pre`/`textarea` 默认值、内部 `white-space` 提示和内联 `style`。

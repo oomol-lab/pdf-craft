@@ -46,31 +46,32 @@ lossless boundary: both chapter writers preserve the accepted mixed content;
 they do not apply friendly XML's whitespace normalization when saving it.
 
 Changes are transactional: unsuccessful recovery leaves the candidate untouched.
-Words, punctuation, NBSP, other Unicode separators, source IDs and required tags
-remain checked. Missing/changed prose or ambiguous slot ownership still enters
+Words, punctuation, source IDs and required tags remain checked. Ordinary
+whitespace is normalized using the shared document-text policy. Missing/changed prose or ambiguous slot ownership still enters
 the bounded repair loop. Punctuation/spelling correction is not part of this
 whitespace refactor.
 
 ## Shared HTML/CSS transport subset
 
-The shared policy in `transformer/whitespace.py` is used by friendly XML,
+`common/whitespace.py` owns ordinary text normalization; the preservation context
+in `transformer/whitespace.py` is used by friendly XML,
 segmentation and canonical recovery. Block/inline classification comes from the
 existing `xml/inline.py` registry and its explicit `display` override.
 
 | Context | Processing |
 | --- | --- |
-| `normal`, `nowrap` | Collapse ordinary spaces/tabs and segment breaks; normal paragraph edges can be trimmed. |
+| `normal`, `nowrap` | Collapse Unicode whitespace, backspace and segment breaks; remove explicit zero-width padding; normal paragraph edges can be trimmed. |
 | `pre-line` | Collapse spaces/tabs, retain segment breaks. |
 | `pre`, `pre-wrap`, `break-spaces` | Preserve spaces, tabs and breaks. |
-| NBSP and other Unicode separators | Preserve; they are not ordinary collapsible whitespace. |
+| NBSP and full-width spaces in ordinary prose | Normalize to ordinary spaces rather than requiring exact model reproduction. |
 | Block-only containers in collapsing modes | May add inter-block indentation. |
 | Text mixed with inline elements | Never introduce separators that were absent; normalize existing runs continuously across slots. |
 
-Only U+0020, U+0009 and CR/LF document whitespace participates. CRLF/CR is
-normalized to LF. CSS Text 3 leaves normal segment-break transformation to the
-user agent; this transport chooses a space consistently, without language-based
-CJK removal. This is not browser layout, bidi positioning, line wrapping or a
-complete CSS cascade. It does not alter the source DOM to claim DOM identity.
+Ordinary text covers Unicode `\s`, backspace and explicit zero-width padding.
+Join controls and variation selectors remain content. Explicitly preserved code and
+formula syntax retain their own whitespace. Raw model answers remain diagnostic
+evidence; fill normalizes its engineering view and adopted text, never an entire
+serialized XML/JSON/Markdown response.
 
 Modes inherit through the tree. HTML `pre`/`textarea` defaults, explicit
 `white-space` transport hints and inline `style` declarations are supported.
