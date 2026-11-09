@@ -65,9 +65,10 @@ class Zip(ReadOnlyZip):
         try:
             try:
                 if _exc_type is None:
-                    for file_path in self._source_zip.namelist():
-                        if not file_path.endswith("/") and Path(file_path) not in self._processed_files:
-                            self.migrate(Path(file_path))
+                    for source_info in self._source_zip.infolist():
+                        if (not source_info.is_dir()
+                                and Path(source_info.filename) not in self._processed_files):
+                            self._migrate_entry(source_info)
             finally:
                 self._target_zip.close()
                 self._source_zip.close()
@@ -80,16 +81,18 @@ class Zip(ReadOnlyZip):
         return False
 
     def migrate(self, path: Path):
-        path_str = path.as_posix()
-        source_info = self._source_zip.getinfo(path_str)
-        with self.read(path) as source_file:
+        self._migrate_entry(self._source_zip.getinfo(path.as_posix()))
+        self._processed_files.add(path)
+
+    def _migrate_entry(self, source_info: zipfile.ZipInfo) -> None:
+        # ZIP entry identity must survive filesystem path normalization.
+        with self._source_zip.open(source_info, "r") as source_file:
             content = source_file.read()
         self._target_zip.writestr(
             zinfo_or_arcname=source_info,
             data=content,
             compress_type=source_info.compress_type,
         )
-        self._processed_files.add(path)
 
     def replace(self, path: Path) -> IO[bytes]:
         self._processed_files.add(path)
