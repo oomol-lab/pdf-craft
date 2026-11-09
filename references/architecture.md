@@ -88,24 +88,23 @@ PCEX 与原生 EPUB 把连续内容送入同一个 XML mapper；章节只决定�
 不重置预算分组。PCEX 的磁盘就绪队列提供带稳定身份的正文／脚注流，
 Narrative 适配器统一投影；EPUB 的异步 XML 根同样共用既有 splitter。
 翻译输出不设门禁，所有结构验收和修复属于 fill 层；必须遵守
-[翻译与 fill 的职责硬边界](translation-fill-boundary.md)。自由翻译 group 先取得完整回答，分配 fill 再确定单元归属与公式身份，最后 XML fill
-恢复结构。跨章节聚合与有界处理继续保留。
+[翻译与 fill 的职责硬边界](translation-fill-boundary.md)。自由翻译 group 取得一份完整回答后，直接进入同组 XML fill Loop。
+来源归属、公式身份和 XML 落位在该回答中完成；禁止独立 JSON 分配阶段及额外模型调用。
+程序按整组译文归一化后的全文校验和来源身份采用结果，再回填原章节、自然段与 EPUB 节点。
 
-mapper 使用有界来源收集窗口，再以最多 64 个语义工作组成一次调度准入，
-包括大章节，避免每个自然段先启动一套独立完整翻译流程。
-`group_requests.py` 显式跟踪同组成员的请求就绪与结束；`request_batch.py`
-按原 token/输出预算聚合首阶段和 fill，不靠文件 IO 恰好落在 10ms 内实现节省。
-有界工作容量按 `window` 分配，完整组一次准入，成员各自释放容量；operation 的
-request window 与共享 LLM executor 继续限制真实模型请求并发。源码暂停时允许有界时间内交付尾批，不预载全书。
+mapper 连续收集跨章节来源，以 token 预算和最多 64 个文本块组成一个有界 group。
+每组直接发起一次自由翻译，随后进入同组的 XML fill；不再拆成逐 owner 请求后
+通过 JSON 外壳重新聚合。`request_batch.py` 只维护操作级请求并发容量，
+共享 executor 继续限制供应商并发。源码暂停时有界交付尾组，不预载全书。
 
-对适配器声明需要完整文本校验的语义文本单元，规范译文先尝试确定性填充：源结构已通过全文校验时保留原槽位；只有一个纯文本叶块时，
-直接把规范译文填入该唯一位置。两者均经过模型候选相同的结构、全文、公式身份校验与原子提交。
-跨多个改变后的文本槽位或内联语义边界的分配仍交给模型，不按长度猜分，也不丢弃标签。
+fill 按整组全文、模板结构和公式来源身份进行原子验收；重试不会采用任何部分结果，
+不同 group 可并发前进。验证成功后按稳定身份回填各来源章节、节点与 CFI，
+正文与脚注的通知通道仍独立。无歧义的程序填充也必须通过同样的验收。
+XML 回答输出预算由模板、整组译文与公式身份数量确定，所有重试共用一个有限预算。
 
-请求组不是采纳边界。PCEX 可按来源身份独立结算完整单元，正文与脚注通知仍独立；
-EPUB 保留片段顺序、CFI 与原子 owner 验收。成功单元不随兄弟单元重试。
-具体计数门禁、预算与日志语义见
-[翻译请求分组验证](../docs/verification/translation-request-batches.md)。
+离线请求计数、跨章节、取消及回填回归见 `tests/test_translation_grouping.py`；
+公式身份和值变化回归见 `tests/test_elastic_formula_restore.py`、
+`tests/test_canonical_math_projection.py` 与 `tests/test_online_formula_allocation.py`。
 
 ## 外部包边界
 

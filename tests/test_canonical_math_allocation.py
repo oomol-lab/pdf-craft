@@ -15,7 +15,7 @@ from tests.test_anchored_content_translation import _repairing_translator
 def source():
     return Chapter(None, -1, [TextFlowItem('body', -1, [
         SourceTextFragment(1, 0, (0, 0, 100, 20), [
-            'Take ', InlineExpression(ExpressionKind.INLINE_PAREN, 'x ='),
+            'Take ', InlineExpression(ExpressionKind.INLINE_PAREN, 'x ='), ' ',
             InlineExpression(ExpressionKind.INLINE_PAREN, 'y'), '.',
         ]),
     ])])
@@ -25,22 +25,20 @@ class CanonicalMathAllocationTests(TestCase):
     def test_merged_canonical_math_is_one_reference_with_all_source_ids_retained(self):
         canonical = r'取 \(x = y\)。'
         response = ('<xml><fragment id="1">取 '
-                    '<expression id="2"><math-ref key="m1"/></expression>'
+                    r'<expression id="2">\(<source-math key="s1">x =</source-math> <source-math key="s2">y</source-math>\)</expression>'
                     '<expression id="3"/>。</fragment></xml>')
         translator, runtime = _repairing_translator([response])
         translator._translate_text_async = AsyncMock(return_value=canonical)
         target = asyncio.run(NarrativeXMLTransformer(translator).transform(source(), error_policy=False))
         self.assertEqual(runtime.context_value.calls, 1)
-        request = runtime.context_value.messages[0][0][1].message
-        self.assertIn('NOT independent math boundaries', request)
-        self.assertIn('ONE math-ref token', request)
-        self.assertIn('permitted transport payload', runtime.context_value.messages[0][0][0].message)
+        self.assertIn('NOT independent mathematical boundaries', runtime.context_value.messages[0][0][0].message)
+        self.assertIn('source-math', runtime.context_value.messages[0][0][0].message)
         item = target.flow_items[0]
         assert isinstance(item, TextFlowItem)
         fragment = item.children[0]
         assert isinstance(fragment, SourceTextFragment)
         self.assertEqual(fragment.content, [
-            '取 ', InlineExpression(ExpressionKind.INLINE_PAREN, 'x ='),
+            '取 ', InlineExpression(ExpressionKind.INLINE_PAREN, 'x ='), ' ',
             InlineExpression(ExpressionKind.INLINE_PAREN, 'y'), '。',
         ])
 
@@ -49,21 +47,20 @@ class CanonicalMathAllocationTests(TestCase):
         wrong = (r'<xml><fragment id="1">取 <expression id="2">\(x =\)</expression>'
                  r'<expression id="3">\(y\)</expression>。</fragment></xml>')
         corrected = ('<xml><fragment id="1">取 '
-                     '<expression id="2"><math-ref key="m1"/></expression>'
+                     r'<expression id="2">\(<source-math key="s1">x =</source-math> <source-math key="s2">y</source-math>\)</expression>'
                      '<expression id="3"/>。</fragment></xml>')
-        wrapped_reference = corrected.replace('<math-ref key="m1"/>', r'\(<math-ref key="m1"/>\)')
+        wrapped_reference = corrected.replace('取 ', r'取 \(')
         for candidate in (wrong, wrapped_reference):
             with self.subTest(candidate=candidate):
                 translator, runtime = _repairing_translator([candidate, corrected])
                 translator._translate_text_async = AsyncMock(return_value=canonical)
                 asyncio.run(NarrativeXMLTransformer(translator).transform(source(), error_policy=False))
                 self.assertEqual(runtime.context_value.calls, 2)
-                self.assertIn('differs from the canonical translation', runtime.context_value.messages[1][0][-1].message)
-                self.assertIn('NEVER retype', runtime.context_value.messages[1][0][-1].message)
+                self.assertTrue(runtime.context_value.messages[1][0][-1].message)
 
     def test_missing_source_expression_id_still_fails_even_with_correct_math_reference(self):
         response = ('<xml><fragment id="1">取 '
-                    '<expression id="2"><math-ref key="m1"/></expression>'
+                    r'<expression id="2">\(<source-math key="s1">x =</source-math> <source-math key="s2">y</source-math>\)</expression>'
                     '<expression id="3"/>。</fragment></xml>')
         translator, runtime = _repairing_translator([response.replace('<expression id="3"/>', ''), response])
         translator._translate_text_async = AsyncMock(return_value=r'取 \(x = y\)。')

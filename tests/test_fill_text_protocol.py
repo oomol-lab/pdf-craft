@@ -143,7 +143,7 @@ class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
         result = await NarrativeXMLTransformer(translator).transform(source_chapter(styled=True))
         self.assertEqual(''.join(part.strip() for part in encode(result).itertext()), '是')
         system = runtime.context_value.messages[0][0][0].message.lower()
-        self.assertIn('empty inline', system)
+        self.assertIn('empty required', system)
         self.assertNotIn('use source text', system)
         self.assertNotIn('mixed language is acceptable', system)
         self.assertEqual(len(list(encode(result).iter('span'))), 3)
@@ -175,7 +175,7 @@ class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result[0]), 0, 'literal tags must not become XHTML children')
         self.assertEqual(runtime.context_value.calls, 1)
 
-    async def test_noncanonical_fill_prompt_has_no_pcex_canonical_instructions(self):
+    async def test_generic_fill_uses_same_group_text_integrity_protocol(self):
         translator, runtime = _repairing_translator(['<xml><p id="1">是</p></xml>'])
         translator._translate_text_async = AsyncMock(return_value='是')
         result, _ = await translator.translate_element(TranslationTask(
@@ -184,7 +184,7 @@ class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(''.join(result.itertext()), '是')
         messages = runtime.context_value.messages[0][0]
         self.assertNotIn('Canonical visible-text constraint:', messages[1].message)
-        self.assertIn('empty inline', messages[0].message.lower())
+        self.assertIn('empty required', messages[0].message.lower())
 
     async def test_cdata_does_not_bypass_structural_or_full_text_validation(self):
         bad = '<xml><fragment id="1"><![CDATA[使用 <span> 标签。]]></fragment></xml>'

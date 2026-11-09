@@ -47,19 +47,9 @@ class AnchoredCanonicalAcceptanceTests(IsolatedAsyncioTestCase):
         table = SourceAsset(1, 'table', (1, 1, 20, 20), content=[tag('table', [
             tag('tr', [tag('td', ['First cell.'], [('colspan', '2')]),
                        tag('td', ['Second cell.'])])])])
-        translator, runtime = _repairing_translator([], direct_fill=True)
+        translator, runtime = _repairing_translator([
+            '<xml><td id="1"/><td id="2">Translated second cell.</td></xml>'], direct_fill=True)
         calls = provider(translator, ['Translated second cell.'])
-        request = runtime.context_value.request
-
-        async def allocate(messages, **kwargs):
-            if messages[0].message.startswith('You are the structural fill engineer.'):
-                payload = json.loads(messages[1].message)
-                return json.dumps([dict(id=unit['id'], formulas=[], text=(
-                    '' if 'First cell.' in unit['source'] else payload['translation']))
-                                   for unit in payload['sources']])
-            return await request(messages, **kwargs)
-
-        runtime.context_value.request = allocate
         with TemporaryDirectory() as directory:
             root = Path(directory)
             source = make_extraction(root / 'source')
@@ -83,7 +73,7 @@ class AnchoredCanonicalAcceptanceTests(IsolatedAsyncioTestCase):
                 assert isinstance(item, StandaloneAsset)
                 self.assertEqual(item.asset.ref, 'table')
         self.assertEqual(len(calls), 1)
-        self.assertEqual(runtime.context_value.calls, 0)
+        self.assertEqual(runtime.context_value.calls, 1)
 
     async def test_nonempty_caption_can_change_text_slots_without_changing_markup(self):
         source = SourceAsset(1, 'image', (1, 1, 20, 20),

@@ -1,5 +1,6 @@
 """Recover known canonical whitespace only when its slot ownership is unique."""
 from collections import defaultdict
+from difflib import SequenceMatcher
 import unicodedata
 from typing import NamedTuple
 from xml.etree.ElementTree import Element
@@ -46,7 +47,10 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
                                  sources: list[Element] | None = None,
                                  modes: list[WhiteSpace] | None = None, *,
                                  replaced_tags: frozenset[str] = frozenset(),
-                                 join_roots: bool = False) -> bool:
+                                 join_roots: bool = False,
+                                 transparent_tags: frozenset[str] = frozenset(),
+                                 formatting_tags: frozenset[str] = frozenset(),
+                                 virtual_roots: frozenset[Element] = frozenset()) -> bool:
     """Align unchanged characters, then reconstruct legal gaps transactionally.
 
     Non-whitespace characters remain immutable. Normal prose collapses Unicode
@@ -69,8 +73,10 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
 
     def walk(element, source, inherited, path):
         start = offset
-        mode = mode_for(source if source is not None else element, inherited)
-        field(element, 'text', path, mode, source.text if source is not None else '')
+        mode = (inherited if element.tag in formatting_tags else
+                mode_for(source if source is not None else element, inherited))
+        field_source = source if element.tag not in formatting_tags else None
+        field(element, 'text', path, mode, field_source.text if field_source is not None else '')
         originals = {} if source is None else {
             id(child): original for original, child in match_children(
                 ((node.tag, element_id(node), node) for node in source), element,
@@ -80,7 +86,7 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             original = originals.get(id(child))
             # A provided source is authoritative. A missing match must never
             # let model-supplied attributes override its preservation context.
-            if source is not None and original is None:
+            if source is not None and original is None and child.tag not in transparent_tags:
                 return False
             if not walk(child, original, mode, path + [child]):
                 return False
@@ -154,6 +160,22 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             candidate = root_boundaries[position]
             if all(collapses_breaks(fields[i].mode) for i in candidates):
                 target = candidate
+        if target is None and formatting_tags and position in replacement_boundaries and candidates:
+            # Temporary expression containers disappear during typed projection.
+            # Several gap fields can therefore be the SAME final text position.
+            # Preserve genuine rich-inline/code ownership distinctions.
+            paths = {tuple(id(node) for node in fields[i].path if node.tag not in formatting_tags)
+                     for i in candidates}
+            if len(paths) == 1:
+                target = (surviving or owners or candidates)[0]
+                relevant = [target]
+        virtual = [i for i in candidates if fields[i].path[0] in virtual_roots]
+        if virtual and all(collapses_breaks(fields[i].mode) for i in candidates):
+            # Paragraph separators are rendered by the document structure.
+            # Keep their ordinary gap outside persisted owners, rather than
+            # adding trailing spaces to a reference mark or neighboring note.
+            target = virtual[0]
+            relevant = [target]
         protected_modes = {fields[i].mode for i in relevant if not collapses_breaks(fields[i].mode)}
         mode = next(iter(protected_modes)) if len(protected_modes) == 1 else WhiteSpace.PRE
         protected = bool(protected_modes)
@@ -214,3 +236,31 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
     for f, value in zip(fields, values):
         setattr(f.element, f.attribute, value or None)
     return True
+
+
+def canonical_difference(canonical: str, blocks: list[Element]) -> str:
+    """Bounded actionable XML fill diagnostics, without judging the artist."""
+    visible = lambda value: ''.join(char for char in value if not is_whitespace(char))
+    expected = visible(unicodedata.normalize('NFD', canonical))
+    texts = [visible(unicodedata.normalize('NFD', ''.join(block.itertext()))) for block in blocks]
+    actual = ''.join(texts)
+    edits = [op for op in SequenceMatcher(None, expected, actual, autojunk=False).get_opcodes()
+             if op[0] != 'equal']
+    missing = sum(right-left for _, left, right, _, _ in edits)
+    added = sum(right-left for _, _, _, left, right in edits)
+    if edits:
+        _, left, right, start, end = edits[0]
+        offset, owner = 0, '?'
+        for block, text in zip(blocks, texts):
+            if start < offset + len(text):
+                owner = block.get('id', '?')
+                break
+            offset += len(text)
+        detail = (f' First difference near XML block id={owner}, translation offset {left}, XML offset {start}.'
+                  f' Expected {expected[max(0, left-40):min(right+80, left+500)]!r}.'
+                  f' Received {actual[max(0, start-40):min(end+80, start+500)]!r}.')
+    else:
+        detail = ' Characters match, but whitespace ownership or protected code/TeX gaps are ambiguous.'
+    return ('Visible text differs from the canonical translation after whitespace normalization.'
+            f' Missing {missing}, added {added} non-whitespace characters.'
+            + detail + ' Fill the complete XML from the same original translation; do not rewrite it.')

@@ -26,6 +26,9 @@ from tests.test_pdf_patcher import BlankVisualBaseCompiler
 async def partial(runtime, inline_segments, **kwargs):
     result = []
     for segment in inline_segments:
+        if segment._translation_context:
+            result.append(None)
+            continue
         if 'Fail' in ''.join(part.text for part in segment):
             result.append(None)
         else:
@@ -137,7 +140,7 @@ class PDFTranslationRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 target = root / 'output.pdf'
                 target.write_bytes(b'existing output')
                 async def delayed_missing(runtime, inline_segments, is_note=footnote, **kwargs):
-                    if not is_note and any('Fail' in part.text for segment in inline_segments for part in segment):
+                    if not is_note and any('Fail' in part.text for segment in inline_segments if not segment._translation_context for part in segment):
                         # Guarantee the good body reaches composition before
                         # the earlier missing slot is written to the feed.
                         await self.compose_started.wait()
@@ -146,7 +149,7 @@ class PDFTranslationRecoveryTests(unittest.IsolatedAsyncioTestCase):
                         patch.object(self.patcher, '_write_erasure_overlay', side_effect=RuntimeError('fill failed')), \
                         self.assertRaises(NoUsableFillPagesError) as caught:
                     await AsyncPDFCraft(error_policy=True).translate_pdf(
-                        pdf, source, target, translator=translator(),
+                        pdf, source, target, translator=translator(max_group_score=25), window=2,
                     )
                 self.assertEqual(caught.exception.failed_page_indexes, (2,))
                 self.assertEqual(target.read_bytes(), b'existing output')

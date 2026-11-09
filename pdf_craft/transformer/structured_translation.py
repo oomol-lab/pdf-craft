@@ -1,19 +1,15 @@
-"""Shared full-text allocation protocol; adapters supply semantic boundaries.
-
-The first translation supplies prose and positions for immutable source formula
-identities. Fill distributes that validated text, then restores original nodes.
-Neither the allocator nor its whitespace rules know a document's XML schema.
-"""
+"""Validate complete group XML and project typed formulas through format adapters."""
 from copy import deepcopy
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol
 from xml.etree.ElementTree import Element
 
 from ..common.whitespace import is_whitespace
-from .canonical_text import restore_canonical_whitespace
-from .canonical_projection import MathMapping, SourceMath, project_canonical_math
+from .canonical_text import restore_canonical_whitespace, canonical_difference
+from .canonical_projection import MathMapping, SourceMath
 from .source_math import SourceMathTranslation
-from .xml_translator.segment import InlineSegment, TextSegment, search_text_segments
+from .xml_math import project_xml_math
+from .xml_translator.segment import InlineSegment, TextSegment
 from .xml_translator.xml.matching import element_id
 
 
@@ -53,16 +49,6 @@ class StructuredTranslation:
             return self.identity(owner)
         return owner.get('__pdf_craft_stream_node') or str(id(owner))
 
-    def groups(self, segments: list[InlineSegment]) -> list[list[InlineSegment]]:
-        groups, previous = [], None
-        for segment in segments:
-            owner = self.unit(segment)
-            if owner is not previous:
-                groups.append([])
-                previous = owner
-            groups[-1].append(segment)
-        return groups
-
     def render(self, segments: list[InlineSegment], math: SourceMathTranslation | None = None) -> str:
         parts, previous = [], None
         for segment in segments:
@@ -76,15 +62,14 @@ class StructuredTranslation:
         return ''.join(parts)
 
     def validate(self, segments: list[InlineSegment], canonical: str, response: Element) -> str | None:
-        if self.owner is not None:
-            owner = self.owner(segments[0])
-            if any(self.owner(segment) is not owner for segment in segments):
-                return 'Canonical fill must belong to one adapter-defined translation unit.'
-            if not self.is_text_unit(owner):
-                return None
         # Top-level tails are outside the adapter's adopted fragment fields.
-        # Plain fragments of this ONE adapter owner can retain their own
+        # Plain fragments can retain their own
         # trailing text. Never move it across an anchor or a rich inline tag.
+        # This adapter discards display-equation context during restoration.
+        # It must never count artist words hidden in those non-output slots.
+        if any(not is_whitespace(char) for context in response.iter('formula_context')
+               for text in context.itertext() for char in text):
+            return 'formula_context is read-only background. Leave it empty and put artist text in output slots.'
         original_response = response
         response = deepcopy(response)
         if any(not is_whitespace(char) for char in response.text or ''):
@@ -98,32 +83,32 @@ class StructuredTranslation:
                 return 'Visible tail has ambiguous fragment ownership.'
             child.text = (child.text or '') + (child.tail or '')
             child.tail = None
-        response_by_id = {element_id(child): child for child in response}
-        filled, sources = [], []
+        source_by_id = {segment.id: segment for segment in segments}
+        filled, sources, separators = [], [], set()
         previous = None
-        for segment in segments:
-            slot = response_by_id.get(segment.id)
-            if slot is None:
-                return f'Missing required canonical text slot id={segment.id}.'
-            owner = self.owner(segment) if self.owner is not None else segment
-            if self.owner is None and previous is not None and previous is not owner:
-                # Preserve the renderer's paragraph separator without assigning
-                # it to either unrelated source paragraph's text/tail fields.
+        for slot in response:
+            segment = source_by_id.get(element_id(slot))
+            if segment is None:  # Immutable anchors were checked by the structure validator.
+                continue
+            owner = self.unit(segment)
+            if previous is not None and previous is not owner:
                 boundary = Element('boundary')
                 boundary.text = '\n\n'
+                separators.add(boundary)
                 filled.append(boundary)
-                sources.append(boundary)
+                sources.append(deepcopy(boundary))
+            previous = owner
             filled.append(slot)
             sources.append(segment.create_element())
-            previous = owner
         if restore_canonical_whitespace(filled, canonical, sources=sources,
-                                        replaced_tags=frozenset({'expression'}), join_roots=self.owner is not None):
+                                        join_roots=True, replaced_tags=frozenset({'source-math'}),
+                                        transparent_tags=frozenset({'source-math'}),
+                                        formatting_tags=frozenset({'expression'}),
+                                        virtual_roots=frozenset(separators)):
             original_response[:] = list(response)
             return None
-        actual = ''.join(t.text for slot in filled for t in search_text_segments(slot, preserve_whitespace=True))
-        return ('Visible text differs from the canonical translation after whitespace normalization. '
-                'Preserve words, punctuation and required structure. '
-                f'Expected {canonical!r}, got {actual!r}.')
+        return canonical_difference(canonical, filled)
+
 
     def prepare(self, root: Element) -> None:
         if self.formulas is not None:
@@ -140,14 +125,14 @@ class StructuredTranslation:
         math.capture(segments)
         return math
 
-    def project_math(self, mappings: list[MathMapping | None], canonical: str,
-                     math: SourceMathTranslation | None, owner: Element | None = None) -> list[MathMapping | None] | None:
-        if math is None:
+    def project_math(self, mappings: list[MathMapping | None], _canonical: str,
+                     math: SourceMathTranslation | None, response: Element,
+                     segments: list[InlineSegment]) -> list[MathMapping | None] | None:
+        if self.formulas is None:
             return None
-        projected = project_canonical_math(mappings, canonical, math.bindings,
-                                           self.formulas.residual_math if self.formulas is not None else None)
-        if projected is not None and self._record_units and owner is not None:
-            self.projected_math_units.add(self.key(owner))
+        projected = project_xml_math(mappings, response, math, self.formulas.residual_math)
+        if projected is not None and self._record_units:
+            self.projected_math_units.update(self.key(self.unit(segment)) for segment in segments)
         return projected
 
     def accepted_unit(self, owner: Element) -> None:

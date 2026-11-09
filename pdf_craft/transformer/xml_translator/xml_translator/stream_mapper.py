@@ -14,10 +14,8 @@ from pdf_craft.transformer.xml_translator.segment import InlineSegment, TextSegm
 from pdf_craft.runtime import invoke_callback
 from pdf_craft._progress import OperationProgress
 from ...request_batch import MAX_BATCH_UNITS
-from ...group_requests import GroupRequests, current_group
 import asyncio
 import time
-from contextlib import nullcontext
 from .callbacks import Callbacks
 from .concurrency import run_async_parameters
 from .source_store import source_identity, rebind, NODE_KEY, ROOT_KEY
@@ -46,10 +44,9 @@ class _EmptyElement:
 
 @dataclass
 class _Work:
-    """An independently accepted unit, with private optional context slots."""
+    """One bounded group with private, read-only overlap slots."""
     segments: list[InlineSegment]
     primary: list[bool]
-    group: GroupRequests | None = None
 
 
 class XMLStreamMapper:
@@ -105,48 +102,24 @@ class XMLStreamMapper:
                 setattr(segment, "_translation_context", True)
             body_ids = {id(segment) for segment in body}
             segments = head + body + tail
-            # Schedule and release semantic units, not entire mapper groups.
-            # In particular a later paragraph's repair must not hold an earlier
-            # accepted paragraph behind a chapter/group completion barrier.
-            groups = ownership.groups(segments) if ownership is not None else [segments]
-            groups = [unit for unit in groups if any(id(segment) in body_ids for segment in unit)]
-            for unit in groups:
-                primary = [id(segment) in body_ids for segment in unit]
-                if any(primary):
-                    yield _Work(unit, primary)
+            # One bounded splitter group owns one free translation and XML fill.
+            yield _Work(segments, [id(segment) in body_ids for segment in segments])
 
         def batch_works(groups):
-            # Splitter and root expansion stay lazy, including one enormous
-            # chapter. Only this bounded chunk is materialized for admission.
-            chunk = []
-            def seal():
-                members = [work for work in chunk if isinstance(work, _Work)]
-                cohort = GroupRequests(len(members)) if current_group() is None else None
-                for work in members:
-                    work.group = cohort
-                return chunk
             for group in groups:
-                for work in units(group):
-                    chunk.append(work)
-                    if len(chunk) == MAX_BATCH_UNITS:
-                        yield seal()
-                        chunk = []
-            if chunk:
-                yield seal()
+                yield list(units(group))
 
         async def execute(work):
             if isinstance(work, _EmptyElement):
                 await invoke_callback(on_empty, work.root)
                 return ()
-            with work.group.member() if work.group is not None else nullcontext():
-                mappings = await map(work.segments)
+            mappings = await map(work.segments)
             return [(origin, target) for origin, target, primary in
                     zip(work.segments, mappings, work.primary, strict=True) if primary]
 
-        # All members of a bounded group must be admitted together so its
-        # readiness is explicit. Independent results still leave in source
-        # order and accepted siblings never wait for a later repair.
-        capacity = window * MAX_BATCH_UNITS if ownership is not None else window
+        # A bounded group is accepted atomically. Other groups can advance
+        # independently within the operation window.
+        capacity = window
         if isinstance(elements, AsyncIterable):
             async def work_items():
                 async with aclosing(self._async_groups(

@@ -1,27 +1,33 @@
-The supplied translated text is a friendly XML <translation> payload. Read its
-text after XML entity decoding; the wrapper and its xml:space attribute are
-transport only, not tags to add to the output template. Its math-ref children
-are the explicitly defined engineering references, not literal prose.
+The translated text is a friendly XML <translation> payload. Read its text after
+entity decoding. Its math-ref children reference the exact artist mathematics;
+the wrapper is transport only. Fill the COMPLETE group in one <xml> response.
 
+Flattening all output blocks in their translated reading order must reproduce
+the complete artist response after ordinary whitespace normalization. Never
+rewrite, summarize, translate again or omit text. Every required block and
+formatting ID must occur exactly once. IDs select source ownership; do not
+assign by array position. Keep required empty formatting slots when necessary.
 
+Source formula identities are independent of formatting expression slots.
+For EVERY key in source-formulas, wrap its corresponding translated span in
+<source-math key="sN">exact translated content</source-math> exactly once.
+This tag is an allowed engineering annotation inside an existing text slot;
+it is removed before structural adoption. It may contain one math-ref or exact
+literal text, without other document tags. It does not replace or create a
+required expression slot. Keep required expression slots (empty when needed).
+Choose the identity by semantic meaning, not source order or physical slot.
+If two source formulas have identical values, their keys still differ.
+A translated formula may change: source 4 followed by billion can correspond
+to <source-math key="s1">40</source-math>亿. Only 40 belongs to that source key.
+Never substitute the source value for a changed translation. The caller restores
+original LaTeX only when flattened source and translated values agree.
+Additional artist mathematics remains literal without inventing a source key.
+Keep code and mathematical whitespace exact; the caller normalizes ordinary
+Unicode spaces and padding and recovers unambiguous word boundaries.
 
-Canonical visible-text constraint: For this translation unit, concatenating all visible
-text in its source slots must reproduce the corresponding canonical translation above
-after the caller's shared whitespace normalization and unambiguous recovery. Preserve
-words and punctuation; ordinary Unicode spaces and invisible padding are normalized
-by the caller. Explicitly preserved code and mathematical payloads retain their whitespace. <anchor .../> nodes are zero-width structural tokens: do not add a space
-or any character on either side of one. Inline <expression> nodes are ordinary text
-slots like <span>: fill them with the corresponding canonical translated text. Their IDs identify
-allocation containers, not the mathematical values placed in those containers.
-The read-only math table has already been bound to original source formula
-identities. The caller restores original notation when flattened values agree, otherwise
-retains the translated formula content at its bound canonical position; do not rewrite a value or substitute the formula of an allocation slot.
-If a required inline <expression> has no corresponding
-characters in the canonical translation, keep that expression tag and its exact ID with
-empty contents at its corresponding position (for example <expression id="5"/>). Do not
-append source formula text to make the slot nonempty. Preserve all required tags and IDs. The number of
-canonical math references may differ from the number of source expression slots. NEVER
-invent an expression tag or ID to house an extra reference. Several references and
-intervening text may occupy ONE existing expression slot; a reference may also appear
-directly in ordinary text. Preserve the exact template IDs and their owning blocks.
-Empty existing expression slots are permitted.
+formula_context is read-only display-equation background. Keep its required tags
+but leave all its text and children empty; it is not part of the artist translation.
+Source expression slots are NOT independent mathematical boundaries. A complete
+artist formula can contain several source-math annotations for its component
+identities. Keep delimiters outside those component annotations; assign every
+source identity once without swallowing additional artist content.

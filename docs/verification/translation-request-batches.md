@@ -1,93 +1,45 @@
-# 跨章节翻译请求打包
+# 跨章节单组 XML fill 回归
 
-章节决定归属，group 决定连续输入的预算窗口。首阶段将就绪单元的可读原文汇聚为
-一个翻译请求，返回完整自由文本，不要求 XML/JSON、身份或占位符。
-分配 fill 接收原始回答和各来源，在保持普通译文完整的前提下分配归属及公式对应；
-其后的 XML fill 按各单元恢复结构，可批量使用仅属于工程层的 JSON envelope。
+PCEX 与 EPUB 的章节流连续进入预算分组。每组一份自由译文，直接进入一个生成完整
+XML 的有限 fill Loop；不生成分配 JSON、end/after 表或外层业务 JSON 批响应。
+同一回答表达来源 ID、公式源身份和文字落位，程序验收整组全文、结构及身份后再采用。
+不同组可并发推进；同组失败不部分采用，也不重新翻译。
 
-来源收集、64 单元上限、token 预算、window 背压及 EOF/暂停时交付保持有界。
-PCEX 正文和脚注、EPUB XHTML 根连续进入同一调度流，不因章节或文件边界清空预算。
-连续来源最多收集 1 秒，暂停 200ms 时先处理尾批并保留未完成读取；来源和就绪工作
-均最多收集 64 个，每次最多准入 `64 * window` 个工作，避免大章节展开整书任务。
-GroupRequests 收集本组就绪调用后才 flush，收集期间不占供应商执行槽位。
-请求预算为 `max(4096, max_group_score * 4)`，仍预留实际输入的输出空间；
-超预算的单个语义单元保持单请求，不为凑预算截断内容。
-不同 operation、headers、usage collector、阶段和修复参数不混批。
-各单元完成分配后仍独立执行 XML fill、采用、coverage 与回调。已成功单元不参与兄弟
-单元的 XML 修复；分配循环固定同一份原始回答，不重新调用翻译模型。
-分配和 XML fill 各有有限 fill 预算；调用层的真实网络故障按原传输预算处理。
-取消单个等待者不取消同批兄弟，最后一个等待者负责取消并等待底层请求。
+组预算以实际 XML token 估算，不额外给每个 ID 加固定惩罚；每组最多 64 块。
+来源收集最多 64 根，输入暂停 200ms 或持续收集 1 秒后可交付尾组，未完成读取保留。
+操作级 window 和共享 executor 限制实际请求并发；不预载全书。
+XML 输出预算覆盖模板、完整译文与身份标记。首次与修复使用同一原译文和预算。
 
-真实模型调用数包括自由翻译、分配 fill、XML fill 及其修复。恒等译文可以确定性分配，
-单单元无公式回答直接进入 XML fill，不能伪造请求计数。失败日志保留本轮工程输入中的
-完整原译文，模型缓存和客户现场不提交。PCEX 持久化结构及 EPUB CFI 不改变。
-
-## 无网络回归入口
-
-在仓库根目录运行：
+在配置好依赖的待审分支运行：
 
 ```sh
-.venv/bin/python -m unittest tests.test_translation_grouping tests.test_request_batch -v
+python -m pytest -q tests/test_translation_grouping.py tests/test_request_batch.py tests/test_single_xml_fill.py tests/test_elastic_formula_restore.py tests/test_online_formula_allocation.py tests/test_canonical_math_projection.py tests/test_llm_xml_boundary.py
 ```
 
-`test_translation_grouping` 经由 PCEX `translate_extraction` 和原生 EPUB
-`translate_epub`，只替换供应商 transport，保留 tokenizer、分组、运行时、canonical
-fill、采纳及归档写回。相同的 24 段分别放一章、六章和每段一章，直接断言模型调用
-总数（包括首阶段与 fill），并检查译文、coverage、章节归属和 EPUB CFI。
-不使用“所有请求先同时到达”的屏障，也不替换 flush。
+这些离线测试只替换模型传输，保留真实分组、fill 校验、章节回填、coverage 与 EPUB CFI。
+24 段分别放一章、六章、每段一章，直接限制物理请求总数并核对所有输出；另有
+57 段/11 章含 metadata/furniture 的门禁、137 段稠密/碎片章节、有界准入、输入暂停、
+取消、跨组修复并发及整组原子采用。恒等内容的确定性填充经过相同校验，不能伪造计数。
 
-同模块还以生成的 57 段／2177 words／11 章样本固定包含 metadata 与 furniture 的
-15 次调用门禁，CI 不依赖客户材料。还覆盖错开 20ms 的自然输入、慢供应商与单请求槽位、137 个单元的有界准入和
-EOF 尾批、1000 段单章在首个请求前的资源展开上限、输入暂停时交付、取消关闭未完成读取，以及一个兄弟单元修复时另一个已采纳
-单元及时交付。transport 层的身份、预算、缓存、usage、失败日志和取消测试继续独立执行。
-
-真实 DEV 样本的本地门禁为
-`test_private_production_case_includes_metadata_and_furniture`。它从以下固定私有目录读取
-`source.pcex`，材料不存在时跳过，客户内容不进入 Git：
-
-```
-/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/pdf-craft-output/issue-932-1bc9aef5-investigation/
-```
-
-该门禁使用现场的 o200k_base、2600 分组预算、window=6，启用 metadata 和 furniture，
-断言完整转换的真实 transport 调用不超过 15 次，并逐单元检查来源文本、公式、资产及
-几何结构的往返。本轮离线运行观察到 15 次；这是正确模拟响应的调用计数，
-不能代表实际模型翻译质量或保证所有文档的节省比例。
-
-新门禁首先在旧生产入口上运行：24 个短段落发出 16 次调用，超过 4 次上限。
-该失败来自实际 provider 调用数，不能用任务数、文件生成成功或一章/多章同样多代替。
-
-完整轻量验证：
+线上局部的无网络重放见 [service #364 回归](service-364-allocation.md)。
+四个 e81368d 付费失败组可按固定原始日志离线重放：
 
 ```sh
-.venv/bin/python test.py
-.venv/bin/pyright pdf_craft tests --pythonpath .venv/bin/python
-.venv/bin/pylint pdf_craft tests
+PDF_CRAFT_PAID_FILL_FIXTURES=/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft-main-e81368d-smoke-20261109/pdf-craft-output/paid-full-deepseek-20261109T051229Z python -m pytest -q tests/test_paid_fill_replay.py
 ```
 
-线上 EPUB CFI 原材料可选独立重放：
+此命令使用原始来源文本和完整译文重建工程局部，每组只允许 1 次艺术家调用和
+1 次完整 XML 工程回答。仅在测试中从旧证据准备参考 XML，生产路径不接受旧 JSON。
+
+`test_single_xml_fill.py` 还包含公开裁切的段落空白/重复来源条件；旧 JSON 回答
+只作为失败来源证据，新模型替身返回完整 XML，不再尝试修补旧分配协议。
+
+需要显式授权并配置模型的完整付费门禁：
 
 ```sh
-PDF_CRAFT_EPUB_CFI_REGRESSION=/absolute/path/to/original.epub \
-  .venv/bin/python -m unittest tests.test_epub_task_context -v
+python -u -m pdf_craft_tool.smoke.paid_full --output pdf-craft-output/NEW-REVIEW-DIRECTORY --profile default --ocr-backends deepseek-ocr-vendor
 ```
 
-私有现场不入库；真实模型质量及付费回归由后续实验评估。
-
-## 自由翻译与公式回归
-
-`tests.test_online_formula_allocation` 使用公开 table&formula.pdf 的两种 OCR 局部，
-强制重排 `=1` / `=0` 并使分配 fill 首次失败；验证源节点、译文和只翻译一次。
-`tests.test_source_math_identity` 还用空文本、任意标记和空白回答验证原样进入 fill。
-单个 owner 只有公式容器时可确定性执行 XML fill，仍须通过同样的完整校验和身份恢复。
-
-针对这两份局部的单轮付费复现（需显式配置模型）：
-
-```sh
-.venv/bin/python -m pdf_craft_tool.smoke.fill_formula_loop \
-  --output pdf-craft-output/NEW-DIRECTORY \
-  --fixture tests/assets/translation/online_formula_identity_cases.json --rounds 1
-```
-
-输出记录全部真实请求及分配请求数，保存最终 XML。公式多重集和几何往返只是基础检查；
-还需检查工程绑定与最终公式的语义位置，尤其 `=1` / `=0`，不能只看报告 passed。
+在固定待审提交新跑全部 14 组，仅第一代 DeepSeek OCR vendor；保留 EPUB 与公式等
+无 OCR 测试。公式专项必须完整通过既定三轮。日志保留真实请求、XML Loop 反馈、
+各组产物和 report.json，不能用跳过、降级或离线替身代替付费门禁。

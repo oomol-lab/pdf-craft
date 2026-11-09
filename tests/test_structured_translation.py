@@ -3,7 +3,6 @@
 from copy import deepcopy
 import os
 import hashlib
-import json
 import unicodedata
 from typing import cast
 from pathlib import Path
@@ -16,7 +15,6 @@ from zipfile import ZipFile
 from pdf_craft import AsyncPDFCraft, SubmitKind
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.extractor.chapter.chapter import SourceAsset, InlineExpression, decode, encode, Chapter, StandaloneAsset
-from pdf_craft.llm.runtime import LLMContext
 from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
 from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
 from pdf_craft.transformer.anchored_translation import _asset_slots
@@ -37,23 +35,10 @@ def neutral_translation(text):
 
 
 def offline_translator():
-    translator, _ = _repairing_translator([])
+    translator, model = translator_fixture()
     translator._translate_text_async = AsyncMock(side_effect=lambda text, **_kwargs: neutral_translation(text))
-
-    async def fill(*, hill_climbing, canonical_text_validator, **_kwargs):
-        candidate = hill_climbing.request_element()
-        for node in candidate.iter():
-            if node.text:
-                node.text = neutral_translation(node.text)
-            if node.tail:
-                node.tail = neutral_translation(node.tail)
-        error = canonical_text_validator(candidate)
-        if error is not None:
-            raise AssertionError(error)
-        error = hill_climbing.submit(candidate)
-        if error is not None:
-            raise AssertionError(error)
-    translator._request_and_submit_async = AsyncMock(side_effect=fill)
+    answer = model.answer
+    model.answer = lambda messages: neutral_translation(answer(messages))
     return translator
 
 
@@ -63,7 +48,7 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
         for sources in (('one', 'two'), ('two', 'one')):
             with self.subTest(sources=sources):
                 translator, model = translator_fixture()
-                translator._translate_text_async = AsyncMock(side_effect=lambda text, **_kwargs: canonical[text])
+                translator._translate_text_async = AsyncMock(side_effect=lambda text, **_kwargs: '\n\n'.join(canonical[part] for part in text.split('\n\n')))
                 template_answer = model.answer
 
                 def answer(messages, source_answer=template_answer):
@@ -72,7 +57,8 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
                     assert unit is not None
                     payload = messages[1]['content'].split('Translated text:\n', 1)[1]
                     translated = next(decode_friendly(payload, tags='translation'))
-                    unit.text = ''.join(translated.itertext())
+                    for node, text in zip(candidate, ''.join(translated.itertext()).split('\n\n'), strict=True):
+                        node.text = text
                     return tostring(candidate, encoding='unicode')
 
                 # The provider echoes the actual envelope IDs in reverse response order.
@@ -85,8 +71,8 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
 
     async def test_asset_uses_canonical_math_references_and_exact_text_acceptance(self):
         translator, runtime = _repairing_translator([
-            '<xml><caption id="1">错字 <expression><math-ref key="m1"/></expression> 之后</caption></xml>',
-            '<xml><caption id="1">之前 <expression><math-ref key="m1"/></expression> 之后</caption></xml>',
+            '<xml><caption id="1">错字 <expression><source-math key="s1"><math-ref key="m1"/></source-math></expression> 之后</caption></xml>',
+            '<xml><caption id="1">之前 <expression><source-math key="s1"><math-ref key="m1"/></source-math></expression> 之后</caption></xml>',
         ])
         translator._translate_text_async = AsyncMock(return_value='之前 $x$ 之后')
         source = image(['before ', InlineExpression(ExpressionKind.INLINE_DOLLAR, 'x'), ' after'])
@@ -111,7 +97,7 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
 
     async def test_asset_merged_canonical_formula_uses_one_ref_and_restores_empty_slot(self):
         translator, runtime = _repairing_translator([
-            '<xml><caption id="1">取 <expression id="2"><math-ref key="m1"/></expression>'
+            r'<xml><caption id="1">取 <expression id="2">\(<source-math key="s1">x=</source-math><source-math key="s2">y</source-math>\)</expression>'
             '<expression id="3"/>。</caption></xml>',
         ])
         translator._translate_text_async = AsyncMock(return_value=r'取 \(x=y\)。')
@@ -163,7 +149,7 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
         target, = await AnchoredContentXMLTransformer(translator).transform_assets(
             [AnchoredContent('a', 0, -1, source, '')], error_policy=False)
         assert target is not None
-        self.assertEqual(cast(AsyncMock, translator._translate_text_async).await_count, 2)
+        self.assertEqual(cast(AsyncMock, translator._translate_text_async).await_count, 1)
         encoded = encode(Chapter(None, -1, [StandaloneAsset(SourceAsset(
             1, 'table', source.bbox, content=target.content))]))
         self.assertEqual(len(encoded.findall('.//td/em/inline_expr')), 1)
@@ -172,10 +158,9 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
     async def test_mathml_adapter_uses_shared_canonical_fill_before_restoring_source(self):
         from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
         translator, runtime = _repairing_translator([
-            json.dumps([{'id': '1', 'text': '<xml><p id="1">Avant <expression><math-ref key="m1"/></expression> après</p></xml>'},
-                        {'id': '0', 'text': '<xml><p id="1">Deuxième</p></xml>'}]),
+            '<xml><p id="1">Avant <expression><source-math key="s1"><math-ref key="m1"/></source-math></expression> après</p><p id="2">Deuxième</p></xml>',
         ])
-        translator._translate_text_async = AsyncMock(side_effect=['Avant $x$ après', 'Deuxième'])
+        translator._translate_text_async = AsyncMock(return_value='Avant $x$ après\n\nDeuxième')
         root = fromstring('<body><p>Before <math><mi>x</mi></math> after</p><p>Second</p></body>')
         protocol = StructuredTranslation(formulas=XMLInterrupter())
         target, _ = await protocol.translate(translator, TranslationTask(root, SubmitKind.REPLACE, None))
@@ -197,7 +182,7 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
         translator = offline_translator()
         async def no_network(*_args, **_kwargs):
             raise AssertionError('Offline gate attempted a model request')
-        with TemporaryDirectory() as folder, patch.object(LLMContext, 'request', no_network):
+        with TemporaryDirectory() as folder, patch('pdf_craft.llm.runtime.LLMRuntime._invoke_async', no_network):
             root = Path(folder)
             craft = AsyncPDFCraft()
             extraction = await craft.open_extraction(source)

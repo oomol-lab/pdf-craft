@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import cast
-from types import SimpleNamespace
 from unittest import TestCase, IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 from xml.etree.ElementTree import fromstring
@@ -17,7 +16,6 @@ from pdf_craft.transformer.xml_translator.segment import search_text_segments, s
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
 from pdf_craft import SubmitKind
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
-from pdf_craft.transformer.free_translation import allocate
 from pdf_craft.transformer.canonical_text import restore_canonical_whitespace
 from pdf_craft.common import save_xml
 from pdf_craft.pipeline.pdf import PDFTranslationPipeline, PDFPatcher
@@ -67,12 +65,6 @@ class SharedWhitespaceTests(TestCase):
         self.assertTrue(restore_canonical_whitespace([root], 'a\u3000b', [source]))
         self.assertEqual(root.text, 'a\u3000b')
 
-    def test_allocation_comparison_and_target_offsets_share_normalization(self):
-        calls = [SimpleNamespace(source_math=None, preserve_space=False)]
-        answer = allocate(json.dumps([dict(id='0', text='甲乙', formulas=[])]), calls, '甲\u3000\u3000乙')
-        self.assertEqual(answer, {'0': '甲 乙'})
-        with self.assertRaises(ValueError):
-            allocate(json.dumps([dict(id='0', text='甲丙', formulas=[])]), calls, '甲\u3000乙')
 
     def test_raw_origins_and_cfi_survive_a_shorter_normalized_view(self):
         root = fromstring('<body><p>A\u3000\u3000B😀</p></body>')

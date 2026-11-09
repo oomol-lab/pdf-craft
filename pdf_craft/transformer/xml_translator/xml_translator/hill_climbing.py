@@ -63,7 +63,7 @@ class HillClimbing:
     def candidate_mappings(self, element: Element) -> list[InlineSegmentMapping | None]:
         """Materialize a private, validated candidate before committing it."""
         candidates = {item.id: item for item in self._block_segment.submit(element)}
-        return [(segment.parent, list(search_text_segments(candidates[segment.id].submitted_element)))
+        return [(segment.parent, list(search_text_segments(candidates[segment.id].submitted_element, normalize_whitespace=False)))
                 if segment.id in candidates else None for segment in self._block_segment]
 
     def submit(self, element: Element) -> str | None:

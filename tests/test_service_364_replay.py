@@ -7,16 +7,13 @@ Only provider responses are replaced; grouping, allocation, XML fill and adoptio
 import json
 import os
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, skipUnless
-from xml.etree.ElementTree import Element, SubElement, fromstring
+from xml.etree.ElementTree import Element, SubElement
 from zipfile import ZipFile
 
 from pdf_craft import SubmitKind
 from pdf_craft.transformer.whitespace import normalize
-from pdf_craft.transformer.free_translation import allocate
-from pdf_craft.transformer.source_math import SourceMathTranslation
-from pdf_craft.transformer.canonical_projection import SourceMath, formula_content
+from pdf_craft.transformer.canonical_projection import formula_content
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from tests.test_canonical_math_projection import chapter, expression, content_of
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Chapter, TextFlowItem, SourceTextFragment
@@ -70,17 +67,56 @@ def oracle_allocations(payload, response):
         expected.append(raw[cursor:end])
         cursor = end
     expected[-1] += raw[cursor:]
-    compact, cursor = [], 0
-    for index, text in enumerate(expected):
-        end = cursor + len(text)
-        anchor = text[-32:]
-        # Always include following words: paragraph breaks are normalized and
-        # cannot disambiguate a heading from the same phrase in body prose.
-        # Ownership and expected slices above remain the original oracle.
-        after = raw[end:end+32]
-        compact.append(dict(id=str(index), end=anchor, after=after, formulas=[]))
-        cursor = end
-    return expected, json.dumps(compact, ensure_ascii=False)
+    return expected
+
+
+def xml_oracle(template, texts, sources, allocations):
+    """Turn manually retained ownership evidence into XML model responses.
+
+    This is an offline fixture builder, not a production fallback or model stage.
+    XML structure, complete text, identities and adoption still run in production.
+    """
+    import re
+    from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly, encode_friendly
+    xml = re.search(r'XML template:\n```XML\n(.*?)\n```', template, re.S)
+    assert xml is not None
+    root = next(decode_friendly(xml[1], tags='xml'))
+    offset = 0
+    for node, text, source, allocation in zip(root, texts, sources, allocations, strict=True):
+        for field in node.iter():
+            field.text = field.tail = None
+        spans = []
+        for formula in allocation.get('formulas', []):
+            literal = formula['text']
+            positions = [match.start() for match in re.finditer(re.escape(literal), text)]
+            before, after = formula.get('before', ''), formula.get('after', '')
+            positions = [start for start in positions if text[:start].endswith(before)
+                         and text[start+len(literal):].startswith(after)]
+            assert len(positions) == 1, (literal, positions)
+            cursor = positions[0]
+            parts = formula.get('parts', [dict(keys=[formula['key']], text=literal)])
+            for part in parts:
+                for key in part.get('keys', []):
+                    spans.append((cursor, cursor+len(part['text']), f's{offset+int(key[1:])}'))
+                cursor += len(part['text'])
+        offset += len(source['formulas'])
+        cursor, previous, tokens = 0, None, []
+        for start, end, key in sorted(spans):
+            if previous is None:
+                node.text = text[cursor:start]
+            else:
+                previous.tail = text[cursor:start]
+            previous = Element('source-math', key=key)
+            previous.text = text[start:end]
+            tokens.append(previous)
+            cursor = end
+        if previous is None:
+            node.text = text
+        else:
+            previous.tail = text[cursor:]
+        # Keep annotation order independent of empty template expression slots.
+        node[:] = tokens + [child for child in node if child.tag != 'source-math']
+    return encode_friendly(root)
 
 
 @skipUnless(FIXTURES, 'Set PDF_CRAFT_SERVICE_364_FIXTURES for original private offline cases')
@@ -97,13 +133,6 @@ class Service364ReplayTests(IsolatedAsyncioTestCase):
         unit = next(unit for unit in json.loads(rows[-1]['response']) if unit['id'] == '8')
         unit = dict(unit, id='0')
         raw = unit['text']
-        sources = [SourceMath(value, fromstring('<wrapper>'+source['formula_nodes'][key]+'</wrapper>')[0])
-                   for key, value in source['formulas'].items()]
-        math = SourceMathTranslation(sources)
-        canonical = allocate(json.dumps([unit]), [SimpleNamespace(source_math=math)], raw)['0']
-        bound = math.bindings[-1][0]
-        assert isinstance(bound, SourceMath)
-        self.assertEqual(bound.translated_latex, r'\(40\)')
         # Reconstruct the original local paragraph from its recorded evidence,
         # not a mock source containing only 4. It contains all four formulas.
         rest = source['source'].split('Text to translate:\n', 1)[-1]
@@ -116,10 +145,7 @@ class Service364ReplayTests(IsolatedAsyncioTestCase):
         def answer(messages):
             if messages[0]['content'].startswith('You are a translator.'):
                 return raw
-            if messages[0]['content'].startswith('You are the structural fill engineer.'):
-                return json.dumps([unit])
-            from tests.free_translation_model import canonical_fill_response
-            return canonical_fill_response(canonical)
+            return xml_oracle(messages[1]['content'], [raw], [source], [unit])
         model.answer = answer
         target = await NarrativeXMLTransformer(translator).transform(chapter(content), error_policy=False)
         translated = content_of(target)
@@ -130,7 +156,7 @@ class Service364ReplayTests(IsolatedAsyncioTestCase):
         residual = translated[index+1]
         assert isinstance(residual, str)
         self.assertTrue(residual.startswith('亿'))
-        self.assertEqual(len(model.wire_calls), 3)
+        self.assertEqual(len(model.wire_calls), 2)
 
     async def test_whole_original_medical_group_repairs_without_retranslation(self):
         assert FIXTURES is not None
@@ -157,13 +183,10 @@ class Service364ReplayTests(IsolatedAsyncioTestCase):
             if messages[0]['content'].startswith('You are a translator.'):
                 artists.append(messages)
                 return payload['translation']
-            if messages[0]['content'].startswith('You are the structural fill engineer.'):
-                engineers.append(messages)
-                self.assertEqual(len(json.loads(messages[1]['content'])['sources']), 20)
-                # Old first response loses source IDs; old round 11 supplies
-                # complete IDs and changed values but omits redundant contexts.
-                return rows[0 if len(engineers) == 1 else 10]['response']
-            self.fail('Single semantic owners must use the real deterministic XML fill')
+            engineers.append(messages)
+            units = json.loads(rows[10]['response'])
+            xml = xml_oracle(messages[1]['content'], [unit['text'] for unit in units], payload['sources'], units)
+            return xml.replace('key="s1"', 'key="unknown"', 1) if len(engineers) == 1 else xml
         model.answer = answer
         target = await NarrativeXMLTransformer(translator).transform(Chapter(None, -1, items), error_policy=False)
         self.assertEqual(len(artists), 1)
@@ -189,16 +212,10 @@ class Service364ReplayTests(IsolatedAsyncioTestCase):
                     rows = [json.loads(line) for line in stored.read(name).decode().splitlines()]
                     payload = json.loads(rows[0]['messages'][1]['content'])
                     response = rows[-1]['response']
-                    expected, compact = oracle_allocations(payload, response)
-                    calls = [SimpleNamespace(source_math=None)]*len(expected)
-                    with self.assertRaises(ValueError):
-                        allocate(response, calls, payload['translation'])
-                    self.assertLess(len(compact), len(response)//2)
-                    self.assertEqual(allocate(compact, calls, payload['translation']),
-                                     {str(i): text for i, text in enumerate(expected)})
-                    await self._through_epub_pipeline(payload, response, compact, expected)
+                    expected = oracle_allocations(payload, response)
+                    await self._through_epub_pipeline(payload, expected)
 
-    async def _through_epub_pipeline(self, payload, response, compact, expected):
+    async def _through_epub_pipeline(self, payload, expected):
         translator, model = translator_fixture(max_group_score=100000)
         translator._direct_fill_candidates = type(translator)._direct_fill_candidates
         artists, engineers = [], []
@@ -206,15 +223,9 @@ class Service364ReplayTests(IsolatedAsyncioTestCase):
             if messages[0]['content'].startswith('You are a translator.'):
                 artists.append(messages)
                 return payload['translation']
-            if messages[0]['content'].startswith('You are the structural fill engineer.'):
-                data = json.loads(messages[1]['content'])
-                engineers.append(data)
-                self.assertEqual(data['translation'], payload['translation'])
-                self.assertEqual(len(data['sources']), len(expected))
-                self.assertIn('"end"', messages[0]['content'])
-                self.assertIn('Do NOT repeat the whole passage', messages[0]['content'])
-                return response if len(engineers) == 1 else compact
-            self.fail('Plain single-leaf owners should use actual deterministic XML fill')
+            engineers.append(messages)
+            xml = xml_oracle(messages[1]['content'], expected, payload['sources'], [{}]*len(expected))
+            return xml.replace('id="1"', 'id="9999"', 1) if len(engineers) == 1 else xml
         model.answer = answer
         tasks = []
         for source in payload['sources']:
@@ -224,7 +235,7 @@ class Service364ReplayTests(IsolatedAsyncioTestCase):
         results = await StructuredTranslation(formulas=XMLInterrupter()).translate_many(
             translator, tasks, error_policy=False)
         self.assertEqual(len(artists), 1, 'Do not fragment or retranslate the original artist group')
-        self.assertEqual(len(engineers), 2, 'One malformed response then compact repair, within the normal budget')
+        self.assertEqual(len(engineers), 2, 'One malformed XML then complete XML repair, within the normal budget')
         self.assertEqual(len(results), len(expected))
         for index, ((root, identity), text) in enumerate(zip(results, expected)):
             self.assertEqual(identity, str(index))

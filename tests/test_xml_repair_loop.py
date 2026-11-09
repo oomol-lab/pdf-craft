@@ -8,7 +8,6 @@ from xml.etree.ElementTree import Element
 
 from tiktoken import get_encoding
 from pdf_craft import RetryPolicy
-from pdf_craft.transformer.request_batch import RequestBatcher
 from pdf_craft._policy import OMITTED, policy_operation
 from pdf_craft.transformer.xml_translator.xml_translator.callbacks import Callbacks
 from pdf_craft.transformer.xml_translator.xml_translator.translator import (
@@ -59,7 +58,6 @@ def _translator(responses):
     async def encoding():
         return get_encoding('cl100k_base')
 
-    translator._requests = RequestBatcher(1000)
     translator._fill_runtime = cast(
         Any, SimpleNamespace(context=lambda **_: context, template=template, encoding=encoding)
     )

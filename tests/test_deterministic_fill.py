@@ -78,17 +78,17 @@ class DeterministicFillTests(IsolatedAsyncioTestCase):
                         error_policy=False, retry_policy=RetryPolicy(translation=0, fill=1))
                 self.assertEqual(runtime.context_value.calls, 2)
 
-    async def test_unchanged_formula_preserves_original_node_without_fill_request(self):
+    async def test_unchanged_formula_requires_explicit_xml_identity_before_restoration(self):
         from copy import deepcopy
         from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
         from tests.test_canonical_math_projection import chapter, expression
         source = chapter(['Value ', expression('x=1'), ' .'])
         saved = deepcopy(source)
-        translator, runtime = _repairing_translator([], direct_fill=True)
+        translator, runtime = _repairing_translator(['<xml><fragment id="1">Value <expression><source-math key="s1">\\(x=1\\)</source-math></expression> .</fragment></xml>'], direct_fill=True)
         result = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
         self.assertEqual(result, saved)
         self.assertEqual(source, saved)
-        self.assertEqual(runtime.context_value.calls, 0)
+        self.assertEqual(runtime.context_value.calls, 1)
 
     async def test_multiple_changed_blocks_do_not_guess_allocation(self):
         # Probe candidate generation directly: the ordinary mapper may split

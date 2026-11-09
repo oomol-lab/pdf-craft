@@ -17,7 +17,7 @@ including empty text, arbitrary markup and apparent protocol references, enters
 fill unchanged. There is no translation envelope parser, source-math guard or
 content repair loop. Transport errors retain their normal network policy.
 
-Engineering allocation receives the complete immutable response and original
+The single XML fill receives the complete immutable response and original
 source evidence. Its own bounded repairs do not retranslate. Source formulas
 are restored using explicit semantic identity bindings; additional artist math
 without a source binding remains literal text. XML fill then checks structural
@@ -41,7 +41,7 @@ Private documents and model logs are not committed.
 ## Offline regressions
 
 ```sh
-.venv/bin/python -m unittest tests.test_translation_protocol_gaps tests.test_source_math_identity tests.test_free_translation tests.test_online_formula_allocation tests.test_request_batch -q
+.venv/bin/python -m unittest tests.test_translation_protocol_gaps tests.test_source_math_identity tests.test_online_formula_allocation tests.test_request_batch -q
 ```
 
 These exercise real runtime/request entry points with stub HTTP providers:

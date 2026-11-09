@@ -17,7 +17,7 @@ import uuid
 
 from ..runtime import IO_DOMAIN
 
-_ACTIVE: ContextVar[FailureLog | _BatchLog | None] = ContextVar('llm_failure_log', default=None)
+_ACTIVE: ContextVar[FailureLog | None] = ContextVar('llm_failure_log', default=None)
 _URL = re.compile(r'https?://[^\s<>\'"`]+')
 _AUTH = re.compile(r'(?im)(authorization["\']?\s*[:=]\s*["\']?)[^\r\n\'"<>]+')
 _KEY = re.compile(r'(?i)(api[_-]?key["\']?\s*[:=]\s*["\']?)[^\s,;\'"<>]+')
@@ -27,47 +27,8 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def active_log() -> FailureLog | _BatchLog | None:
+def active_log() -> FailureLog | None:
     return _ACTIVE.get()
-
-
-class _BatchLog:
-    def __init__(self, logs):
-        self.logs = logs
-
-    @property
-    def targets(self):
-        return tuple(dict.fromkeys(log for log in self.logs() if log is not None))
-
-    def configure(self, *args):
-        for log in self.targets:
-            log.configure(*args)
-
-    def request(self, *args):
-        for log in self.targets:
-            log.request(*args)
-
-    def provider_request(self, *args):
-        for log in self.targets:
-            log.provider_request(*args)
-
-    def response(self, *args):
-        for log in self.targets:
-            log.response(*args)
-
-    async def flush(self):
-        for log in self.targets:
-            await log.flush()
-
-
-@contextmanager
-def batch_log_scope(logs):
-    """Keep the real batch exchange in each participating repair loop's evidence."""
-    token = _ACTIVE.set(_BatchLog(logs))
-    try:
-        yield
-    finally:
-        _ACTIVE.reset(token)
 
 
 def _private_url(match: re.Match[str]) -> str:

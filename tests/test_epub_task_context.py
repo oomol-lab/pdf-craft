@@ -26,7 +26,7 @@ async def template_translation(source, output, *, max_group_tokens=2600):
     """Exercise real fill adoption with identity text; never contact a provider."""
     fragments, events, groups = [], [], []
 
-    async def text(_self, source_text):
+    async def text(_self, source_text, **_kwargs):
         return source_text
 
     async def fill(_self, *, hill_climbing, **_kwargs):

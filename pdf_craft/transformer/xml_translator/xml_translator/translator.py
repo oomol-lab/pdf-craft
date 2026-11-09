@@ -24,7 +24,7 @@ from pdf_craft.transformer.xml_translator.segment import (
 from pdf_craft.progress import ProgressEvent, UnitKind
 from pdf_craft.transformer.xml_translator.xml import decode_friendly, encode_friendly
 from .callbacks import Callbacks, warp_callbacks
-from ...request_batch import RequestBatcher, with_request_window
+from ...request_batch import request as request_model, with_request_window
 from pdf_craft._policy import current, recover
 from pdf_craft.policies import FailureCategory, RetryScope
 from pdf_craft._failure_sources import tag_locations, segment_locations, task_locations
@@ -34,8 +34,7 @@ from .submitter import SubmitKind, submit
 from ...word_count import count_xml_words
 from ...source_math import SourceMathTranslation
 from ...canonical_projection import MathProjectionError
-from ...free_translation import AllocationFillError
-from ...whitespace import mode_in_stack, collapses_breaks
+from ...xml_math import binding_spans, strip_bindings
 from ...progress import TranslationProgress, active_progress, selected_item, selected_assets
 from pdf_craft.progress import UnitOutcome
 from collections import Counter
@@ -48,7 +47,7 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 SourceTextRenderer = Callable[[list[InlineSegment]], str]
 CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | None]
-CanonicalMathProjector = Callable[[list[InlineSegmentMapping | None], str], list[InlineSegmentMapping | None] | None]
+CanonicalMathProjector = Callable[[list[InlineSegmentMapping | None], str, Element], list[InlineSegmentMapping | None] | None]
 
 
 def _already_in_target_language(text: str, target_language: str) -> bool:
@@ -118,7 +117,7 @@ class XMLTranslator:
             protocol_version="free-translation-v2",
         )
         self._fill_runtime = runtime_for(
-            fill_llm, fill_executor, protocol_version="xml-fill-friendly-v3",
+            fill_llm, fill_executor, protocol_version="xml-fill-group-v4",
         )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
@@ -126,7 +125,6 @@ class XMLTranslator:
         self._cache_seed_content: str | None = cache_seed_content
         self._max_group_score = max_group_score
         self._stream_mapper: XMLStreamMapper | None = None
-        self._requests = RequestBatcher(max_group_score, fill_runtime=self._fill_runtime)
 
     @property
     def target_language(self) -> str:
@@ -218,6 +216,11 @@ class XMLTranslator:
         _progress_path=None,
         _progress_owner=None,
     ) -> list[tuple[Element, T]]:
+        if translation_protocol is None and canonical_text_validator is None:
+            from ...structured_translation import StructuredTranslation
+            translation_protocol = StructuredTranslation()
+            source_text_renderer = source_text_renderer or translation_protocol.render
+            canonical_text_validator = translation_protocol.validate
         if _progress_path is None and _task_store is None and _progress_owner is None and (
                 isinstance(tasks, AsyncIterable) or active_progress() is not None or on_translation_event is not None):
             from pdf_craft.runtime import temporary_directory
@@ -470,46 +473,44 @@ class XMLTranslator:
         canonical_text_validator: CanonicalTextValidator | None,
         on_round=None, translation_protocol: "StructuredTranslation | None" = None,
     ) -> list[InlineSegmentMapping | None]:
-        segment_groups = (translation_protocol.groups(inline_segments)
-                          if translation_protocol is not None else [inline_segments])
+        group = inline_segments
         mappings: list[InlineSegmentMapping | None] = []
-        for group in segment_groups:
-            primary = [segment for segment in group if not segment._translation_context]
-            if not primary:
-                mappings.extend([None] * len(group))
-                continue
-            overlap = [segment for segment in group if segment._translation_context]
-            context = '\n\n'.join(part for part in (
-                translation_protocol.context(primary)
-                if translation_protocol is not None and translation_protocol.context else '',
-                ''.join(self._render_source_text_parts(overlap))) if part)
-            source_math = translation_protocol.source_math(primary) if translation_protocol is not None else None
-            result = await self._translate_inline_segment_group_async(
-                inline_segments=primary,
-                callbacks=callbacks,
-                immutable_elements=(
-                    immutable_elements_for_inline_segments(primary)
-                    if immutable_elements_for_inline_segments is not None else []
-                ),
-                source_text_renderer=((lambda segments, math=source_math: translation_protocol.render(segments, math))
-                                      if source_math is not None and translation_protocol is not None
-                                      else source_text_renderer),
-                canonical_text_validator=canonical_text_validator,
-                source_context=context,
-                canonical_math_projector=(
-                    (lambda mappings, canonical, owner=translation_protocol.unit(primary[0]), math=source_math:
-                     translation_protocol.project_math(mappings, canonical, math, owner))
-                    if translation_protocol is not None else None),
-                source_math=source_math,
-                allow_direct_fill=(translation_protocol is not None
-                                   and translation_protocol.is_text_unit(translation_protocol.unit(primary[0]))),
-            )
-            if translation_protocol is not None and all(mapping is not None for mapping in result):
-                translation_protocol.accepted_unit(translation_protocol.unit(primary[0]))
-            if on_round is not None:
-                await on_round(group)
-            results = iter(result)
-            mappings.extend(None if segment._translation_context else next(results) for segment in group)
+        primary = [segment for segment in group if not segment._translation_context]
+        if not primary:
+            return [None] * len(group)
+        overlap = [segment for segment in group if segment._translation_context]
+        context = '\n\n'.join(part for part in (
+            translation_protocol.context(primary)
+            if translation_protocol is not None and translation_protocol.context else '',
+            ''.join(self._render_source_text_parts(overlap))) if part)
+        source_math = translation_protocol.source_math(primary) if translation_protocol is not None else None
+        result = await self._translate_inline_segment_group_async(
+            inline_segments=primary,
+            callbacks=callbacks,
+            immutable_elements=(
+                immutable_elements_for_inline_segments(primary)
+                if immutable_elements_for_inline_segments is not None else []
+            ),
+            source_text_renderer=((lambda segments, math=source_math: translation_protocol.render(segments, math))
+                                  if source_math is not None and translation_protocol is not None
+                                  else source_text_renderer),
+            canonical_text_validator=canonical_text_validator,
+            source_context=context,
+            canonical_math_projector=(
+                (lambda mappings, canonical, response, math=source_math:
+                 translation_protocol.project_math(mappings, canonical, math, response, primary))
+                if translation_protocol is not None else None),
+            source_math=source_math,
+            allow_direct_fill=(translation_protocol is not None
+                               and translation_protocol.is_text_unit(translation_protocol.unit(primary[0]))),
+        )
+        if translation_protocol is not None and all(mapping is not None for mapping in result):
+            for segment in primary:
+                translation_protocol.accepted_unit(translation_protocol.unit(segment))
+        if on_round is not None:
+            await on_round(group)
+        results = iter(result)
+        mappings.extend(None if segment._translation_context else next(results) for segment in group)
         return mappings
 
     @adopted_result(lambda mappings: any(mapping is not None for mapping in mappings))
@@ -550,19 +551,15 @@ class XMLTranslator:
             else "".join(self._render_source_text_parts(inline_segments))
         )
         targets = segment_locations(primary)
-        whitespace_options: dict[str, Any] = ({'preserve_space': True} if any(
-            not collapses_breaks(mode_in_stack(text.parent_stack))
-            for segment in primary for text in segment) else {})
         try:
             if source_math is not None:
                 context = '\n\n'.join(value for value in (source_context, source_math.context) if value)
-                translated_text = await self._translate_text_async(source_text, context=context, source_math=source_math, **whitespace_options)
+                translated_text = await self._translate_text_async(source_text, context=context)
             else:
-                translated_text = (await self._translate_text_async(source_text, context=source_context, **whitespace_options)
-                                   if source_context else await self._translate_text_async(source_text, **whitespace_options))
+                translated_text = (await self._translate_text_async(source_text, context=source_context)
+                                   if source_context else await self._translate_text_async(source_text))
         except Exception as error:
-            await recover(error, FailureCategory.FILL if isinstance(error, AllocationFillError) else FailureCategory.TRANSLATION,
-                          'translation_allocation_fill' if isinstance(error, AllocationFillError) else 'text_translation',
+            await recover(error, FailureCategory.TRANSLATION, 'text_translation',
                           'omit_translation', targets=targets, context_locations=context_targets,
                           backend='llm', model=getattr(self._translation_llm, 'model', None))
             return [None] * len(inline_segments)
@@ -604,8 +601,7 @@ class XMLTranslator:
             for text_segment in inline_segment:
                 yield text_segment.text
 
-    async def _translate_text_async(self, text: str, *, context: str = "",
-                                    source_math: SourceMathTranslation | None = None, preserve_space: bool = False) -> str:
+    async def _translate_text_async(self, text: str, *, context: str = "") -> str:
         if not normalize_whitespace(text, trim=True) or _already_in_target_language(text, self._target_language):
             return text
         template = await self._translation_runtime.template("translate")
@@ -614,8 +610,7 @@ class XMLTranslator:
             Message(MessageRole.USER, (await self._translation_runtime.template('translation_input')).render(
                 text=text, context=context))]
         async with self._translation_runtime.context(cache_seed_content=self._cache_seed_content) as ctx:
-            return await self._requests.request(ctx, messages, runtime=self._translation_runtime,
-                stage='translation', source_math=source_math, source_text=text, preserve_space=preserve_space, source_context=context)
+            return await request_model(ctx, messages, allow_empty=True)
 
     async def _request_and_submit_async(
         self,
@@ -629,11 +624,6 @@ class XMLTranslator:
         allow_direct_fill: bool = False,
         source_math: SourceMathTranslation | None = None,
     ) -> list[InlineSegmentMapping | None] | None:
-        if source_math is not None and not source_math.allocated:
-            from types import SimpleNamespace
-            from ...free_translation import fill_translation_group
-            call = SimpleNamespace(source_math=source_math, messages=[Message(MessageRole.USER, source_text)])
-            translated_text = (await fill_translation_group(self._fill_runtime, [call], translated_text))['0']
         from ...canonical_math import CanonicalMath
         canonical_math = CanonicalMath(translated_text) if canonical_text_validator is not None else None
 
@@ -641,21 +631,25 @@ class XMLTranslator:
             projected = None
             error = canonical_math.expand(element, require_complete=False) if canonical_math is not None else None
             if error is None:
-                error = hill_climbing.validate(element)
+                try:
+                    binding_spans(element, source_math)
+                except MathProjectionError as failure:
+                    error = str(failure)
+            if error is None:
+                error = hill_climbing.validate(strip_bindings(element))
             if error is None and canonical_text_validator is not None:
                 error = canonical_text_validator(element, translated_text)
-                if error is not None and canonical_math is not None:
-                    error += canonical_math.instructions()
             if error is None and canonical_math_projector is not None:
                 try:
-                    projected = canonical_math_projector(hill_climbing.candidate_mappings(element), translated_text)
+                    projected = canonical_math_projector(
+                        hill_climbing.candidate_mappings(strip_bindings(element)), translated_text, element)
                 except MathProjectionError as projection_error:
                     error = str(projection_error)
             if error is None:
-                error = hill_climbing.submit(element)
+                error = hill_climbing.submit(strip_bindings(element))
             return error, projected
 
-        if (allow_direct_fill or translated_text == '') and canonical_text_validator is not None:
+        if (allow_direct_fill or translated_text == '') and canonical_text_validator is not None and not getattr(source_math, 'values', {}):
             for candidate in self._direct_fill_candidates(hill_climbing, translated_text):
                 error, projected = validate_candidate(candidate)
                 if error is None:
@@ -664,14 +658,21 @@ class XMLTranslator:
         user_message = (await self._fill_runtime.template('fill_input')).render(
             source_text=source_text, xml_template=encode_friendly(hill_climbing.request_element()),
             translated_text=canonical_math.encode() if canonical_math is not None else translated_text,
-            math_instructions=canonical_math.instructions() if canonical_math is not None else '')
+            math_instructions=canonical_math.instructions() if canonical_math is not None else '',
+            source_formulas=source_math.encode() if source_math is not None else '')
         canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render()
                                   if canonical_math is not None else '')
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
-            Message(MessageRole.SYSTEM, fill_template.render() + canonical_instructions),
+            Message(MessageRole.SYSTEM, fill_template.render() + "\n\n" + canonical_instructions),
             Message(MessageRole.USER, user_message),
         ]
+        # Budget a complete group XML, including stable IDs and formula annotations.
+        # Source grouping remains bounded; retries share this same output allowance.
+        encoding = await self._fill_runtime.encoding()
+        output_budget = max(4096, len(encoding.encode(encode_friendly(hill_climbing.request_element())))
+                            + 2 * len(encoding.encode(translated_text))
+                            + 32 * len(getattr(source_math, 'values', {})) + 512)
         async with self._fill_runtime.context(
             cache_seed_content=self._cache_seed_content
         ) as llm_context:
@@ -709,8 +710,9 @@ class XMLTranslator:
 
             return await run_repair_loop(RepairLoopOptions(
                 messages=fixed_messages,
-                request=lambda current, index, maximum: self._requests.request(
-                    llm_context, current, runtime=self._fill_runtime, stage='fill', retry_index=index, retry_max=maximum, use_cache=False,
+                request=lambda current, index, maximum: request_model(
+                    llm_context, current, retry_index=index, retry_max=maximum, use_cache=False,
+                    max_tokens=output_budget,
                 ),
                 protocol=_XMLProtocol(),
                 state=None,

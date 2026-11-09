@@ -7,7 +7,6 @@ from tiktoken import Encoding
 from pdf_craft.transformer.xml_translator.segment import InlineSegment, TextSegment
 from .common import DATA_ORIGIN_LEN_KEY
 
-_ID_WEIGHT = 80
 _ELLIPSIS = "..."
 
 
@@ -29,9 +28,9 @@ def expand_to_score_segments(encoding: Encoding, inline_segment: InlineSegment) 
             )
         )
         score_segment.text_tokens = encoding.encode(score_segment.text_segment.text)
-        score_segment.score = len(encoding.encode(xml_text)) + sum(
-            _ID_WEIGHT for parent in score_segment.left_parents if parent.id is not None
-        )
+        # The XML estimate already includes IDs. An artificial per-ID penalty
+        # fragments short paragraphs before the real group budget is full.
+        score_segment.score = len(encoding.encode(xml_text))
         yield score_segment
 
 

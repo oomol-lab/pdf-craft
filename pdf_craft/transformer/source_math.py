@@ -1,10 +1,12 @@
 """Engineering source formula evidence; never a translation output protocol."""
-from .canonical_projection import SourceMath, MathProse
+from .canonical_projection import SourceMath
+from xml.etree.ElementTree import Element, SubElement
+from .xml_translator.xml.friendly import encode_friendly
 from .xml_translator.segment import TextSegment
 
 
 class SourceMathTranslation:
-    """One semantic unit's source evidence and accepted fill bindings."""
+    """One bounded group's source evidence for direct XML identity annotation."""
 
     def __init__(self, sources: list[SourceMath]):
         self.sources = [source for source in sources if not source.context]
@@ -12,8 +14,6 @@ class SourceMathTranslation:
         self.context = '\n\n'.join(source.latex for source in sources if source.context)
         self.values = {f's{index}': source for index, source in enumerate(self.sources, 1)}
         self.evidence = {}
-        self.allocated = False
-        self.bindings: list[list[SourceMath | str | MathProse]] = []
 
     def readable(self, segment: TextSegment) -> str:
         """Present original mathematical text without exposing engineering IDs."""
@@ -38,3 +38,12 @@ class SourceMathTranslation:
         self.evidence = {key: dict(before=source[max(0, start-120):start],
                                    text=source[start:end], after=source[end:end+120])
                          for key, (start, end) in spans.items()}
+
+    def encode(self) -> str:
+        root = Element('source-formulas')
+        for key, source in self.values.items():
+            formula = SubElement(root, 'formula', key=key)
+            SubElement(formula, 'value').text = source.latex
+            for name, value in self.evidence.get(key, {}).items():
+                SubElement(formula, name).text = value
+        return encode_friendly(root)

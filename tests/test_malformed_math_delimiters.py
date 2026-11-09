@@ -1,17 +1,10 @@
 """Free artist prose must not consume later complete formula occurrences."""
-import json
 from copy import deepcopy
-from types import SimpleNamespace
 from unittest import TestCase, IsolatedAsyncioTestCase
 from xml.etree.ElementTree import Element
 
 from pdf_craft.transformer.canonical_math import CanonicalMath
 from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly
-from pdf_craft.transformer.allocation_text import translated_math_targets, translated_math_evidence
-from pdf_craft.transformer.canonical_projection import SourceMath
-from pdf_craft.transformer.source_math import SourceMathTranslation
-from pdf_craft.transformer.free_translation import allocate
-from pdf_craft.expression import ExpressionKind, to_markdown_string
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem, Chapter
 from tests.test_canonical_math_projection import expression, content_of
@@ -41,19 +34,6 @@ class MalformedMathDelimitersTests(TestCase):
                     matches = CanonicalMath.matches(text)
                     self.assertEqual([m.group() for m in matches], [raw])
                     self.assertEqual(matches[0].span(), (len(prefix), len(text)))
-                    self.assertEqual(translated_math_evidence(text)[0]['text'], raw)
-                    source = Element('formula', name='complete-outer')
-                    math = SourceMathTranslation([SourceMath(to_markdown_string(ExpressionKind.INLINE_PAREN, body), source)])
-                    units = [dict(id='0', text=prefix, formulas=[]),
-                             dict(id='1', text=raw, formulas=[dict(key='s1', target='t1')])]
-                    self.assertEqual(translated_math_targets(units, text)['t1'][0], '1')
-                    self.assertEqual(allocate(json.dumps(units), [SimpleNamespace(source_math=None),
-                        SimpleNamespace(source_math=math)], text), {'0': prefix, '1': raw})
-                    units[1]['formulas'] = [dict(key='s1', text=raw, before='', after='')]
-                    self.assertEqual(allocate(json.dumps(units), [SimpleNamespace(source_math=None),
-                        SimpleNamespace(source_math=math)], text), {'0': prefix, '1': raw})
-                    self.assertEqual(math.bindings, [[math.values['s1']]])
-                    self.assertIs(math.values['s1'].element, source)
                     table = CanonicalMath(text)
                     self.assertEqual(table.values, {'m1': raw})
                     root = Element('xml')
@@ -90,19 +70,6 @@ class MalformedMathDelimitersTests(TestCase):
         first, second = r'Reference \(Fink, 1997).'+'\n\n', r'Object \(a\).'
         raw = first+second
         self.assertEqual([m.group() for m in CanonicalMath.matches(raw)], [r'\(a\)'])
-        units = [dict(id='0', text=first, formulas=[]), dict(id='1', text=second,
-                    formulas=[dict(key='s1', target='t1')])]
-        self.assertEqual(translated_math_evidence(raw)[0]['text'], r'\(a\)')
-        self.assertEqual(translated_math_targets(units, raw)['t1'][0], '1')
-        source = Element('formula', source='actual-a')
-        math = SourceMathTranslation([SourceMath(r'\(a\)', source)])
-        answers = allocate(json.dumps(units), [SimpleNamespace(source_math=None),
-                                               SimpleNamespace(source_math=math)], raw)
-        self.assertEqual(answers, {'0': first, '1': second})
-        binding = math.bindings[0][0]
-        self.assertIsInstance(binding, SourceMath)
-        assert isinstance(binding, SourceMath)
-        self.assertIs(binding.element, source)
         table = CanonicalMath(raw)
         root = Element('xml')
         node = Element('math-ref', key='m1')
@@ -148,16 +115,9 @@ class MalformedMathDelimitersTests(TestCase):
             with self.subTest(raw=raw):
                 prefix = r'Reference \(unfinished.'+'\n\n'
                 text = prefix+raw
-                source = Element('formula', source='row-spaced-math')
-                math = SourceMathTranslation([SourceMath(raw, source)])
-                units = [dict(id='0', text=prefix, formulas=[]),
-                         dict(id='1', text=raw, formulas=[dict(key='s1', target='t1')])]
-                self.assertEqual([item['text'] for item in translated_math_evidence(text)], [raw])
-                self.assertEqual(translated_math_targets(units, text)['t1'][0], '1')
-                self.assertEqual(allocate(json.dumps(units), [SimpleNamespace(source_math=None),
-                    SimpleNamespace(source_math=math)], text), {'0': prefix, '1': raw})
-                self.assertEqual(math.bindings, [[math.values['s1']]])
-                self.assertIs(math.values['s1'].element, source)
+                table = CanonicalMath(text)
+                self.assertEqual(table.values, {'m1': raw})
+
 
 
 class MalformedMathPipelineTests(IsolatedAsyncioTestCase):
@@ -178,18 +138,13 @@ class MalformedMathPipelineTests(IsolatedAsyncioTestCase):
             if messages[0]['content'].startswith('You are a translator.'):
                 calls.append('artist')
                 return raw
-            if messages[0]['content'].startswith('You are the structural fill engineer.'):
-                calls.append('allocate')
-                payload = json.loads(messages[1]['content'])
-                self.assertEqual(payload['translation'], raw)
-                self.assertEqual([item['text'] for item in payload['translated_math']], [opening+body+closing])
-                return json.dumps([dict(id='0', text=raw, formulas=[dict(key='s1', target='t1')])])
-            return '<xml><fragment id="1">Value <expression><math-ref key="m1"/></expression>.</fragment></xml>'
+            calls.append('xml-fill')
+            return '<xml><fragment id="1">Value <expression><source-math key="s1"><math-ref key="m1"/></source-math></expression>.</fragment></xml>'
         model.answer = answer
         target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
         self.assertEqual(content_of(target), ['Value ', expression(body), '.'])
         self.assertEqual(source, saved)
-        self.assertEqual(calls, ['artist', 'allocate'])
+        self.assertEqual(calls, ['artist', 'xml-fill'])
 
     async def test_real_artist_fill_entry_keeps_unclosed_prose_and_source_identity(self):
         source = Chapter(None, -1, [TextFlowItem('body', -1, [SourceTextFragment(
@@ -201,14 +156,9 @@ class MalformedMathPipelineTests(IsolatedAsyncioTestCase):
             if messages[0]['content'].startswith('You are a translator.'):
                 calls.append('artist')
                 return raw
-            if messages[0]['content'].startswith('You are the structural fill engineer.'):
-                calls.append('allocate')
-                payload = json.loads(messages[1]['content'])
-                self.assertEqual(payload['translation'], raw)
-                self.assertEqual(payload['translated_math'][0]['text'], r'\(a\)')
-                return json.dumps([dict(id='0', text=raw, formulas=[dict(key='s1', target='t1')])])
-            return r'<xml><fragment id="1">Reference \(Fink, 1997). Object <expression><math-ref key="m1"/></expression>.</fragment></xml>'
+            calls.append('xml-fill')
+            return r'<xml><fragment id="1">Reference \(Fink, 1997). Object <expression><source-math key="s1"><math-ref key="m1"/></source-math></expression>.</fragment></xml>'
         model.answer = answer
         target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
         self.assertEqual(content_of(target), [r'Reference \(Fink, 1997). Object ', expression('a'), '.'])
-        self.assertEqual(calls, ['artist', 'allocate'])
+        self.assertEqual(calls, ['artist', 'xml-fill'])

@@ -102,6 +102,9 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
     async def test_private_production_case_includes_metadata_and_furniture(self):
         source = Path('/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/pdf-craft-output/issue-932-1bc9aef5-investigation/source.pcex')
         translator, model = translator_fixture(max_group_score=2600, encoding='o200k_base')
+        # Exercise production deterministic adoption for unchanged prose and
+        # furniture too; formula-bearing groups still require real XML fill.
+        translator._direct_fill_candidates = type(translator)._direct_fill_candidates
         original_answer = model.answer
         def answer(messages):
             value = original_answer(messages)
@@ -129,7 +132,6 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
             async for item in items:
                 values.append(item)
         self.assertEqual(sum(item.value is not None for item in values), 62)
-        self.assertGreaterEqual(sum(len(batch) for batch in model.calls), 62)
         self.assertLessEqual(len(model.wire_calls), 15, [len(batch) for batch in model.calls])
         for item in values:
             if item.value is not None:
@@ -154,12 +156,11 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
         results = await asyncio.wait_for(translator._translate_elements(
             roots(), **StructuredTranslation().arguments(), window=1), 5)
         self.assertEqual([index for _, index in results], list(range(6)))
-        self.assertEqual([len(batch) for batch in model.calls], [1, 6])
+        self.assertEqual([len(batch) for batch in model.calls], [1, 1])
         self.assertEqual(model.peak, 1)
-        self.assertEqual(translator._requests.pending, {})
 
     @policy_operation
-    async def test_accepted_sibling_leaves_before_later_fill_repair(self):
+    async def test_group_is_adopted_atomically_after_complete_fill_repair(self):
         from pdf_craft.transformer.structured_translation import StructuredTranslation
         from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
         translator, model = translator_fixture(max_group_score=2600)
@@ -191,13 +192,13 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
             **StructuredTranslation().arguments(), on_mapping=notify))
         try:
             await asyncio.wait_for(repairing.wait(), 3)
-            await asyncio.wait_for(delivered.wait(), 2)
-            self.assertEqual(values, ['Paragraph 0.'])
+            self.assertFalse(delivered.is_set())
+            self.assertEqual(values, [])
             self.assertFalse(task.done())
         finally:
             release.set()
             await asyncio.wait_for(task, 5)
-        self.assertEqual([len(batch) for batch in model.calls], [1, 2, 1])
+        self.assertEqual([len(batch) for batch in model.calls], [1, 1, 1])
         self.assertEqual(values, ['Paragraph 0.', 'Paragraph 1.'])
 
     @policy_operation
@@ -223,8 +224,6 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await task
         self.assertTrue(closed.is_set())
-        self.assertEqual(translator._requests.pending, {})
-        self.assertEqual(translator._requests.timers, {})
 
     @policy_operation
     async def test_busy_request_slot_and_bounded_tail_keep_all_units(self):
@@ -251,7 +250,6 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
                 self.assertLessEqual(len(model.wire_calls), 9, [len(batch) for batch in model.calls])
                 self.assertTrue(all(len(batch) <= 64 for batch in model.calls))
                 self.assertEqual(model.peak, 1)
-                self.assertEqual(translator._requests.pending, {})
 
     @policy_operation
     async def test_blocked_provider_bounds_source_admission_and_cancel_joins_transport(self):
@@ -288,8 +286,6 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
                 await asyncio.wait_for(task, 3)
         self.assertTrue(closed.is_set())
         self.assertTrue(source_closed.is_set())
-        self.assertEqual(translator._requests.pending, {})
-        self.assertEqual(translator._requests.timers, {})
 
     async def test_fragmented_book_profile_has_full_request_gate_without_private_data(self):
         from pdf_craft import BookMeta
@@ -316,7 +312,12 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
             result = await asyncio.wait_for(AsyncPDFCraft().translate_extraction(source, root / 'result.pcex',
                 translator, with_anchored=False, with_furniture=True, target_language='English', window=6), 15)
             self.assertTrue(result._validate())
-            self.assertGreaterEqual(sum(len(batch) for batch in model.calls), 60)  # 57 prose + metadata + 2 furniture, both stages.
+            with result._materialize() as paths:
+                assert paths.translations is not None
+                coverage = next(paths.translations.glob('*/coverage.xml'))
+                entries = fromstring(coverage.read_text()).findall('./narrative/paragraph')
+                self.assertEqual(len(entries), 57)
+                self.assertTrue(all(node.get('state') == 'translated' for node in entries))
             self.assertLessEqual(len(model.wire_calls), 15, [len(batch) for batch in model.calls])
 
     @policy_operation
@@ -348,7 +349,6 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await asyncio.wait_for(task, 3)
-        self.assertEqual(translator._requests.pending, {})
 
     @policy_operation
     async def test_one_repair_does_not_reserve_a_whole_admission_group(self):
@@ -389,7 +389,6 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await asyncio.wait_for(task, 3)
-        self.assertEqual(translator._requests.pending, {})
 
     @policy_operation
     async def test_artist_receives_shared_background_once_outside_grouped_source(self):

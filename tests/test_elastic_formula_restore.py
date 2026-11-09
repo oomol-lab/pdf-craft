@@ -1,122 +1,84 @@
-"""Formula identity stays strict while translated values may change."""
+"""Elastic values and strict identities through the single production XML fill."""
 # pylint: disable=protected-access
-import json
-from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
-from xml.etree.ElementTree import Element, fromstring
+from xml.etree.ElementTree import fromstring
 
-from pdf_craft import SubmitKind
+from pdf_craft import SubmitKind, RetryPolicy
 from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
-from pdf_craft.transformer.canonical_projection import SourceMath
-from pdf_craft.transformer.free_translation import allocate
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
-from pdf_craft.transformer.source_math import SourceMathTranslation
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
+from pdf_craft.transformer.xml_translator.xml_translator.translator import XMLFillError
 from tests.test_canonical_math_projection import chapter, expression, content_of
 from tests.translation_model import translator_fixture
+
+
+def model_replies(model, raw, replies):
+    answers = iter(replies)
+    def answer(messages):
+        return raw if messages[0]['content'].startswith('You are a translator.') else next(answers)
+    model.answer = answer
 
 
 class ElasticFormulaTests(IsolatedAsyncioTestCase):
     async def test_service_364_numeric_conversion_in_pcex_and_epub(self):
         for epub in (False, True):
             with self.subTest(epub=epub):
-                await self._numeric_conversion(epub)
+                translator, model = translator_fixture()
+                tag = 'p' if epub else 'fragment'
+                response = f'<xml><{tag} id="1">费用超过<expression><source-math key="s1">40</source-math></expression>亿。</{tag}></xml>'
+                model_replies(model, '费用超过40亿。', [response])
+                if epub:
+                    source = fromstring('<body><p>Costs exceed <math id="amount"><mn>4</mn></math> billion.</p></body>')
+                    target, _ = await StructuredTranslation(formulas=XMLInterrupter()).translate(
+                        translator, TranslationTask(source, SubmitKind.REPLACE, None), error_policy=False)
+                    node, = target.findall('.//math')
+                    self.assertEqual(node.get('id'), 'amount')
+                    self.assertEqual(node.find('semantics/annotation').text, '40')
+                    self.assertEqual(node.tail, '亿。')
+                else:
+                    target = await NarrativeXMLTransformer(translator).transform(
+                        chapter(['Costs exceed ', expression('4'), ' billion.']), error_policy=False)
+                    self.assertEqual(content_of(target), ['费用超过', expression('40'), '亿。'])
+                self.assertEqual(len(model.wire_calls), 2, 'One artist and one XML engineer, no allocation model')
 
-    async def _numeric_conversion(self, epub):
+    async def test_flattened_percent_and_changed_values(self):
+        for old, translated, expected in [(r'94\%', '94%', r'94\%'), (r'94\%', '95%', r'95\%'),
+                                           ('4', '40', '40'), ('4', '四十', '四十'), ('a b', 'ab', 'ab')]:
+            with self.subTest(old=old, translated=translated):
+                translator, model = translator_fixture()
+                model_replies(model, f'值{translated}。', [f'<xml><fragment id="1">值<expression><source-math key="s1">{translated}</source-math></expression>。</fragment></xml>'])
+                target = await NarrativeXMLTransformer(translator).transform(chapter(['Value ', expression(old), '.']), error_policy=False)
+                self.assertEqual(content_of(target), ['值', expression(expected), '。'])
+
+    async def test_failed_flattening_retains_translation_without_veto(self):
         translator, model = translator_fixture()
-        raw = '费用超过40亿。'
-        engineer_calls = []
-        def answer(messages):
-            if messages[0]['content'].startswith('You are a translator.'):
-                return raw
-            if messages[0]['content'].startswith('You are the structural fill engineer.'):
-                engineer_calls.append(messages)
-                # The final production response's meaningful partition,
-                # including omitted redundant before/after fields.
-                return json.dumps([dict(id='0', end=raw, formulas=[dict(key='s1', text='40亿', parts=[
-                    dict(keys=['s1'], text='40'), dict(text='亿')])])])
-            owner = 'p' if epub else 'fragment'
-            return f'<xml><{owner} id="1">费用超过<expression><math-ref key="m1"/></expression>。</{owner}></xml>'
-        model.answer = answer
-        if epub:
-            source = fromstring('<body><p>Costs exceed <math id="amount"><mn>4</mn></math> billion.</p></body>')
-            target, _ = await StructuredTranslation(formulas=XMLInterrupter()).translate(
-                translator, TranslationTask(source, SubmitKind.REPLACE, None), error_policy=False)
-            formulas = target.findall('.//math')
-            self.assertEqual(len(formulas), 1)
-            self.assertEqual(formulas[0].get('id'), 'amount')
-            self.assertEqual(formulas[0].find('semantics/annotation').text, '40')
-            self.assertEqual(formulas[0].tail, '亿。')
-            # The REPLACE operation mutates its input root by contract.
-        else:
-            source = chapter(['Costs exceed ', expression('4'), ' billion.'])
-            target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
-            self.assertEqual(content_of(target), ['费用超过', expression('40'), '亿。'])
-        self.assertEqual(len(engineer_calls), 1)
-        self.assertEqual(len([c for c in model.wire_calls if c[0].message.startswith('You are a translator.')]), 1)
-
-
-    async def test_precise_formula_span_keeps_unit_outside(self):
-        translator, model = translator_fixture()
-        raw = '费用超过40亿。'
-        def answer(messages):
-            if messages[0]['content'].startswith('You are a translator.'):
-                return raw
-            if messages[0]['content'].startswith('You are the structural fill engineer.'):
-                return json.dumps([dict(id='0', end=raw, formulas=[dict(key='s1', text='40')])])
-            return '<xml><fragment id="1">费用超过<expression><math-ref key="m1"/></expression>亿。</fragment></xml>'
-        model.answer = answer
-        target = await NarrativeXMLTransformer(translator).transform(
-            chapter(['Costs exceed ', expression('4'), ' billion.']), error_policy=False)
-        self.assertEqual(content_of(target), ['费用超过', expression('40'), '亿。'])
-
-    async def test_unchanged_flattened_formula_restores_source_notation(self):
-        translator, model = translator_fixture()
-        raw = '达到94%。'
-        def answer(messages):
-            if messages[0]['content'].startswith('You are a translator.'):
-                return raw
-            if messages[0]['content'].startswith('You are the structural fill engineer.'):
-                return json.dumps([dict(id='0', end=raw, formulas=[dict(key='s1', text='94%')])])
-            return '<xml><fragment id="1">达到<expression><math-ref key="m1"/></expression>。</fragment></xml>'
-        model.answer = answer
-        target = await NarrativeXMLTransformer(translator).transform(
-            chapter(['Reaches ', expression(r'94\%'), '.']), error_policy=False)
-        self.assertEqual(content_of(target), ['达到', expression(r'94\%'), '。'])
-
-    def test_conversion_failure_and_internal_spacing_do_not_authorize_restoration(self):
-        for source, translated in [('4', '40'), ('a b', 'ab'), ('4', '四十')]:
-            math = SourceMathTranslation([SourceMath(r'\(' + source + r'\)', Element('formula'))])
-            allocate(json.dumps([dict(id='0', text=translated, formulas=[dict(key='s1', text=translated)])]),
-                     [SimpleNamespace(source_math=math)], translated)
-            bound = math.bindings[0][0]
-            assert isinstance(bound, SourceMath)
-            self.assertEqual(bound.translated_latex, r'\(' + translated + r'\)')
-        math = SourceMathTranslation([SourceMath(r'\(4\)', Element('formula'))])
+        model_replies(model, '值40。', ['<xml><fragment id="1">值<expression><source-math key="s1">40</source-math></expression>。</fragment></xml>'])
         with patch('pdf_craft.transformer.math_binding.try_latex_to_plain_text', return_value=None):
-            allocate(json.dumps([dict(id='0', text='4', formulas=[dict(key='s1', text='4')])]),
-                     [SimpleNamespace(source_math=math)], '4')
-        bound = math.bindings[0][0]
-        assert isinstance(bound, SourceMath)
-        self.assertEqual(bound.translated_latex, r'\(4\)')
+            result = await NarrativeXMLTransformer(translator).transform(chapter(['Value ', expression('4'), '.']), error_policy=False)
+        self.assertEqual(content_of(result), ['值', expression('40'), '。'])
 
-    def test_changed_plain_percentage_stays_a_literal_value_not_a_tex_comment(self):
-        math = SourceMathTranslation([SourceMath(r'\(94\%\)', Element('formula'))])
-        allocate(json.dumps([dict(id='0', text='95%', formulas=[dict(key='s1', text='95%')])]),
-                 [SimpleNamespace(source_math=math)], '95%')
-        bound = math.bindings[0][0]
-        assert isinstance(bound, SourceMath)
-        self.assertEqual(bound.translated_latex, r'\(95\%\)')
+    async def test_missing_duplicate_unknown_and_empty_formula_ids_are_repaired_in_same_loop(self):
+        valid = '<xml><fragment id="1"><expression><source-math key="s1">40</source-math></expression>亿</fragment></xml>'
+        for bad in (valid.replace('<source-math key="s1">40</source-math>', '40'),
+                    valid.replace('key="s1"', 'key="s9"'),
+                    valid.replace('</expression>', '<source-math key="s1">40</source-math></expression>'),
+                    valid.replace('>40</source-math>', '></source-math>')):
+            with self.subTest(bad=bad):
+                translator, model = translator_fixture()
+                model_replies(model, '40亿', [bad, valid])
+                target = await NarrativeXMLTransformer(translator).transform(chapter([expression('4'), ' billion']), error_policy=False, retry_policy=RetryPolicy(fill=1))
+                self.assertEqual(content_of(target), [expression('40'), '亿'])
+                self.assertEqual(len(model.wire_calls), 3)
+                self.assertIn('40亿', model.wire_calls[-1][1].message)
 
-    def test_missing_duplicate_unknown_and_ambiguous_id_bindings_still_fail(self):
-        for formulas in ([], [dict(key='s2', text='40')], [dict(key='s1', text='40')]*2):
-            math = SourceMathTranslation([SourceMath(r'\(4\)', Element('formula'))])
-            with self.assertRaises(ValueError):
-                allocate(json.dumps([dict(id='0', end='40', formulas=formulas)]), [SimpleNamespace(source_math=math)], '40')
-            self.assertFalse(math.allocated)
-        math = SourceMathTranslation([SourceMath(r'\(4\)', Element('formula'))])
-        with self.assertRaisesRegex(ValueError, 'matches 2 occurrences'):
-            allocate(json.dumps([dict(id='0', text='40 and 40', formulas=[dict(key='s1', text='40')])]),
-                     [SimpleNamespace(source_math=math)], '40 and 40')
+    async def test_real_text_edits_exhaust_without_partial_adoption(self):
+        translator, model = translator_fixture()
+        bad = '<xml><fragment id="1"><expression><source-math key="s1">4</source-math></expression>亿</fragment></xml>'
+        model_replies(model, '40亿', [bad, bad])
+        source = chapter([expression('4'), ' billion'])
+        with self.assertRaises(XMLFillError):
+            await NarrativeXMLTransformer(translator).transform(source, error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(content_of(source), [expression('4'), ' billion'])
+        self.assertEqual(len(model.wire_calls), 3)

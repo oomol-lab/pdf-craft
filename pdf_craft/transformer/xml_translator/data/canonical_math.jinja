@@ -1,16 +1,8 @@
-
-
-Immutable canonical math references:
+Read-only artist mathematics:
 {% for key, value in values.items() %}{{ key }}: {{ value }}
-{% endfor %}The translated text above uses read-only <math-ref key="mN"/> tokens.
-Place each token exactly once; NEVER retype its formula or delimiters.
-Source <expression> IDs are allocation slots, NOT independent math boundaries.
-When the canonical translation combines multiple source formulas, put the ONE math-ref token in one corresponding expression slot and keep the other required
-expression slots empty. All source tags and IDs must remain.
-When there are MORE canonical references than slots, put multiple references in
-an existing slot or ordinary text; NEVER create extra expression tags or IDs.
-Do not split a math-ref or surround it with additional math delimiters.
-The caller expands these exact canonical values BEFORE structural and full
-visible-text validation, then restores the original source nodes already bound
-to these references. No new formula is created from model text. An expression
-slot's ID does not determine which original formula belongs at that position.
+{% endfor %}
+<math-ref key="mN"/> denotes this exact translated occurrence, not a source
+formula identity. Copy it into the corresponding output text slot, optionally
+inside its source-math annotation. Literal mathematical text is also accepted
+when it preserves the complete artist expression. Never invent a reference,
+duplicate an occurrence, or add delimiters around a reference.

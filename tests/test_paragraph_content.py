@@ -28,15 +28,18 @@ def text(index, value, page=1):
     return TextFlowItem('body', -1, [SourceTextFragment(page, index, (0,index*20,90,index*20+15), [value])])
 
 
-def translator():
+def translator(*, max_group_score=500):
     llm = LLM('unused', 'https://example.invalid', 'unused', 'o200k_base')
-    return XMLTranslator(llm,llm,'zh',None,5,500,
+    return XMLTranslator(llm,llm,'zh',None,5,max_group_score,
                          executor=ConcurrentExecutor(FixedCapacity(2)), retry_policy=RetryPolicy(fill=max(0, (2) - 1)))
 
 
 async def translated(_translator, inline_segments, **_kwargs):
     values=[]
     for segment in inline_segments:
+        if segment._translation_context:
+            values.append(None)
+            continue
         target=segment.create_element()
         for node in target.iter():
             if node.text and node.text.strip():
@@ -169,7 +172,7 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
                 release,received=asyncio.Event(),asyncio.Event()
                 callbacks,notes,rendered=[],[],[]
                 async def mappings(instance,inline_segments,**kwargs):
-                    if any(part.text=='Second.' for segment in inline_segments for part in segment):
+                    if any(part.text=='Second.' for segment in inline_segments if not segment._translation_context for part in segment):
                         await release.wait()
                     return await translated(instance,inline_segments,**kwargs)
                 async def callback(content):
@@ -178,7 +181,7 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
                     received.set()
                 async def run():
                     craft=AsyncPDFCraft()
-                    options: dict[str, Any]=dict(translator=translator(),window=2,with_anchored=False,
+                    options: dict[str, Any]=dict(translator=translator(max_group_score=25),window=2,with_anchored=False,
                                  on_body=callback,on_footnote=notes.append)
                     if kind=='pcex':
                         await craft.translate_extraction(source,root/'book.pcex',**options)
@@ -269,7 +272,7 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
                 roots.append(weakref.ref(root))
                 yield TranslationTask(root,SubmitKind.REPLACE,index)
         async def mappings(instance,inline_segments,**kwargs):
-            source=''.join(part.text for segment in inline_segments for part in segment)
+            source=''.join(part.text for segment in inline_segments if not segment._translation_context for part in segment)
             if source=='Document 0.':
                 await release.wait()
             if source=='Document 11.':
@@ -280,7 +283,7 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
             results.append(value[1])
         with patch.object(XMLTranslator,'_translate_inline_segments_async',new=mappings):
             from pdf_craft.transformer.structured_translation import StructuredTranslation
-            task=asyncio.create_task(translator()._translate_elements(tasks(),window=2,on_result=result,
+            task=asyncio.create_task(translator(max_group_score=25)._translate_elements(tasks(),window=2,on_result=result,
                 collect_results=False, **StructuredTranslation().arguments()))
             try:
                 await asyncio.wait_for(last.wait(),3)
@@ -353,7 +356,7 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
                 events = []
                 release,seen=asyncio.Event(),asyncio.Event()
                 async def mappings(instance,inline_segments,**kwargs):
-                    if any(part.text=='Last.' for segment in inline_segments for part in segment):
+                    if any(part.text=='Last.' for segment in inline_segments if not segment._translation_context for part in segment):
                         await release.wait()
                     return await translated(instance,inline_segments,**kwargs)
                 async def callback(content):
@@ -363,7 +366,7 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
                         raise ValueError('preview failed')
                 with patch.object(XMLTranslator,'_translate_inline_segments_async',new=mappings):
                     task=asyncio.create_task(AsyncPDFCraft().translate_pdf(
-                        pdf,source,output,translator=translator(),window=3,on_body=callback,
+                        pdf,source,output,translator=translator(max_group_score=25),window=3,on_body=callback,
                         on_translation_event=events.append))
                     try:
                         await asyncio.wait_for(seen.wait(),8)
