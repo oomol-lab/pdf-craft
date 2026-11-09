@@ -14,6 +14,7 @@ from typing import Protocol
 from xml.etree.ElementTree import Element, SubElement
 
 from .progress import task_word_count
+from .structured_translation import StructuredTranslation
 from .furniture import FurniturePosition, FurnitureSection
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
 from .._failure_sources import furniture_section_locations, task_locations
@@ -57,9 +58,7 @@ class FurnitureXMLTransformer:
                 item_id=f"pattern-{position.pattern_id}-position-{position.position_id}",
                 word_count=task_word_count(element),
             )
-        translated, _ = await self._translator.translate_element(
-            task
-        )
+        translated, _ = await StructuredTranslation(require_nonempty_units=True).translate(self._translator, task)
         if task.outcomes and not all(task.outcomes.values()):
             return None
         if position.content.strip() and not (translated.text or "").strip():
@@ -89,9 +88,7 @@ class FurnitureXMLTransformer:
                 item_id=f"furniture-page-{page_index}",
                 word_count=task_word_count(element),
             )
-        translated, _ = await self._translator.translate_element(
-            task
-        )
+        translated, _ = await StructuredTranslation(require_nonempty_units=True).translate(self._translator, task)
         if task.outcomes and not all(task.outcomes.values()):
             return (None,) * len(sections)
         children = translated.findall("section")

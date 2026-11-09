@@ -9,6 +9,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from pdf_craft import PDFCraft, PDFCraftExtraction
+from pdf_craft.transformer.xml_translator.xml_translator.translator import XMLFillError
 from pdf_craft.common import save_xml
 from pdf_craft.document.stream_view import content_view
 from pdf_craft.metering import OCRTokensMetering
@@ -44,15 +45,11 @@ class SmokeRetryBudgetTests(TestCase):
             def answer(messages):
                 if messages[0]['content'].startswith('You are a translator.'):
                     return original(messages).replace('Paragraph', 'Translated')
-                if messages[0]['content'].startswith('You are the structural fill engineer.'):
-                    attempts.append(len(attempts)+1)
-                    limits.append(current().retry.attempts(RetryScope.FILL))
-                    if len(attempts) <= failures:
-                        return '[]'
-                    raw = json.loads(messages[1]['content'])['translation']
-                    return json.dumps([dict(id=str(i), text=text, formulas=[])
-                                       for i, text in enumerate(raw.split('\n\n'))])
+                attempts.append(len(attempts)+1)
+                limits.append(current().retry.attempts(RetryScope.FILL))
                 xml_limits.append(current().retry.attempts(RetryScope.FILL))
+                if len(attempts) <= failures:
+                    return 'not XML'
                 return original(messages).replace('Paragraph', 'Translated')
             model.answer = answer
             run = SmokeRun('pdf/citation.pdf', 'markdown', translation={
@@ -102,7 +99,7 @@ class SmokeRetryBudgetTests(TestCase):
                     self.assertTrue(xml_limits)
                     self.assertEqual(set(xml_limits), {13})
                 else:
-                    with self.assertRaisesRegex(ValueError, 'exhausted'):
+                    with self.assertRaises(XMLFillError):
                         execute()
             self.assertEqual(len(attempts), 5 if failures == 4 else 13)
             self.assertEqual(set(limits), {13})

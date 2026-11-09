@@ -1,6 +1,5 @@
 """Offline regressions for blank units and invented formula transport markup."""
 # pylint: disable=protected-access
-import json
 from unittest import IsolatedAsyncioTestCase
 from xml.etree.ElementTree import fromstring, tostring
 
@@ -8,7 +7,6 @@ from pdf_craft import RetryPolicy, SubmitKind
 from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft._policy import policy_operation
 from pdf_craft.transformer.structured_translation import StructuredTranslation
-from pdf_craft.transformer.request_batch import RequestBatcher
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
 from tests.test_anchored_content_translation import _repairing_translator
 from tests.test_source_math_identity import provider
@@ -53,10 +51,6 @@ class TranslationProtocolGapTests(IsolatedAsyncioTestCase):
 
 
 
-    def test_blank_body_responses_remain_invalid_in_mixed_envelopes(self):
-        response = json.dumps([{'id': '0', 'text': 'Valid prose.'},
-                               {'id': '1', 'text': '\u00a0'}, {'id': '2', 'text': ''}])
-        self.assertEqual(RequestBatcher._answers(response, 3), {'0': 'Valid prose.'})
 
 
     @policy_operation

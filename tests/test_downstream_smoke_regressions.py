@@ -2,7 +2,6 @@
 # pylint: disable=protected-access,unused-argument
 import asyncio
 from copy import deepcopy
-import json
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 from xml.etree.ElementTree import fromstring, tostring
@@ -13,8 +12,7 @@ from pdf_craft.extractor.chapter.chapter import SourceAsset
 from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
 from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
 from pdf_craft.transformer.canonical_math import CanonicalMath
-from pdf_craft.transformer.free_translation import AllocationFillError
-from pdf_craft.transformer.request_batch import RequestBatcher
+from pdf_craft.transformer.xml_translator.xml_translator.translator import XMLFillError
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.segment import search_inline_segments, search_text_segments
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
@@ -33,29 +31,8 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
 
 
 
-    def test_bad_entry_does_not_discard_unambiguous_siblings(self):
-        self.assertEqual(RequestBatcher._answers('[{"id":"0","text":"ok"},{"id":"1","text":"x"},'
-                         '{"id":"1","text":"y"},{"id":"9","text":"unknown"}]', 2), {'0': 'ok'})
 
-    def test_ambiguous_json_object_does_not_erase_other_identities(self):
-        self.assertEqual(RequestBatcher._answers(
-            '[{"id":"0","text":"ok"},{"id":"1","id":"2","text":"ambiguous"}]', 3),
-            {'0': 'ok'})
-        self.assertEqual(RequestBatcher._answers(
-            '[{"id":"0","text":"ok"},{"id":"0","text":null}]', 1), {})
 
-    def test_malformed_objects_invalidate_every_competing_identity_in_either_order(self):
-        valid = [{"id": str(index), "text": f"accepted {index}"} for index in range(3)]
-        for malformed, expected in (
-            ('{"id":"0","text":"x","text":"y"}', {'1': 'accepted 1', '2': 'accepted 2'}),
-            ('{"id":"0","id":"1","text":"ambiguous"}', {'2': 'accepted 2'}),
-            ('{"id":"0","id":"0","text":"ambiguous"}', {'1': 'accepted 1', '2': 'accepted 2'}),
-        ):
-            for first in (False, True):
-                with self.subTest(malformed=malformed, malformed_first=first):
-                    items = [json.dumps(entry) for entry in valid]
-                    items.insert(0 if first else len(items), malformed)
-                    self.assertEqual(RequestBatcher._answers('[' + ','.join(items) + ']', 3), expected)
 
 
     async def test_identical_text_and_quotations_are_not_quality_retry_triggers(self):
@@ -103,11 +80,11 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
         self.assertIsNotNone(protocol.validate(segments, canonical, broken))
 
     async def test_extra_canonical_math_cannot_be_adopted_as_a_new_source_formula(self):
-        translator, runtime = _repairing_translator([])
+        translator, runtime = _repairing_translator(['<xml><fragment id="1"/></xml>'] * 2)
         translator._translate_text_async = AsyncMock(return_value='$x$ $y$ $z$')
-        with self.assertRaises(AllocationFillError):
+        with self.assertRaises(XMLFillError):
             await NarrativeXMLTransformer(translator).transform(formula_source(), error_policy=False)
-        self.assertEqual(runtime.context_value.calls, 0)
+        self.assertEqual(runtime.context_value.calls, 2)
 
     def test_cross_slot_gap_uses_decomposed_character_offsets(self):
         root = fromstring('<text><fragment>é label</fragment><fragment>next</fragment></text>')

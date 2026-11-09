@@ -1,0 +1,9 @@
+WRONG ARTIST VALUE AT THE FIRST LITERAL TEXT DIFFERENCE:
+Your XML block {{ located.block }}, source-math identity {{ located.identities|join(' ') }}, {% if located.reference %}currently uses math-ref {{ located.reference }}, which expands to {{ actual }}.{% else %}currently contains literal text {{ actual }}.{% endif %}
+At this exact position the ORIGINAL artist text instead has math-ref {{ wanted }} = {{ expected }}.
+To reproduce the artist text, use its actual value/reference here. Check the source identity by meaning as usual; this feedback does not assign or change source identities for you.
+Nearby read-only artist occurrences, starting at this textual mismatch:
+{% for key, value in following %}{{ key }} = {{ value }}
+{% endfor %}
+Reference numbers are NOT source identity numbers. Do not offset them to match sN, nor keep copying an incorrect reference from your previous answer.
+Use the immutable artist payload to fill all words and formulas exactly, keeping the entire XML and each required source identity once.

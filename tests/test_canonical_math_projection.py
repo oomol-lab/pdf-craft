@@ -14,15 +14,14 @@ from pdf_craft.extractor.chapter.chapter import (
     Chapter, InlineExpression, SourceTextFragment, TextFlowItem, SourceAsset, StandaloneAsset, decode, encode,
 )
 from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
-from pdf_craft.transformer.canonical_projection import MathProjectionError, SourceMath, project_canonical_math
-from pdf_craft.transformer.free_translation import AllocationFillError
+from pdf_craft.transformer.xml_math import project_xml_math
+from pdf_craft.transformer.canonical_projection import MathProjectionError
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.translation_coverage import accepted_translation
 from pdf_craft.transformer.xml_translator.xml.xml_like import XMLLikeNode
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
-from pdf_craft.transformer.xml_translator.segment import TextPosition, combine_text_segments, search_text_segments
 from tests.test_anchored_content_translation import _repairing_translator, _pdf_patch_text
 from tests.test_structured_translation import offline_translator
 
@@ -46,50 +45,7 @@ def content_of(value):
 
 
 class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
-    def test_empty_mappings_survive_on_either_side_of_math(self):
-        for empty_first in (True, False):
-            for bound in (True, False):
-                with self.subTest(empty_first=empty_first, bound=bound):
-                    empty = fromstring('<p role="empty"/>')
-                    formula = fromstring('<p>译文 $x$。</p>')
-                    mappings = [(empty, []), (formula, list(search_text_segments(formula)))]
-                    if not empty_first:
-                        mappings.reverse()
-                    source = fromstring('<inline_expr kind="inline_dollar">x</inline_expr>')
-                    bindings: list[list[SourceMath | str]] = [[SourceMath('$x$', source)]] if bound else [[]]
-                    projected = project_canonical_math([None, *mappings], '译文 $x$。', bindings)
-                    assert projected is not None
-                    self.assertIsNone(projected[0])
-                    for mapping, original in zip(projected[1:], mappings):
-                        assert mapping is not None
-                        self.assertIs(mapping[0], original[0])
-                        root, = [root for root, _ in combine_text_segments(mapping[1])]
-                        if original[0] is empty:
-                            self.assertEqual(root.tag, 'p')
-                            self.assertEqual(root.attrib, {'role': 'empty'})
-                            self.assertEqual(''.join(root.itertext()), '')
-                            self.assertEqual(len(root), 0)
-                            self.assertEqual(mapping[1][0].position, TextPosition.TEXT)
-                        elif bound:
-                            self.assertEqual(tostring(root, encoding='unicode'),
-                                '<p>译文 <inline_expr kind="inline_dollar">x</inline_expr>。</p>')
-                        else:
-                            self.assertEqual(''.join(root.itertext()), '译文 $x$。')
 
-    def test_consumed_tail_field_becomes_empty_root_text(self):
-        first = fromstring('<p>$</p>')
-        second = fromstring('<p><div/>x$</p>')
-        fields = [field for field in search_text_segments(second) if field.position == TextPosition.TAIL]
-        self.assertEqual([field.position for field in fields], [TextPosition.TAIL])
-        source = fromstring('<inline_expr>x</inline_expr>')
-        projected = project_canonical_math([
-            (first, list(search_text_segments(first))), (second, fields),
-        ], '$x$', [[SourceMath('$x$', source)]])
-        assert projected is not None and projected[0] is not None and projected[1] is not None
-        root, = [root for root, _ in combine_text_segments(projected[0][1])]
-        self.assertEqual(tostring(root, encoding='unicode'), '<p><inline_expr>x</inline_expr></p>')
-        self.assertEqual(projected[1][1][0].text, '')
-        self.assertEqual(projected[1][1][0].position, TextPosition.TEXT)
 
     async def test_empty_cross_page_allocation_commits_translation_and_formula(self):
         for empty_first in (True, False):
@@ -99,7 +55,7 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
                     SourceTextFragment(25, 0, (0, 0, 90, 20), ['Original value ', expression('x')]),
                 ]
                 filled = ['<fragment id="1"/>', '<fragment id="2">译文 <expression>'
-                          '<math-ref key="m1"/></expression>。</fragment>']
+                          '<source-math key="s1"><math-ref key="m1"/></source-math></expression>。</fragment>']
                 if not empty_first:
                     fragments.reverse()
                     filled = [filled[1].replace('id="2"', 'id="1"'), '<fragment id="2"/>']
@@ -144,42 +100,24 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
     async def test_source_formula_is_indivisible_even_when_fill_puts_it_in_plain_text(self):
         target = await self.translate(chapter(['Equality: ', expression('x=y'), '.']),
             '等式 $x=y$。',
-            '<xml><fragment id="1"><expression/>等式 <math-ref key="m1"/>。</fragment></xml>')
+            '<xml><fragment id="1"><expression/>等式 <source-math key="s1"><math-ref key="m1"/></source-math>。</fragment></xml>')
         self.assertEqual(content_of(target), ['等式 ', expression('x=y'), '。'])
         self.assertNotIn('$', await asyncio.to_thread(_pdf_patch_text, target))
 
-    async def test_incomplete_engineering_correspondence_exhausts_fill(self):
-        source = chapter(['A character ', expression(r'\chi\mod q'), ', ',
-                          expression(r'\chi_0(n)=1'), ' or ', expression(r'\chi_0(n)=0'), '.'])
-        for canonical in (
-            r'$\chi$ 是模 $q$ 的特征；当条件成立时 $\chi_0(n)=1$，否则 $\chi_0(n)=0$。',
-            r'$\chi\mod q$；当条件成立时 $\chi_0(n)=0$，否则 $\chi_0(n)=0$。',
-        ):
-            with self.subTest(canonical=canonical):
-                translator, runtime = _repairing_translator([])
-                translator._translate_text_async = AsyncMock(return_value=canonical)
-                with self.assertRaises(AllocationFillError):
-                    await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
-                self.assertEqual(runtime.context_value.calls, 0)
 
     async def test_reordered_and_repeated_formulas_do_not_follow_slot_identity(self):
         source = chapter([expression('x'), ' then ', expression('y'), ' then ', expression('x')])
         target = await self.translate(source, '$y$ then $x$ then $x$',
-            '<xml><fragment id="1"><expression id="2"><math-ref key="m1"/></expression> then '
-            '<expression id="3"><math-ref key="m2"/></expression> then '
-            '<expression id="4"><math-ref key="m3"/></expression></fragment></xml>')
+            '<xml><fragment id="1"><expression id="2"><source-math key="s2"><math-ref key="m1"/></source-math></expression> then '
+            '<expression id="3"><source-math key="s1"><math-ref key="m2"/></source-math></expression> then '
+            '<expression id="4"><source-math key="s3"><math-ref key="m3"/></source-math></expression></fragment></xml>')
         self.assertEqual([item.content for item in content_of(target) if isinstance(item, InlineExpression)],
                          ['y', 'x', 'x'])
 
-    async def test_math_delimiters_crossing_inline_formatting_are_one_formula(self):
-        source = chapter(['Value ', expression('x=y'), '.'])
-        target = await self.translate(source, '$x=y$.',
-            '<xml><fragment id="1"><expression>$x</expression>=y$.</fragment></xml>')
-        self.assertEqual(content_of(target), [expression('x=y'), '.'])
 
     async def test_math_projection_failure_uses_existing_budget_without_partial_adoption(self):
         source = chapter(['Equality: ', expression('x=y'), '.'])
-        response = '<xml><fragment id="1"><expression><math-ref key="m1"/></expression>。</fragment></xml>'
+        response = '<xml><fragment id="1"><expression><source-math key="s1"><math-ref key="m1"/></source-math></expression>。</fragment></xml>'
         translator, runtime = _repairing_translator([response, response])
         translator._translate_text_async = AsyncMock(return_value='$x=y$。')
         calls = 0
@@ -189,9 +127,9 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
             calls += 1
             if calls == 1:
                 raise MathProjectionError('Formula projection failed.')
-            return project_canonical_math(*args)
+            return project_xml_math(*args)
 
-        with patch('pdf_craft.transformer.structured_translation.project_canonical_math', flaky_projection):
+        with patch('pdf_craft.transformer.structured_translation.project_xml_math', flaky_projection):
             target = await NarrativeXMLTransformer(translator).transform(
                 source, error_policy=False, retry_policy=RetryPolicy(fill=1))
         self.assertEqual(runtime.context_value.calls, 2)
@@ -204,7 +142,7 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
             b'<math xmlns="http://www.w3.org/1998/Math/MathML" id="original"><mi>x</mi><mo>=</mo><mi>y</mi></math>.'
             b'</p></body></html>'))
         translator, runtime = _repairing_translator([
-            '<xml><p id="1">等式 <expression><math-ref key="m1"/></expression>。</p></xml>'])
+            '<xml><p id="1">等式 <expression><source-math key="s1"><math-ref key="m1"/></source-math></expression>。</p></xml>'])
         translator._translate_text_async = AsyncMock(return_value='等式 $x=y$。')
         protocol = StructuredTranslation(formulas=XMLInterrupter())
         node.element, _ = await protocol.translate(translator, TranslationTask(node.element, SubmitKind.REPLACE, None))
@@ -223,8 +161,8 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
         source = fromstring('<body><p><math id="x"><mi>x</mi></math> '
                             'then <math id="y"><mi>y</mi></math>.</p></body>')
         translator, runtime = _repairing_translator([
-            '<xml><p id="1"><expression id="2"><math-ref key="m1"/></expression> then '
-            '<expression id="3"><math-ref key="m2"/></expression>.</p></xml>'])
+            '<xml><p id="1"><expression id="2"><source-math key="s2"><math-ref key="m1"/></source-math></expression> then '
+            '<expression id="3"><source-math key="s1"><math-ref key="m2"/></source-math></expression>.</p></xml>'])
         translator._translate_text_async = AsyncMock(return_value='$y$ then $x$.')
         result, _ = await StructuredTranslation(formulas=XMLInterrupter()).translate(
             translator, TranslationTask(source, SubmitKind.REPLACE, None))
@@ -236,7 +174,7 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
         source = SourceAsset(1, 'image', (0, 0, 90, 20), caption=[
             'Equality: ', expression('x=y'), '.'])
         translator, runtime = _repairing_translator([
-            '<xml><caption id="1">等式 <expression><math-ref key="m1"/></expression>。</caption></xml>'])
+            '<xml><caption id="1">等式 <expression><source-math key="s1"><math-ref key="m1"/></source-math></expression>。</caption></xml>'])
         translator._translate_text_async = AsyncMock(return_value='等式 $x=y$。')
         result, = await AnchoredContentXMLTransformer(translator).transform_assets([
             AnchoredContent('a', 0, -1, source, '')], error_policy=False)
@@ -267,6 +205,6 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
 
     async def test_source_reuse_does_not_normalize_away_canonical_tex_payload(self):
         target = await self.translate(chapter([expression(r'\text{a  b}')]), r'$\text{a  b}$',
-            '<xml><fragment id="1"><expression><math-ref key="m1"/></expression></fragment></xml>')
+            '<xml><fragment id="1"><expression><source-math key="s1"><math-ref key="m1"/></source-math></expression></fragment></xml>')
         self.assertEqual([item.content for item in content_of(target) if isinstance(item, InlineExpression)],
                          [r'\text{a  b}'])

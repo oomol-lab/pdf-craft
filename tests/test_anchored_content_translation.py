@@ -8,7 +8,6 @@ from pdf_craft import RetryPolicy
 
 
 import asyncio
-import json
 from copy import deepcopy
 import tempfile
 import threading
@@ -276,10 +275,6 @@ class _ResponseContext:
         return None
 
     async def request(self, *_args, **_kwargs):
-        messages = _args[0] if _args else _kwargs['input']
-        if messages[0].message.startswith('You are the structural fill engineer.'):
-            from tests.free_translation_model import allocation_answer
-            return allocation_answer(json.loads(messages[1].message))
         self.messages.append(_args or (_kwargs["input"],))
         self.calls += 1
         return next(self._responses)
@@ -322,7 +317,6 @@ def _repairing_translator(fill_responses: Sequence[str], *, direct_fill: bool = 
         translator._direct_fill_candidates = lambda *_args: ()  # type: ignore[method-assign]
     runtime = _ResponseRuntime(fill_responses, translator._fill_runtime)
     translator._fill_runtime = runtime  # type: ignore[assignment]
-    translator._requests.fill_runtime = runtime
     return translator, runtime
 
 
@@ -537,7 +531,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         self.assertEqual(_pdf_patch_text(translated), "However, the Council.")
         self.assertEqual(runtime.context_value.calls, 1)
         initial_messages = runtime.context_value.messages[0][0]
-        self.assertIn("Canonical visible-text constraint", initial_messages[0].message)
+        self.assertIn("Flattening all output blocks", initial_messages[0].message)
 
     def test_fill_repairs_plain_fragment_boundary_to_match_canonical_translation(self):
         """A cross-page fragment split has no anchor but obeys the same rule."""
@@ -605,8 +599,8 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             ]),
         ])])
         filled = (
-            '<xml><fragment id="1">模 <expression id="3"><math-ref key="m1"/>'
-            '</expression> 的特征 <expression id="2"><math-ref key="m2"/>'
+            '<xml><fragment id="1">模 <expression id="3"><source-math key="s2"><math-ref key="m1"/></source-math>'
+            '</expression> 的特征 <expression id="2"><source-math key="s1"><math-ref key="m2"/></source-math>'
             '</expression>。</fragment></xml>'
         )
         translator, runtime = _repairing_translator((filled,))
@@ -651,8 +645,8 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         self.assertEqual(_pdf_patch_text(translated), "First. Second.")
         self.assertEqual(runtime.context_value.calls, 1)
 
-    def test_canonical_fill_keeps_a_separate_first_stage_result_per_text_owner(self):
-        """Owner identity, not translated paragraph spacing, defines canonical scope."""
+    def test_group_fill_folds_one_artist_response_back_to_distinct_owners(self):
+        """One artist response and one XML answer retain all source owners."""
         chapter = Chapter(None, -1, [
             TextFlowItem("body", 0, [
                 SourceTextFragment(1, 1, (1, 1, 90, 15), ["First source."]),
@@ -661,35 +655,21 @@ class AnchoredContentTranslationTests(unittest.TestCase):
                 SourceTextFragment(1, 2, (1, 16, 90, 30), ["Second source."]),
             ]),
         ])
-        translator, runtime = _repairing_translator(())
-
-        async def fill(messages, **_kwargs):
-            runtime.context_value.calls += 1
-            payload = messages[-1].message
-            if not payload.startswith('['):
-                owner = "First" if "First" in payload else "Second"
-                return f'<xml><fragment id="1">{owner} canonical.</fragment></xml>'
-            entries = json.loads(payload)
-            answers = []
-            for entry in entries:
-                owner = "First" if "First" in json.dumps(entry) else "Second"
-                answers.append({'id': entry['id'],
-                                'text': f'<xml><fragment id="1">{owner} canonical.</fragment></xml>'})
-            return json.dumps(answers)
-
-        runtime.context_value.request = fill  # type: ignore[method-assign]
+        translator, runtime = _repairing_translator((
+            '<xml><fragment id="1">First canonical.</fragment>'
+            '<fragment id="2">Second canonical.</fragment></xml>',))
         sources: list[str] = []
 
         async def translate(source: str) -> str:
             sources.append(source)
-            return f"{source[:-7]} canonical."
+            return source.replace('source.', 'canonical.')
 
         translator._translate_text_async = translate  # type: ignore[method-assign]
 
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
-        self.assertCountEqual(sources, ["First source.", "Second source."])
-        self.assertIn(runtime.context_value.calls, (1, 2))
+        self.assertEqual(sources, ["First source.\n\nSecond source."])
+        self.assertEqual(runtime.context_value.calls, 1)
         contents = [
             _text(item.children[0].content)
             for item in translated.flow_items

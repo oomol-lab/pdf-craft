@@ -186,8 +186,10 @@ class TranslationWordProgressTests(unittest.IsolatedAsyncioTestCase):
             return 'not XML' if len(attempts) == 1 else responses[-1]
         async def translated(_self, _text):
             return 'source text'
+        runtime = translator()
+        runtime._direct_fill_candidates = lambda hill_climbing, canonical: ()
         with patch.object(XMLTranslator, '_translate_text_async', translated), patch.object(XMLTranslator, '_request_and_submit_async', fill), patch.object(LLMContext, 'request', request):
-            await translator().translate_element(TranslationTask(fromstring('<body><p>source text</p></body>'),
+            await runtime.translate_element(TranslationTask(fromstring('<body><p>source text</p></body>'),
                 SubmitKind.REPLACE, None, item_kind=Item.CONTENT, item_id=1, word_count=2),
                 on_translation_event=events.append)
         self.assertEqual(len(attempts), 2)

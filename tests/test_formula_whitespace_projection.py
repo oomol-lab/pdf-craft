@@ -34,7 +34,7 @@ class FormulaProjectionTests(IsolatedAsyncioTestCase):
                 response = ('<xml><fragment id="1">取'
                             f'<expression id="2">{left}</expression>{between}'
                             f'<expression id="3">{right}</expression>。</fragment></xml>')
-                response = response.replace('甲', r'\(甲\)').replace('乙', r'\(乙\)')
+                response = response.replace('甲', r'<source-math key="s1">\(甲\)</source-math>').replace('乙', r'<source-math key="s2">\(乙\)</source-math>')
                 translator, runtime = _repairing_translator([response])
                 translator._translate_text_async = AsyncMock(return_value=r'取\(甲\) \(乙\)。')
                 target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
@@ -61,7 +61,7 @@ class FormulaProjectionTests(IsolatedAsyncioTestCase):
         ])])
         # Canonical math stays one reference even though the source has two IDs.
         response = ('<xml><fragment id="1">取<expression id="2"> '
-                    '<math-ref key="m1"/></expression>'
+                    r'\(<source-math key="s1">x =</source-math> <source-math key="s2">y</source-math>\)</expression>'
                     '<expression id="3"/>。</fragment></xml>')
         translator, runtime = _repairing_translator([response])
         translator._translate_text_async = AsyncMock(return_value=r'取 \(x = y\)。')
@@ -71,7 +71,7 @@ class FormulaProjectionTests(IsolatedAsyncioTestCase):
         assert isinstance(item, TextFlowItem)
         fragment = item.children[0]
         assert isinstance(fragment, SourceTextFragment)
-        self.assertEqual(fragment.content, ['取 ', _expression('x ='), _expression('y'), '。'])
+        self.assertEqual(fragment.content, ['取 ', _expression('x ='), ' ', _expression('y'), '。'])
         self.assertEqual(decode(fromstring(tostring(encode(target))), allow_legacy=False), target)
 
 

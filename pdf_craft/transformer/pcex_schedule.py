@@ -187,14 +187,8 @@ class PCEXSchedule:
                     kinds.remove(kind)
                     kinds.append(kind)
                     jobs.append(job)
-                from .group_requests import GroupRequests
-                from contextlib import nullcontext
-                group = GroupRequests(sum(job[1] == 'furniture' for job in jobs)) if self.shared_narrative else None
-                async def execute(job, group=group):
-                    with group.member() if group is not None and job[1] == 'furniture' else nullcontext():
-                        await self.execute(job)
                 for job in jobs:
-                    task = asyncio.create_task(fatal_error_boundary(execute)(job))
+                    task = asyncio.create_task(fatal_error_boundary(self.execute)(job))
                     task.add_done_callback(lambda _task: self.wake())
                     running.add(task)
                 if not self.headers_ready.is_set() and not await IO_DOMAIN.run(self.queue.pending, ('metadata', 'furniture')):

@@ -217,7 +217,7 @@ fill 使用同一单元边界；通用 XMLTranslator 和 mapper 不查找 PCEX �
 正文/脚注适配器按 TextFlowItem，资源适配器按 title/content/caption 或表格单元格分组；
 EPUB 保留原有 XML 分组及源 CFI。metadata/furniture 不需要公式投影，仍可直接使用 XMLTranslator。
 资源附近正文以只读提示上下文传入第一阶段，不是待翻译节点，也不进入 canonical 文本、
-持久化或词数统计。各单元独立取得完整译文和使用已有有限修复预算；不是新增质量重试层。
+持久化或词数统计。各组取得完整译文并使用一个有限的 XML fill 修复预算；不新增质量重试层。
 
 PCEX 公式适配器在分段前显式声明 inline_expr 的临时 inline display，MathML 适配器解析
 源 math 的 inline/block 默认值；还原后的段深度按完整父栈重新计算。因此普通 XML 提交器
@@ -235,8 +235,9 @@ fill 接收原始 XML、公式身份及原节点证据，负责译文与源公�
 翻译阶段的身份引用要求。最终仍经适配器执行结构验收、原子提交和临时标记清理。
 
 首阶段已取消 source-math 注解、身份验收与 JSON 输出要求。跨章节 group 的完整自由译文
-交给分配 fill 进行归属与公式语义绑定，再进行 XML fill；两个工程操作各自使用有限
-fill 预算，不重译。恒等内容的归属可确定性分配，实际请求统计包含分配开销。
+直接交给同组 XML fill，在一个回答中完成来源归属、公式身份与文字落位。只有这一个
+有限工程 Loop，按整组全文、结构与身份验收后原子采用，不重译、不叠加独立分配模型。
+公式按 ID 对应；打平归一后相等才恢复源 LaTeX，否则保留译文值。
 运行时重构本身不构成 PCEX 持久化变更；若改变持久化字段语义，仍须升级版本并迁移。
 
 付费公式回归入口是 `python -m pdf_craft_tool.smoke.fill_formula_loop --output NEW-DIRECTORY`。

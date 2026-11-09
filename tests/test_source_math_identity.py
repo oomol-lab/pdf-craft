@@ -46,7 +46,7 @@ class SourceMathIdentityTests(IsolatedAsyncioTestCase):
 
     async def test_free_formula_translation_has_no_identity_instructions(self):
         translator, runtime = _repairing_translator([
-            '<xml><fragment id="1">值 <expression><math-ref key="m1"/></expression>。</fragment></xml>'])
+            '<xml><fragment id="1">值 <expression><source-math key="s1"><math-ref key="m1"/></source-math></expression>。</fragment></xml>'])
         calls = provider(translator, [r'值 \(x=1\)。'])
         source = chapter(['Value ', expression('x=1'), '.'])
         target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)

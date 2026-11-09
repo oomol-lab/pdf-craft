@@ -194,6 +194,9 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
         async def mappings(_translator, inline_segments, **_kwargs):
             result = []
             for segment in inline_segments:
+                if segment._translation_context:
+                    result.append(None)
+                    continue
                 text = ''.join(item.text for item in segment)
                 produced.append(text)
                 translated = Element('p')

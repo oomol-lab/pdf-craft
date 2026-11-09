@@ -1,54 +1,35 @@
-# Service #364: offline translation allocation regression
+# Service #364: offline single XML fill regression
 
-This regression makes no model, OCR or paid smoke calls. The HTTP model boundary
-is replaced; grouping, bounded repair, allocation, XML fill, identity checks and
-format projection execute normally.
-
-Run from the checked-out implementation branch with its Python dependencies:
+The model transport is replaced. Actual grouping, the single bounded XML fill
+Loop, full-text/identity checks, format projection and adoption run normally.
+No model, OCR or paid smoke calls occur in these commands:
 
 ```sh
-python -m pytest -q tests/test_elastic_formula_restore.py tests/test_allocation_boundaries.py tests/test_online_formula_allocation.py tests/test_free_translation.py
+python -m pytest -q tests/test_elastic_formula_restore.py tests/test_online_formula_allocation.py tests/test_single_xml_fill.py
 PDF_CRAFT_SERVICE_364_FIXTURES=/Users/taozeyu/Downloads/pdfcraft-review-fixtures/service-364-allocation-20261109 python -m pytest -q tests/test_service_364_replay.py
 ```
 
-The second command requires the retained private ZIP files. Without that explicit
-environment variable those private tests are skipped; a skipped run is not proof
-of the original-case gate. The directory and failure log IDs are recorded in the
-test. No original book text or model logs are committed to the repository.
+The private command requires the retained original ZIP archives. Without that
+explicit environment variable the private tests skip; skipping does not prove
+the original-case gate. No book text or original logs enter Git.
 
-The medical regression reuses the recorded 20-unit source group and unchanged
-Chinese translation. Its first saved response is missing formula IDs; its saved
-11th response supplies correspondence but includes changed numeric contents and
-omits redundant unique-span contexts. It must finish within the existing budget,
-with one artist request and two engineering requests. The final amount is formula
-`40` plus ordinary prose `亿`, not `4亿`; all four formulas in that paragraph survive.
-A separate local replay also exercises the original unit 8 through model XML fill.
+The medical replay reconstructs the original 20-unit source group and unchanged
+Chinese artist response. Retained correspondence evidence supplies the offline
+XML oracle. The substitute first returns XML with an unknown formula ID, then
+complete XML. Production validates both through one engineering Loop. Exactly
+one artist request and two XML requests are expected. Unit 8 ends with formula
+40 followed by ordinary prose 亿, preserving all four source identities.
+The individual unit also runs independently through the XML production path.
 
-The four EPUB groups contain 61, 63, 60 and 62 units. Each saved response is malformed
-JSON and remains rejected. The provider substitute first returns that response,
-then a compact boundary allocation. The reference boundaries use complete objects
-from the saved prefix and manually checked final source/translation paragraphs;
-this reference preparation is not a production JSON repair algorithm. Each group
-must use one artist request and two engineering requests, preserve every owner and
-all translated text under the existing document-whitespace rules, and successfully
-complete actual XML fill/adoption. End anchors are never used to infer source IDs.
+Four EPUB groups contain 61, 63, 60 and 62 source units. Complete objects from the
+old saved response and manually checked final paragraphs supply reference text
+ownership. This evidence is converted to XML in the test, never accepted as a
+production JSON protocol. One malformed XML ID then complete XML exercises the
+same bounded Loop. Each group must preserve every source and all artist text,
+using one artist request and two XML requests. There are no end/after locators.
 
-Recorded response character sizes versus compact reference responses (including
-following-word context, so whitespace normalization cannot confuse repeated headings):
-
-| Units | Saved incomplete response | Compact complete response |
-| --- | ---: | ---: |
-| 61 | 20,312 | 7,205 |
-| 63 | 20,016 | 7,404 |
-| 60 | 20,044 | 7,075 |
-| 62 | 20,299 | 7,262 |
-
-This proves offline recovery behavior and reduces the required output size. The
-archives do not record provider finish reasons, so these tests do not establish
-that a particular provider token limit caused the original truncation, nor do
-they measure new live-model reliability.
-
-The normal tests additionally cover unchanged percentage notation restoration,
-changed numeric values, failed LaTeX conversion, exact residual boundaries,
-formula reordering, missing/duplicate/unknown source IDs, ambiguous locators,
-ambiguous or incomplete allocation boundaries, and repeated headings/passages.
+Public reduced tests cover value changes, 4 billion to 40亿, unchanged percentage
+restoration, failed LaTeX flattening, additional artist math, exact residual
+boundaries, reordered =1/=0, same-valued distinct source identities, missing/
+duplicate/unknown IDs, word differences and complete final XML reading order.
+They do not establish live-model reliability; paid smoke is a separate gate.

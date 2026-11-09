@@ -1,0 +1,13 @@
+EXCESSIVE COPIES IN YOUR XML (do not alternate between omitting an identity and copying a whole formula):
+{% for row in rows %}
+Artist value {{ row.value }} occurs {{ row.expected }} time(s), but your math-ref annotations copy it {{ row.copies|length }} times:
+{% for key, block, identities in row.copies %}- XML block {{ block }}, math-ref {{ key }}, your source identities {{ identities|join(' ') }}
+{% endfor %}
+Keep the artist value only as many times as it actually occurs. Your own assignments currently attach {{ row.source_keys }} to these copies.
+If those source identities represent successive components of ONE merged artist formula, express that joint assignment on ONE occurrence:
+<source-math keys="{{ row.source_keys }}"><math-ref key="{{ row.reference }}"/></source-math>
+Keep the other required expression formatting containers EMPTY, for example <expression id="the-required-id"/>. Do not omit them.
+Alternatively use adjacent single-key annotations around the exact literal subparts INSIDE the original one pair of delimiters.
+The ordered identities remain YOUR semantic decision. Use the shown joint form only if those identities really are components in that order; otherwise correct their semantic spans.
+Do not just delete an identity or duplicate this entire value again. Return the complete corrected XML using the SAME artist translation.
+{% endfor %}

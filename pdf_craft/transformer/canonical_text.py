@@ -1,10 +1,11 @@
 """Recover known canonical whitespace only when its slot ownership is unique."""
 from collections import defaultdict
+from difflib import SequenceMatcher
 import unicodedata
 from typing import NamedTuple
 from xml.etree.ElementTree import Element
 
-from ..common.whitespace import is_whitespace
+from ..common.whitespace import is_whitespace, normalize_whitespace
 from .whitespace import WhiteSpace, collapses_breaks, mode_for, normalize
 from .xml_translator.xml.matching import element_id, match_children
 
@@ -46,7 +47,10 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
                                  sources: list[Element] | None = None,
                                  modes: list[WhiteSpace] | None = None, *,
                                  replaced_tags: frozenset[str] = frozenset(),
-                                 join_roots: bool = False) -> bool:
+                                 join_roots: bool = False,
+                                 transparent_tags: frozenset[str] = frozenset(),
+                                 formatting_tags: frozenset[str] = frozenset(),
+                                 virtual_roots: frozenset[Element] = frozenset()) -> bool:
     """Align unchanged characters, then reconstruct legal gaps transactionally.
 
     Non-whitespace characters remain immutable. Normal prose collapses Unicode
@@ -69,8 +73,10 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
 
     def walk(element, source, inherited, path):
         start = offset
-        mode = mode_for(source if source is not None else element, inherited)
-        field(element, 'text', path, mode, source.text if source is not None else '')
+        mode = (inherited if element.tag in formatting_tags else
+                mode_for(source if source is not None else element, inherited))
+        field_source = source if element.tag not in formatting_tags else None
+        field(element, 'text', path, mode, field_source.text if field_source is not None else '')
         originals = {} if source is None else {
             id(child): original for original, child in match_children(
                 ((node.tag, element_id(node), node) for node in source), element,
@@ -80,7 +86,7 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             original = originals.get(id(child))
             # A provided source is authoritative. A missing match must never
             # let model-supplied attributes override its preservation context.
-            if source is not None and original is None:
+            if source is not None and original is None and child.tag not in transparent_tags:
                 return False
             if not walk(child, original, mode, path + [child]):
                 return False
@@ -154,6 +160,22 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             candidate = root_boundaries[position]
             if all(collapses_breaks(fields[i].mode) for i in candidates):
                 target = candidate
+        if target is None and formatting_tags and position in replacement_boundaries and candidates:
+            # Temporary expression containers disappear during typed projection.
+            # Several gap fields can therefore be the SAME final text position.
+            # Preserve genuine rich-inline/code ownership distinctions.
+            paths = {tuple(id(node) for node in fields[i].path if node.tag not in formatting_tags)
+                     for i in candidates}
+            if len(paths) == 1:
+                target = (surviving or owners or candidates)[0]
+                relevant = [target]
+        virtual = [i for i in candidates if fields[i].path[0] in virtual_roots]
+        if virtual and all(collapses_breaks(fields[i].mode) for i in candidates):
+            # Paragraph separators are rendered by the document structure.
+            # Keep their ordinary gap outside persisted owners, rather than
+            # adding trailing spaces to a reference mark or neighboring note.
+            target = virtual[0]
+            relevant = [target]
         protected_modes = {fields[i].mode for i in relevant if not collapses_breaks(fields[i].mode)}
         mode = next(iter(protected_modes)) if len(protected_modes) == 1 else WhiteSpace.PRE
         protected = bool(protected_modes)
@@ -214,3 +236,82 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
     for f, value in zip(fields, values):
         setattr(f.element, f.attribute, value or None)
     return True
+
+
+def canonical_difference(canonical: str, blocks: list[Element]) -> str:
+    """Bounded actionable XML fill diagnostics, without judging the artist."""
+    visible = lambda value: ''.join(char for char in value if not is_whitespace(char))
+    expected = visible(unicodedata.normalize('NFD', canonical))
+    texts = [visible(unicodedata.normalize('NFD', ''.join(block.itertext()))) for block in blocks]
+    actual = ''.join(texts)
+    edits = [op for op in SequenceMatcher(None, expected, actual, autojunk=False).get_opcodes()
+             if op[0] != 'equal']
+    missing = sum(right-left for _, left, right, _, _ in edits)
+    added = sum(right-left for _, _, _, left, right in edits)
+    if edits:
+        prefix = next((index for index, pair in enumerate(zip(expected, actual)) if pair[0] != pair[1]), min(len(expected), len(actual)))
+        locations = _diagnostic_locations(blocks, prefix, min(prefix+1, len(actual)))
+        detail = (f' First differing character at translation/XML non-whitespace offset {prefix}.'
+                  f' Expected from here {expected[prefix:prefix+180]!r}.'
+                  f' Received from here {actual[prefix:prefix+180]!r}.'
+                  f' Candidate fields: {"; ".join(locations[:6])}.')
+        # Include actual edit spans, not just an ambiguous context excerpt.
+        # These are diagnostics only: the XML engineer decides ownership and
+        # identity; no diff is automatically applied to the accepted candidate.
+        for operation, left, right, start, end in edits[:10]:
+            locations = _diagnostic_locations(blocks, start, end)
+            detail += (f' Edit {operation} at XML [{start}:{end}] / translation [{left}:{right}]: '
+                       f'expected={expected[left:right][:140]!r}, received={actual[start:end][:140]!r}; '
+                       f'fields={"; ".join(locations[:3])}.')
+        if len(edits) > 10:
+            detail += f' {len(edits)-10} additional edit spans remain; preserve the entire original artist text.'
+    else:
+        old = normalize_whitespace(unicodedata.normalize('NFD', canonical), trim=True)
+        new = normalize_whitespace(unicodedata.normalize('NFD', ''.join(''.join(block.itertext()) for block in blocks)), trim=True)
+        expected_gaps, actual_gaps = _gaps(old), _gaps(new)
+        positions = sorted(position for position in expected_gaps.keys() | actual_gaps.keys()
+                           if expected_gaps[position] != actual_gaps[position])
+        if positions:
+            position = positions[0]
+            cursor, locations = 0, []
+            def fields(node):
+                yield node, 'text', node.text or ''
+                for child in node:
+                    yield from fields(child)
+                    yield child, 'tail', child.tail or ''
+            for block in blocks:
+                for node, field, value in fields(block):
+                    end = cursor + len(visible(unicodedata.normalize('NFD', value)))
+                    if cursor <= position <= end:
+                        locations.append(f'block {block.get("id", "separator")}: <{node.tag} id={node.get("id", "none")}>.{field}={value[:90]!r}')
+                    cursor = end
+            detail = (f' Whitespace difference at non-whitespace offset {position}: '
+                      f'expected gap {expected_gaps[position]!r}, received {actual_gaps[position]!r}.'
+                      f' Text near boundary: {expected[max(0, position-60):position]!r} | {expected[position:position+90]!r}.'
+                      f' Candidate fields: {"; ".join(locations[:8])}.'
+                      ' Put the gap explicitly in the correct surrounding text/tail, outside empty reference or anchor tags.')
+        else:
+            detail = ' Characters match, but whitespace ownership or protected code/TeX gaps are ambiguous. Preserve protected gaps and keep visible spaces outside empty structural tokens.'
+    return ('Visible text differs from the canonical translation after whitespace normalization.'
+            f' Missing {missing}, added {added} non-whitespace characters.'
+            + detail + ' Fill the complete XML from the same original translation; do not rewrite it.')
+
+
+def _diagnostic_locations(blocks, start, finish):
+    """Bounded XML field provenance for flattened non-whitespace edit positions."""
+    cursor, locations = 0, []
+    def walk(node, path):
+        yield node, 'text', node.text or '', path
+        for child in node:
+            yield from walk(child, path + [child])
+            yield child, 'tail', child.tail or '', path
+    for block in blocks:
+        for node, attribute, value, path in walk(block, [block]):
+            length = sum(not is_whitespace(char) for char in unicodedata.normalize('NFD', value))
+            end = cursor+length
+            if length and ((cursor <= start <= end) if start == finish else cursor < finish and start < end):
+                identities = [part.get('keys', part.get('key')) for part in path if part.tag == 'source-math']
+                locations.append(f'XML block id={block.get("id", "separator")}: '
+                                 f'<{node.tag} id={node.get("id", "none")} keys={identities}>.{attribute}={value[:180]!r}')
+            cursor = end
+    return locations

@@ -41,7 +41,7 @@ def mode_for(element: Element, inherited: WhiteSpace = WhiteSpace.NORMAL) -> Whi
     an additional lossless XML contract, not an assertion about CSS precedence.
     Unsupported explicit modes are conservatively preserved.
     """
-    if element.tag in ('expression', 'inline_expr', 'math'):
+    if element.tag in ('expression', 'inline_expr', 'math', 'source-math'):
         return WhiteSpace.PRE  # TeX/MathML payload is syntax, not ordinary prose.
     if element.get('{http://www.w3.org/XML/1998/namespace}space', element.get('xml:space')) == 'preserve':
         return WhiteSpace.PRE

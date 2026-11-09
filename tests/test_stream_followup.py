@@ -159,6 +159,9 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
         async def mappings(_translator, inline_segments, **_kwargs):
             results = []
             for segment in inline_segments:
+                if segment._translation_context:
+                    results.append(None)
+                    continue
                 if any(part.text == 'Second.' for part in segment):
                     await release.wait()
                 target = segment.create_element()
@@ -170,7 +173,7 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
                 results.append((segment.parent, list(search_text_segments(segment.assign_attributes(target)))))
             return results
         llm = LLM('unused', 'https://example.invalid', 'unused', 'o200k_base')
-        translator = XMLTranslator(llm, llm, 'zh', None,   5, 500,
+        translator = XMLTranslator(llm, llm, 'zh', None,   5, 25,
                                   executor=ConcurrentExecutor(FixedCapacity(2)), retry_policy=RetryPolicy(fill=max(0, (2) - 1)))
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

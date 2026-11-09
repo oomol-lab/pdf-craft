@@ -15,7 +15,6 @@ from pdf_craft.extractor.chapter.asset_text import translatable_asset
 from pdf_craft.extractor.chapter.chapter import Chapter, InlineExpression, SourceAsset, StandaloneAsset, encode
 from pdf_craft.extractor.chapter.jointer import Jointer
 from pdf_craft.pdf import PageLayout
-from pdf_craft.llm.runtime import LLMContext
 from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
 from tests.extraction_helpers import make_extraction
 from tests.test_structured_translation import offline_translator
@@ -76,7 +75,7 @@ class ImageDescriptionOutputTests(IsolatedAsyncioTestCase):
             async def no_network(*_args, **_kwargs):
                 raise AssertionError('Offline test attempted model access')
             craft = AsyncPDFCraft()
-            with patch.object(LLMContext, 'request', no_network):
+            with patch('pdf_craft.llm.runtime.LLMRuntime._invoke_async', no_network):
                 target = await craft.translate_extraction(source, root / 'translated.pcex', offline_translator(),
                     translation_id='caption-main', target_language='zh-CN', error_policy=False)
             # Reopen persisted PCEX and select its actual replacement layer.

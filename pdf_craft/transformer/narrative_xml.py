@@ -312,8 +312,8 @@ class NarrativeXMLTransformer:
         ) -> list[ImmutableBlockElement]:
             if not inline_segments:
                 return []
-            anchors = anchors_by_root[id(inline_segments[0].head.root)]
-            return anchors.immutable_elements_for_inline_segments(inline_segments)
+            return [token for root in dict.fromkeys(id(segment.head.root) for segment in inline_segments)
+                    for token in anchors_by_root[root].immutable_elements_for_inline_segments(inline_segments)]
 
         async_translator = cast(AsyncXMLBatchTranslator, self._translator)
         translated = await protocol.translate_many(
@@ -368,7 +368,8 @@ class NarrativeXMLTransformer:
         def immutable(segments):
             if not segments:
                 return []
-            return anchors_by_root[id(segments[0].head.root)].immutable_elements_for_inline_segments(segments)
+            return [token for root in dict.fromkeys(id(segment.head.root) for segment in segments)
+                    for token in anchors_by_root[root].immutable_elements_for_inline_segments(segments)]
 
         async def result(value):
             element, task = value

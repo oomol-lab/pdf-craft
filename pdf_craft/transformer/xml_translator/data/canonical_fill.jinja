@@ -1,27 +1,79 @@
-The supplied translated text is a friendly XML <translation> payload. Read its
-text after XML entity decoding; the wrapper and its xml:space attribute are
-transport only, not tags to add to the output template. Its math-ref children
-are the explicitly defined engineering references, not literal prose.
+The translated text is a friendly XML <translation> payload. Read its text after
+entity decoding. Its math-ref children reference the exact artist mathematics;
+the wrapper is transport only. Fill the COMPLETE group in one <xml> response.
+
+Flattening all output blocks in their translated reading order must reproduce
+the complete artist response after ordinary whitespace normalization. Never
+rewrite, summarize, translate again or omit text. Every required block and
+formatting ID must occur exactly once. IDs select source ownership; do not
+assign by array position. Keep required empty formatting slots when necessary.
+
+{% if require_nonempty_units %}
+DELIVERY CONSTRAINT: every nonempty source block needs its own translated content.
+Do not put the whole group translation in one section and leave other nonempty
+source sections empty. These sections may be PHYSICAL LINE FRAGMENTS, not
+sentences: a translated sentence may span several adjacent sections. Split its
+existing text across them. For example, if the artist writes "a final phrase",
+use <section id="11">a final</section><section id="12"> phrase</section> rather
+than putting everything in 11 and leaving 12 empty. Move text, never duplicate
+it or add words. Empty inner formatting tags remain permitted.
+{% endif %}
+
+{% if has_source_math %}
+Source formula identities are independent of formatting expression slots.
+For EVERY key in source-formulas, wrap its corresponding translated span in
+<source-math key="sN">exact translated content</source-math> exactly once.
+This tag is an allowed engineering annotation inside an existing text slot;
+it is removed before structural adoption, retaining any existing formatting
+nodes it wraps. Source-math annotations must never overlap or nest inside each
+other. It may contain one math-ref or exact literal text, including existing
+expression formatting. It does not replace or create a
+required expression slot. Keep required expression slots (empty when needed).
+Choose the identity by semantic meaning, not source order or physical slot.
+If two source formulas have identical values, their keys still differ.
+A translated formula may change: source 4 followed by billion can correspond
+to <source-math key="s1">40</source-math>亿. Only 40 belongs to that source key.
+Never substitute the source value for a changed translation. The caller restores
+original LaTeX only when flattened source and translated values agree.
+Additional artist mathematics remains literal without inventing a source key.
+Keep code and mathematical whitespace exact; the caller normalizes ordinary
+Unicode spaces and padding and recovers unambiguous word boundaries.
+
+{% else %}
+No source formula identities exist in this group. Do NOT add source-math tags
+or invent sN keys for ordinary numbers or mathematical text. Fill the artist
+text directly into the required document structure.
+{% endif %}
+
+formula_context is read-only display-equation background. Keep its required tags
+but leave all its text and children empty; it is not part of the artist translation.
+Source expression slots are NOT independent mathematical boundaries. A complete
+artist formula can contain several source-math annotations for its component
+identities. Keep delimiters outside those component annotations; assign every
+source identity once without swallowing additional artist content.
 
 
+{% if has_source_math %}
+MERGED FORMULAS (important): source identities and artist math references have
+DIFFERENT purposes. One artist formula can cover several source identities.
+Example source s1 is \(x=\), source s2 is \(y\), artist m1 is \(x=y\).
+For unchanged merged mathematics, the simplest answer is:
+<expression id="2"><source-math keys="s1 s2"><math-ref key="m1"/></source-math></expression><expression id="3"/>
+The ordered keys are YOUR semantic assignment, not an inference by the caller.
+The caller can split only an unchanged, unambiguous syntax concatenation. For
+changed merged values use the explicit individual annotations shown below.
+Do NOT duplicate m1 for both s1 and s2. Do NOT omit s2. Do NOT write two new
+pairs of delimiters. Instead copy the artist's single formula literally:
+<expression id="2">\(<source-math key="s1">x=</source-math><source-math key="s2">y</source-math>\)</expression><expression id="3"/>
+The required expression containers are formatting; an empty one is valid.
+This keeps the ONE artist formula and both source identities exactly once.
+If a formula is split across existing expression tags, its single source-math
+annotation may wrap those tags, provided no other source identity is inside it.
 
-Canonical visible-text constraint: For this translation unit, concatenating all visible
-text in its source slots must reproduce the corresponding canonical translation above
-after the caller's shared whitespace normalization and unambiguous recovery. Preserve
-words and punctuation; ordinary Unicode spaces and invisible padding are normalized
-by the caller. Explicitly preserved code and mathematical payloads retain their whitespace. <anchor .../> nodes are zero-width structural tokens: do not add a space
-or any character on either side of one. Inline <expression> nodes are ordinary text
-slots like <span>: fill them with the corresponding canonical translated text. Their IDs identify
-allocation containers, not the mathematical values placed in those containers.
-The read-only math table has already been bound to original source formula
-identities. The caller restores original notation when flattened values agree, otherwise
-retains the translated formula content at its bound canonical position; do not rewrite a value or substitute the formula of an allocation slot.
-If a required inline <expression> has no corresponding
-characters in the canonical translation, keep that expression tag and its exact ID with
-empty contents at its corresponding position (for example <expression id="5"/>). Do not
-append source formula text to make the slot nonempty. Preserve all required tags and IDs. The number of
-canonical math references may differ from the number of source expression slots. NEVER
-invent an expression tag or ID to house an extra reference. Several references and
-intervening text may occupy ONE existing expression slot; a reference may also appear
-directly in ordinary text. Preserve the exact template IDs and their owning blocks.
-Empty existing expression slots are permitted.
+{% endif %}
+
+On feedback, edit the named block/key and return the ENTIRE corrected XML.
+Preserve every other block and every word from the original translation.
+For a missing word gap next to an empty ref, put the space explicitly in its
+surrounding text or tail; an empty ref itself must remain empty. For example,
+"frame). From" can be represented by "frame).<ref/> From", not "frame).<ref/>From".
