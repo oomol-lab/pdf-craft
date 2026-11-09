@@ -1,27 +1,44 @@
 """Lossless engineering partitions inside an artist mathematical occurrence."""
-import unicodedata
+import re
+from dataclasses import replace
 from typing import cast
 
-from .canonical_projection import SourceMath, formula_content
+from ..formula.plain_text import try_latex_to_plain_text
+from .whitespace import normalize
+
+from .canonical_projection import SourceMath, MathProse, formula_content
 
 
-def _compact(text):
-    return ''.join(c for c in unicodedata.normalize('NFD', text) if c not in ' \t\r\n')
+def _literal_percent(text: str) -> str:
+    # Plain translated percentages are literal text, not TeX comments.
+    return re.sub(r'(?<!\\)%', r'\\%', text)
 
 
-def partition_math(original: str, sources: list[SourceMath], parts: object, *, require_parts: bool = True) -> list[SourceMath | str]:
-    """Check explicit span ownership after semantic source IDs are chosen.
+def _unchanged(source: str, translated: str) -> bool:
+    # A flattened percentage sign is literal, not a TeX comment. Do not erase
+    # internal whitespace or punctuation to manufacture a successful match.
+    old = try_latex_to_plain_text(_literal_percent(source))
+    new = try_latex_to_plain_text(_literal_percent(translated))
+    return (old is not None and new is not None and bool(normalize(old, trim=True))
+            and normalize(old, trim=True) == normalize(new, trim=True))
 
-    This never chooses an identity by string similarity. A literal containment
-    check only detects an oversized replacement that would erase a residual.
+
+def _unchanged_group(sources: list[SourceMath], translated: str) -> bool:
+    contents = [formula_content(source.latex)[0] for source in sources]
+    # A separator at an explicit boundary between source identities is not
+    # whitespace inside either formula. Retain the existing merged-node path.
+    return any(_unchanged(separator.join(contents), translated) for separator in ('', ' '))
+
+
+def partition_math(original: str, sources: list[SourceMath], parts: object, *, residual_math: bool = True) -> list[SourceMath | str | MathProse]:
+    """Check span ownership, then restore source notation only for equal flattened text.
+
+    Comparison never selects identities or vetoes a changed translated value.
     """
     content, inline = formula_content(original)
     if parts is None:
-        source_text = ''.join(formula_content(source.latex)[0] for source in sources)
-        if require_parts and _compact(content) != _compact(source_text):
-            raise ValueError(f'Mathematical occurrence {content!r} differs from source-node contents {source_text!r}. '
-                             'Supply explicit parts to distinguish source-owned spans from residual artist text; '
-                             'retain all content outside those spans.')
+        if len(sources) > 1 and not _unchanged_group(sources, content):
+            raise ValueError('Supply explicit parts for multiple source identities so their translated boundaries are known.')
         parts = [dict(text=content, keys=list(range(len(sources))))]
     if not isinstance(parts, list) or not parts:
         raise ValueError('Math parts must be a nonempty complete partition.')
@@ -38,21 +55,24 @@ def partition_math(original: str, sources: list[SourceMath], parts: object, *, r
             raise ValueError('Invalid source identities in mathematical parts.')
         seen.extend(indexes)
         if indexes:
-            if len(indexes) > 1 and _compact(part['text']) != ''.join(
-                    _compact(formula_content(sources[index].latex)[0]) for index in indexes):
-                raise ValueError('Partition a changed combined occurrence into individual source-owned and residual parts.')
             selected = [sources[index] for index in indexes]
-            source_text = ''.join(formula_content(source.latex)[0] for source in selected)
-            small, large = _compact(source_text), _compact(part['text'])
-            if small and small != large and small in large:
-                raise ValueError(f'Replacement span {part["text"]!r} contains source content {source_text!r} plus residual characters. '
-                                 'Use parts to bind only its source-owned span and preserve the remaining text as parts without keys.')
-            bound.extend(selected)
+            if len(selected) > 1:
+                if not _unchanged_group(selected, part['text']):
+                    raise ValueError('Partition multiple source identities into individual translated parts.')
+                bound.extend(selected)
+            else:
+                source = selected[0]
+                source_text = formula_content(source.latex)[0]
+                unchanged = _unchanged(source_text, part['text'])
+                opening, closing = ('\\(', '\\)') if inline else ('\\[', '\\]')
+                bound.append(source if unchanged else replace(
+                    source, translated_latex=opening + _literal_percent(part['text']) + closing))
         else:
             # Preserve artist math as ordinary canonical text, with mathematical
             # delimiters retained for downstream renderers; invent no rich node.
             opening, closing = ('\\(', '\\)') if inline else ('\\[', '\\]')
-            bound.append(opening + part['text'] + closing if part['text'].strip(' \t\r\n') else part['text'])
+            bound.append((opening + part['text'] + closing if part['text'].strip(' \t\r\n') else part['text'])
+                         if residual_math else MathProse(part['text']))
     if sorted(seen) != list(range(len(sources))):
         raise ValueError('Each selected source identity must occur exactly once in mathematical parts.')
     return bound

@@ -1,5 +1,5 @@
 """Engineering source formula evidence; never a translation output protocol."""
-from .canonical_projection import SourceMath
+from .canonical_projection import SourceMath, MathProse
 from .xml_translator.segment import TextSegment
 
 
@@ -13,7 +13,7 @@ class SourceMathTranslation:
         self.values = {f's{index}': source for index, source in enumerate(self.sources, 1)}
         self.evidence = {}
         self.allocated = False
-        self.bindings: list[list[SourceMath | str]] = []
+        self.bindings: list[list[SourceMath | str | MathProse]] = []
 
     def readable(self, segment: TextSegment) -> str:
         """Present original mathematical text without exposing engineering IDs."""

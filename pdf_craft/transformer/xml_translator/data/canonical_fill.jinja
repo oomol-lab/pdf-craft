@@ -9,8 +9,8 @@ or any character on either side of one. Inline <expression> nodes are ordinary t
 slots like <span>: fill them with the corresponding canonical translated text. Their IDs identify
 allocation containers, not the mathematical values placed in those containers.
 The read-only math table has already been bound to original source formula
-identities. The caller restores those exact original nodes at the canonical
-positions; do not rewrite a value or substitute the formula of an allocation slot.
+identities. The caller restores original notation when flattened values agree, otherwise
+retains the translated formula content at its bound canonical position; do not rewrite a value or substitute the formula of an allocation slot.
 If a required inline <expression> has no corresponding
 characters in the canonical translation, keep that expression tag and its exact ID with
 empty contents at its corresponding position (for example <expression id="5"/>). Do not
