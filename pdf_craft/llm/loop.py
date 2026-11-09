@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pdf_craft.common.whitespace import normalize_whitespace
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -96,7 +97,7 @@ async def _run(options: RepairLoopOptions[T, S], log: FailureLog) -> T:
             last_response = response
             result = (
                 await options.protocol.empty(state, attempt, attempts)
-                if not response.strip()
+                if not normalize_whitespace(response, trim=True)
                 else await options.protocol.validate(response, state, attempt, attempts)
             )
             await log.validated(response, result)

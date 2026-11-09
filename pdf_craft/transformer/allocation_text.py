@@ -5,7 +5,7 @@ from xml.etree.ElementTree import Element, SubElement
 
 from .canonical_math import CanonicalMath
 from .canonical_text import restore_canonical_whitespace
-from .whitespace import DOCUMENT_SPACE
+from ..common.whitespace import is_whitespace
 
 
 def formula_occurrences(text, value):
@@ -64,7 +64,7 @@ def recover_allocation_text(units, calls, raw):
 
 def allocation_difference(units, raw):
     """Bounded, actionable diagnostics; never a translation-quality verdict."""
-    visible = lambda value: ''.join(char for char in value if char not in DOCUMENT_SPACE)
+    visible = lambda value: ''.join(char for char in value if not is_whitespace(char))
     expected = visible(raw)
     texts = [visible(unit['text']) for unit in units]
     actual = ''.join(texts)
@@ -83,7 +83,7 @@ def allocation_difference(units, raw):
                 break
             offset += len(text)
         def context(value, begin, finish):
-            positions = [i for i, char in enumerate(value) if char not in DOCUMENT_SPACE] + [len(value)]
+            positions = [i for i, char in enumerate(value) if not is_whitespace(char)] + [len(value)]
             return value[positions[max(0, begin-40)]:positions[min(len(positions)-1, max(begin+80, min(finish, begin+500)))]]
         detail = (f' First difference near unit {owner}, non-whitespace translation offset {left}, allocation offset {start}.'
                   f' Expected context: {context(raw, left, right)!r}.'
@@ -93,7 +93,7 @@ def allocation_difference(units, raw):
     return ('Allocation must preserve the complete original translation, in order, without changing words.'
             f' Missing {missing}, added {added} non-whitespace characters.'
             f' Translation length={len(raw)}, allocated length={sum(len(unit["text"]) for unit in units)}.'
-            + detail + f' Empty unit ids: {[unit["id"] for unit in units if not unit["text"].strip(DOCUMENT_SPACE)]}.'
+            + detail + f' Empty unit ids: {[unit["id"] for unit in units if all(is_whitespace(char) for char in unit["text"])]}.'
             + f' Allocated unit lengths: {lengths}.')
 
 
@@ -115,7 +115,7 @@ def translated_math_targets(units, raw):
     import unicodedata
     def length(value):
         return len(''.join(char for char in unicodedata.normalize('NFD', value)
-                           if char not in DOCUMENT_SPACE))
+                           if not is_whitespace(char)))
     local, offset = {}, 0
     for unit in units:
         for match in CanonicalMath.matches(unit['text']):

@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft.usage import UsageCollector
 from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
@@ -99,4 +100,4 @@ def _merge_book_meta(extracted: BookMeta | None, explicit: BookMeta | None) -> B
 
 
 def _text_override(explicit: str | None, extracted: str | None) -> str | None:
-    return explicit if explicit is not None and explicit.strip() else extracted
+    return normalize_whitespace(explicit) if explicit is not None and normalize_whitespace(explicit, trim=True) else extracted

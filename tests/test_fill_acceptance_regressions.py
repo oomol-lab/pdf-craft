@@ -182,8 +182,8 @@ class FillAcceptanceRegressions(TestCase):
 
     def test_meaningful_differences_are_not_normalized_away(self):
         for canonical, actual in [('е', 'ё'), ('и', 'й'), ('e', 'é'), ('A', 'a'),
-                                  ('①', '1'), ('²', '2'), ('a\u00a0b', 'a b'),
-                                  ('a\u202fb', 'a b'), ('word.', 'word'), ('12', '13')]:
+                                  ('①', '1'), ('²', '2'), ('a\u200db', 'a b'),
+                                  ('a\u200cb', 'a b'), ('word.', 'word'), ('12', '13')]:
             with self.subTest(canonical=canonical):
                 with self.assertRaisesRegex(Exception, 'canonical translation'):
                     self.fill(canonical, f'<xml><fragment id="1">{actual}</fragment></xml>')

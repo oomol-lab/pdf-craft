@@ -1,5 +1,6 @@
 """Conservative paragraph evidence from visible horizontal single lines."""
 
+from pdf_craft.common.whitespace import normalize_whitespace, is_whitespace
 from unicodedata import east_asian_width
 from statistics import median
 from math import sqrt
@@ -55,7 +56,7 @@ def text_scale_estimate(text, bbox):
     for, but formulas/leading make this only a hint to the semantic reviewer.
     """
     units = sum(1 if east_asian_width(char) in {'W', 'F'} else .5
-                for char in text if not char.isspace())
+                for char in text if not is_whitespace(char))
     return round(sqrt(max(0, bbox[2]-bbox[0])*max(0, bbox[3]-bbox[1])/max(1, units)), 2)
 
 def printed_separator_boundary(before: TextFlowItem, after: TextFlowItem) -> bool:
@@ -73,7 +74,7 @@ def printed_separator_boundary(before: TextFlowItem, after: TextFlowItem) -> boo
         if not all(isinstance(item, str) for item in narrow.content):
             continue
         text = ''.join(item for item in narrow.content if isinstance(item, str))
-        symbols = ''.join(text.split())
+        symbols = normalize_whitespace(text).replace(' ', '')
         if not symbols or not (set(symbols) == {'*'} or symbols == '⁂'):
             continue
         x1, y1, x2, y2 = narrow.bbox

@@ -4,7 +4,8 @@ import unicodedata
 from typing import NamedTuple
 from xml.etree.ElementTree import Element
 
-from .whitespace import DOCUMENT_SPACE, WhiteSpace, collapses_breaks, mode_for, normalize
+from ..common.whitespace import is_whitespace
+from .whitespace import WhiteSpace, collapses_breaks, mode_for, normalize
 from .xml_translator.xml.matching import element_id, match_children
 
 
@@ -22,7 +23,7 @@ class _Field(NamedTuple):
 def _gaps(text):
     offset, gaps = 0, defaultdict(str)
     for char in text:
-        if char in DOCUMENT_SPACE:
+        if is_whitespace(char):
             gaps[offset] += char
         else:
             offset += 1
@@ -37,8 +38,8 @@ def _decompose_codepoints(text: str) -> str:
 
 def _source_owners(fields, position):
     return [f for f in fields if f.source and (
-        (position == f.start and f.source[:1] in DOCUMENT_SPACE)
-        or (position == f.end and f.source[-1:] in DOCUMENT_SPACE))]
+        (position == f.start and is_whitespace(f.source[0]))
+        or (position == f.end and is_whitespace(f.source[-1])))]
 
 
 def restore_canonical_whitespace(roots: list[Element], canonical: str,
@@ -48,7 +49,8 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
                                  join_roots: bool = False) -> bool:
     """Align unchanged characters, then reconstruct legal gaps transactionally.
 
-    Text, punctuation, NBSP and other Unicode separators remain immutable.
+    Non-whitespace characters remain immutable. Normal prose collapses Unicode
+    spaces and removes explicit padding; preserved code/TeX retains its gaps.
     Missing gaps inside one field are unique. At a tag/fragment boundary use
     the existing gap owner or a unique source owner. At boundaries of adapter-
     declared replacement nodes, only surviving fields can own the separator,
@@ -61,16 +63,7 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
     def field(element, attribute, path, mode, source):
         nonlocal offset
         text = normalize(getattr(element, attribute) or '', mode)
-        # Some EPUBs dedicate empty-looking inline slots to WORD JOINER.
-        # A fill model may copy that source-only padding after translation has
-        # omitted it. Keep the slot, but recover its empty canonical content.
-        # This is not Unicode equivalence: embedded/invented joiners, joiners
-        # requested by canonical text, and immutable formula payloads stay exact.
-        if (attribute == 'text' and not len(element) and source and text == source
-                and not source.strip('\u2060') and '\u2060' not in canonical
-                and not any(node.tag in replaced_tags for node in path)):
-            text = ''
-        end = offset + sum(char not in DOCUMENT_SPACE for char in text)
+        end = offset + sum(not is_whitespace(char) for char in text)
         fields.append(_Field(element, attribute, path, mode, source or '', text, offset, end))
         offset = end
 
@@ -107,7 +100,7 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             return False
     actual = ''.join(item.text for item in fields)
     canonical = canonical.replace('\r\n', '\n').replace('\r', '\n')
-    visible = lambda text: ''.join(c for c in text if c not in DOCUMENT_SPACE)
+    visible = lambda text: ''.join(c for c in text if not is_whitespace(c))
     if visible(actual) != visible(canonical):
         # Decompose without reordering source characters: whitespace may be
         # missing between marks, and that boundary must be restored first.
@@ -198,9 +191,9 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
                     if i == target:
                         result.append(expected)
                     inserted = True
-                if char not in DOCUMENT_SPACE or cursor != position:
+                if not is_whitespace(char) or cursor != position:
                     result.append(char)
-                if char not in DOCUMENT_SPACE:
+                if not is_whitespace(char):
                     cursor += 1
             if cursor == position and not inserted and i == target:
                 result.append(expected)

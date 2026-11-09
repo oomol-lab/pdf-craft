@@ -1,3 +1,4 @@
+from pdf_craft.common.whitespace import is_whitespace
 from .chapter import (
     Chapter, SourceAsset, SourceTextFragment, TextFlowItem,
     search_references_in_chapter,
@@ -119,7 +120,7 @@ def _search_near_char(chars: list[str], center: int, reverse: bool) -> str | Non
 
     for idx in indexes:
         char = chars[idx]
-        if char.isspace():
+        if is_whitespace(char):
             continue
         return char
     return None

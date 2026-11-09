@@ -1,0 +1,64 @@
+[
+  {
+    "failure_log_id": "49bb45cfb8a4471cafbf4699b2171194",
+    "template": "<xml>\n  <fragment data-orig-len=\"5\" id=\"1\">Dialectical Thinking: and</fragment>\n  <fragment data-orig-len=\"3\" id=\"2\">Writer wrote:</fragment>\n  <fragment data-orig-len=\"21\" id=\"3\">Emotion Mind: My husband doesn't find me attractive anyway. I deserve at least to eat what I want.</fragment>\n</xml>\n",
+    "canonical": "辩证思维：　　而\n\nWriter写道：\n\n情绪心智：反正我丈夫也不觉得我有吸引力。我至少应该有权吃我想吃的东西。",
+    "responses": [
+      "<xml>\n  <fragment data-orig-len=\"5\" id=\"1\">辩证思维：</fragment>\n  <fragment data-orig-len=\"3\" id=\"2\">而</fragment>\n  <fragment data-orig-len=\"21\" id=\"3\">Writer写道：情绪心智：反正我丈夫也不觉得我有吸引力。我至少应该有权吃我想吃的东西。</fragment>\n</xml>",
+      "<xml>\n  <fragment data-orig-len=\"5\" id=\"1\">辩证思维：　　</fragment>而\n\n<fragment data-orig-len=\"3\" id=\"2\">Writer写道：</fragment>\n\n<fragment data-orig-len=\"21\" id=\"3\">情绪心智：反正我丈夫也不觉得我有吸引力。我至少应该有权吃我想吃的东西。</fragment>\n</xml>"
+    ],
+    "source_location": {
+      "chapter": "chapter_71.xml",
+      "owner": "text role=body",
+      "page_indexes": [
+        120,
+        120,
+        120
+      ],
+      "source_orders": [
+        5,
+        6,
+        7
+      ]
+    },
+    "source_owner_xml": "<text role=\"body\">\n      <fragment page_index=\"120\" source_order=\"5\" bbox=\"392,1863,1714,2230\" fragment_id=\"5\" source_start=\"0\">Dialectical Thinking: and</fragment>\n      <fragment page_index=\"120\" source_order=\"6\" bbox=\"338,2301,540,2347\" fragment_id=\"6\" source_start=\"0\">Writer wrote:</fragment>\n      <fragment page_index=\"120\" source_order=\"7\" bbox=\"392,2381,1714,2492\" fragment_id=\"7\" source_start=\"0\">Emotion Mind: My husband doesn't find me attractive anyway. I deserve at least to eat what I want.</fragment>\n    </text>\n    ",
+    "page_sizes": {
+      "120": [
+        1875,
+        2848
+      ]
+    }
+  },
+  {
+    "failure_log_id": "6152bd617d7448efb7ea21fc0d5394a9",
+    "template": "<xml>\n  <fragment data-orig-len=\"4\" id=\"1\">Dialectical Thinking:</fragment>\n  <fragment data-orig-len=\"1\" id=\"2\">and</fragment>\n</xml>\n",
+    "canonical": "辩证思维：　　而",
+    "responses": [
+      "<xml>\n  <fragment data-orig-len=\"4\" id=\"1\">辩证思维：</fragment>\n  <fragment data-orig-len=\"1\" id=\"2\">而</fragment>\n</xml>",
+      "<xml>\n  <fragment data-orig-len=\"4\" id=\"1\">辩证思维：</fragment>\n  <fragment data-orig-len=\"1\" id=\"2\">　　</fragment>而\n</xml>"
+    ],
+    "source_location": {
+      "chapter": "chapter_72.xml",
+      "owner": "text role=body",
+      "page_indexes": [
+        122,
+        123
+      ],
+      "source_orders": [
+        6,
+        0
+      ]
+    },
+    "source_owner_xml": "<text role=\"body\">\n      <fragment page_index=\"122\" source_order=\"6\" bbox=\"338,2350,1725,2595\" fragment_id=\"6\" source_start=\"0\">Dialectical Thinking:</fragment>\n      <fragment page_index=\"123\" source_order=\"0\" bbox=\"219,190,1550,345\" fragment_id=\"0\" source_start=\"0\">and</fragment>\n    </text>\n    ",
+    "page_sizes": {
+      "122": [
+        1875,
+        2848
+      ],
+      "123": [
+        1824,
+        2874
+      ]
+    }
+  }
+]

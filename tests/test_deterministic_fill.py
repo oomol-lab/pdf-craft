@@ -3,6 +3,7 @@
 from unittest import IsolatedAsyncioTestCase
 from xml.etree.ElementTree import fromstring, tostring
 
+from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft import RetryPolicy, SubmitKind
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
@@ -35,7 +36,7 @@ class DeterministicFillTests(IsolatedAsyncioTestCase):
         result, _ = await StructuredTranslation().translate(
             translator, TranslationTask(fromstring('<body><p>Original prose.</p></body>'), SubmitKind.REPLACE, None),
             error_policy=False, retry_policy=RetryPolicy(translation=0, fill=0))
-        self.assertEqual(''.join(result.itertext()), canonical)
+        self.assertEqual(''.join(result.itertext()), normalize_whitespace(canonical, trim=True))
         self.assertEqual(len(calls), 1)
         self.assertEqual(runtime.context_value.calls, 0)
 
@@ -43,7 +44,7 @@ class DeterministicFillTests(IsolatedAsyncioTestCase):
         translator, runtime = _repairing_translator([], direct_fill=True)
         source = fromstring('<body><fragment>同じ文章。<em>強調。</em>\u00a0</fragment>'
                             '<fragment>繰り返し文章。繰り返し文章。</fragment></body>')
-        before = tostring(source)
+        before = tostring(source).replace(b'&#160;', b' ')
         result, _ = await StructuredTranslation(owner=lambda _segment: source).translate(
             translator, TranslationTask(source, SubmitKind.REPLACE, None),
             error_policy=False, retry_policy=RetryPolicy(translation=0, fill=0))
@@ -116,28 +117,17 @@ class DeterministicFillTests(IsolatedAsyncioTestCase):
         self.assertFalse(result.findall('.//span')[1].text)
         self.assertEqual(runtime.context_value.calls, 1)
 
-    def test_joiners_in_canonical_prose_or_without_source_padding_are_not_removed(self):
+    def test_padding_is_removed_but_actual_prose_changes_still_fail(self):
         from pdf_craft.transformer.canonical_text import restore_canonical_whitespace
-        for source, actual, canonical in (
-                ('source', 'a\u2060b', 'ab'),
-                ('source', '\u2060', ''),
-                ('a\u2060b', 'a\u2060b', 'ab'),
-                ('\u2060', '\u2060', 'changed'),
-                ('\u2060', '', '\u2060'),
-                ('\ufeff', '\ufeff', '')):
-            with self.subTest(source=source, actual=actual, canonical=canonical):
-                root, origin = fromstring('<span/>'), fromstring('<span/>')
-                root.text, origin.text = actual, source
-                before = tostring(root)
-                self.assertFalse(restore_canonical_whitespace([root], canonical, [origin]))
-                self.assertEqual(tostring(root), before)
-
-        root, origin = fromstring('<span/>'), fromstring('<span/>')
-        root.text = origin.text = '\u2060'
-        self.assertTrue(restore_canonical_whitespace([root], '\u2060', [origin]))
-        self.assertEqual(root.text, '\u2060')
-        self.assertFalse(restore_canonical_whitespace([root], '', [origin], replaced_tags=frozenset({'span'})))
-        self.assertEqual(root.text, '\u2060')
+        for actual, canonical in (('a\u2060b', 'ab'), ('\u2060', ''), ('', '\u2060'), ('\ufeff', '')):
+            root = fromstring('<span/>')
+            root.text = actual
+            self.assertTrue(restore_canonical_whitespace([root], canonical))
+            self.assertEqual(root.text or '', normalize_whitespace(canonical))
+        root = fromstring('<span>\u2060</span>')
+        before = tostring(root)
+        self.assertFalse(restore_canonical_whitespace([root], 'changed'))
+        self.assertEqual(tostring(root), before)
 
     async def test_nontext_unit_validator_does_not_adopt_untranslated_source(self):
         translator, runtime = _repairing_translator([

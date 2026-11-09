@@ -1,4 +1,5 @@
 """Capture page-wide source identity and reading positions before analysis."""
+from pdf_craft.common.whitespace import normalize_whitespace
 from copy import deepcopy
 
 from ...pdf import Page, PageLayout
@@ -73,7 +74,7 @@ def capture_sources(pages: list[Page]) -> dict[tuple[int, int], tuple[int, TextS
 
 def _is_empty_text_layout(layout: PageLayout) -> bool:
     """An empty text observation is evidence, not a paragraph separator."""
-    return layout.ref == "text" and not layout.text.strip()
+    return layout.ref == "text" and not normalize_whitespace(layout.text, trim=True)
 
 def _position(item):
     first = item.children[0] if isinstance(item, TextFlowItem) else item

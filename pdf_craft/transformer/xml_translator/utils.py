@@ -4,11 +4,6 @@ from typing import TypeVar
 K = TypeVar("K")
 T = TypeVar("T")
 
-from ..whitespace import normalize
-
-
-def normalize_whitespace(text: str) -> str:
-    return normalize(text)
 
 
 def is_the_same(elements: Iterable[T]) -> bool:

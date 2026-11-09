@@ -1,4 +1,4 @@
-import re
+from pdf_craft.common.whitespace import normalize_whitespace
 import unicodedata
 
 from ...language import is_latin_letter
@@ -365,7 +365,7 @@ def normalize_text(text: str) -> str:
     """
     扫描件中的文字杂乱，此方法尽可能规范化文字，以让相同语义的文字在字符串上也尽可能完全一致
     """
-    text = re.sub(r"\s+", " ", text).strip()
+    text = normalize_whitespace(text, trim=True)
     chars = _process_spaces_and_hyphens(text)
     return "".join(_remove_punctuation_and_normalize_latin(chars))
 

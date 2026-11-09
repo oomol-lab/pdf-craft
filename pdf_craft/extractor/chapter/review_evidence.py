@@ -1,4 +1,5 @@
 """Read-only candidate selection for body-only structural review."""
+from pdf_craft.common.whitespace import normalize_whitespace
 from collections.abc import Iterator
 from copy import deepcopy
 import re
@@ -9,7 +10,7 @@ from .review_questions import question
 
 def normalized(text):
     """Literal containment ignores ASCII layout whitespace, not punctuation."""
-    return re.sub(r'[ \t\r\n\f]+', ' ', text).strip()
+    return normalize_whitespace(text, trim=True)
 
 
 def previous_paragraph(state, check):

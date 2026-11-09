@@ -1,3 +1,4 @@
+import re
 from collections.abc import Generator, Iterable
 from typing import cast
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -6,7 +7,7 @@ from bs4 import BeautifulSoup
 from mathml2latex.mathml import process_mathml  # pyright: ignore[reportMissingImports]
 
 from pdf_craft.transformer.xml_translator.segment import TextSegment, combine_text_segments, find_block_depth
-from pdf_craft.transformer.xml_translator.utils import ensure_list, normalize_whitespace
+from pdf_craft.transformer.xml_translator.utils import ensure_list
 from pdf_craft.transformer.xml_translator.xml import DISPLAY_ATTRIBUTE, clone_element, is_inline_element
 from pdf_craft.transformer.canonical_projection import SourceMath, formula_content
 from pdf_craft.formula import latex_to_plain_text
@@ -200,7 +201,8 @@ class XMLInterrupter:
 
         if latex is None:
             latex = "".join(t.text for t in text_segments)
-        latex = normalize_whitespace(latex).strip()
+        # Math syntax is not ordinary document whitespace.
+        latex = re.sub(r'[ \t\r\n]+', ' ', latex).strip()
         if is_inline_element(math_element):
             latex = f"${latex}$"
         else:

@@ -1,4 +1,5 @@
 """Conservative, reversible page-apparatus hypotheses from local OCR."""
+from pdf_craft.common.whitespace import normalize_whitespace
 from copy import deepcopy
 from collections.abc import Iterable, Iterator, Mapping
 
@@ -67,7 +68,7 @@ def marginal_numbers(page):
             continue
         number = item.text.translate(_CHINESE_DIGITS).lstrip('0') or '0'
         if (number in referenced or re.search(r'(?<![0-9])' + re.escape(number) + r'(?![0-9])', text)
-                or (chinese and item.text in ''.join(text.split()))):
+                or (chinese and item.text in normalize_whitespace(text).replace(' ', ''))):
             continue
         if not vertical_writing and any(other is not item and other.ref in text_kinds and other.text.strip()
                                       and other.det[3] > y1 for other in all_layouts):
@@ -249,7 +250,7 @@ def _stacked_folios(page):
     number = candidate.text.translate(_CHINESE_DIGITS).lstrip('0') or '0'
     referenced = {mark for item in body for mark in explicit_numbers(_parse_block_content(item.text))}
     referenced.update(str(mark.number) for mark in search_marks(text) if isinstance(mark, Mark))
-    if (number in referenced or candidate.text in ''.join(text.split())
+    if (number in referenced or candidate.text in normalize_whitespace(text).replace(' ', '')
             or re.search(r'(?<![0-9])' + re.escape(number) + r'(?![0-9])', text)):
         return []
     return [candidate]

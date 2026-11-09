@@ -1,6 +1,7 @@
 """Best-effort extraction of bibliographic metadata from raw OCR pages."""
 
 from __future__ import annotations
+from pdf_craft.common.whitespace import normalize_whitespace
 
 from ..runtime import IO_DOMAIN
 
@@ -15,7 +16,7 @@ from typing import Any, Literal, cast
 from xml.etree import ElementTree
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from ..document import DocumentAuthor, DocumentMetadata
 from ..concurrency import AsyncExecutor, ConcurrentExecutor, FixedCapacity
@@ -49,8 +50,9 @@ class _Evidence(BaseModel):
 
     @field_validator("value", "evidence")
     @classmethod
-    def _require_nonempty_text(cls, value: str) -> str:
-        value = safe_text(value)
+    def _require_nonempty_text(cls, value: str, info: ValidationInfo) -> str:
+        # Evidence remains an exact quote; only the extracted value is prose.
+        value = safe_text(normalize_whitespace(value, trim=True) if info.field_name == 'value' else value)
         if not value.strip():
             raise ValueError("must not be empty")
         return value
@@ -387,12 +389,12 @@ def _printed_form(value: str) -> str:
 
 def _normalize_native_text(value: str) -> str:
     """Deduplicate untrusted PDF Info fallback fields without affecting OCR proof."""
-    return re.sub(r"\s+", "", value).casefold()
+    return normalize_whitespace(value).replace(" ", "").casefold()
 
 
 def _looks_like_isbn(value: str) -> bool:
     """Validate a printed ISBN after removing only conventional separators."""
-    compact = re.sub(r"[\s-]+", "", value)
+    compact = normalize_whitespace(value).replace(" ", "").replace("-", "")
     if re.fullmatch(r"\d{13}", compact):
         weighted_sum = sum(
             int(character) * (1 if index % 2 == 0 else 3)

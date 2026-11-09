@@ -1,3 +1,4 @@
+from pdf_craft.common.whitespace import normalize_whitespace
 from dataclasses import dataclass, fields
 from datetime import datetime
 from typing import Literal
@@ -55,9 +56,9 @@ class PDFDocumentMetadata:
         for field in fields(self):
             value = getattr(self, field.name)
             if isinstance(value, str):
-                setattr(self, field.name, safe_text(value))
+                setattr(self, field.name, safe_text(normalize_whitespace(value)))
             elif isinstance(value, list):
-                setattr(self, field.name, [safe_text(item) for item in value])
+                setattr(self, field.name, [safe_text(normalize_whitespace(item)) for item in value])
 
 
 def decode(element: Element) -> Page:
