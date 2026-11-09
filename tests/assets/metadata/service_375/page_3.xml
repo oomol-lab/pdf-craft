@@ -1,0 +1,6 @@
+<page index="3">
+  <body>
+    <layout ref="sub_title"># Alice &amp; Bob Learn Secure Coding</layout>
+    <layout ref="text">Example Author</layout>
+  </body>
+</page>

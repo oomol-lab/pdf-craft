@@ -6,6 +6,7 @@ from pdf_craft.common.whitespace import normalize_whitespace
 from ..runtime import IO_DOMAIN
 
 import re
+import json
 import asyncio
 import heapq
 import unicodedata
@@ -192,7 +193,7 @@ async def extract_book_metadata_from_ocr(
     ]
     runtime = runtime_for(
         metadata_llm, executor if executor is not None else ConcurrentExecutor(FixedCapacity(1)),
-        protocol_version="book-metadata-json-v1",
+        protocol_version="book-metadata-json-v2",
     ) if isinstance(metadata_llm, LLM) else None
     while True:
         turn = await _request_turn(metadata_llm, runtime, messages, loaded,
@@ -371,15 +372,10 @@ def _read_pages(numbered_paths):
 
 
 def _render_pages_message(pages: list[_OCRPage], *, remaining: int) -> str:
-    root = ElementTree.Element("ocr-pages")
-    for page in pages:
-        root.append(page.element)
-    pages_xml = ElementTree.tostring(root, encoding="unicode", short_empty_elements=True)
-    return (
-        "These are raw OCR page XML records from the front of one book. "
-        f"At most {remaining} more page(s) may be supplied after this message.\n"
-        f"{pages_xml}"
-    )
+    return json.dumps({
+        "pages": [{"page_index": page.index, "text": page.text} for page in pages],
+        "remaining_pages": remaining,
+    }, ensure_ascii=False)
 
 
 def _printed_form(value: str) -> str:

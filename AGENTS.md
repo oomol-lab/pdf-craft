@@ -23,10 +23,13 @@ pdf-craft 是一个把扫描书籍 PDF 转换为 Markdown 或 EPUB 的 Python �
 - 当修改页精修协议、候选校验、采用、跨页组装或相关回归时，必须阅读[页精修验收的单页硬边界](references/page-refinement-validation.md)。
 
 - 当修改翻译提示、请求聚合、公式对应、XML fill 或翻译验收时，必须阅读[翻译与 fill 的职责硬边界](references/translation-fill-boundary.md)。
+- 当构造任何 LLM 的 XML 输入或处理 XML 输出时，必须阅读 [LLM XML 编解码边界](references/llm-xml-boundary.md)。
 - 当修改失败恢复、翻译缺失、错误定位或任务成功判断时，阅读[失败与有效成果](references/failure-and-completion.md)。
 - 当修改 PCEX schema、字段语义、格式版本或历史数据读取时，必须阅读 [PCEX Migration 边界](references/pcex-migrations.md)。
 
 ## 项目特有默认规则
+
+- 所有 LLM 的 XML 输入必须经过共用 friendly XML 编码器，XML 输出必须经过共用 friendly XML 解码器再进入业务处理；嵌在批请求或 JSON 字符串中的 XML 同样适用。不得用标准 XML 序列化、直接拼接或局部实体替换绕过模型边界。此规则不要求非 XML 流程改用 XML，也不对自由翻译输出增加 XML 格式要求或门禁。细则见 [LLM XML 编解码边界](references/llm-xml-boundary.md)。
 
 - 翻译 LLM 的输出不得经过任何内容审查或门禁，必须原样交给 fill 层。翻译提示只能约束翻译、语气、风格和术语，不得要求输出格式、XML/JSON、公式身份或占位符协议；允许非强制建议未变公式保留 LaTeX，译者仍可自然调整数量与表达，且不得据此设门禁；外层批请求也不得绕过此限制。结构、公式对应和完整性验收及其修复循环全部属于 fill 层，失败不得反向要求翻译 LLM 重写。现存相反实现属于待移除偏移。细则见[翻译与 fill 的职责硬边界](references/translation-fill-boundary.md)。
 
