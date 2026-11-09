@@ -249,16 +249,22 @@ def canonical_difference(canonical: str, blocks: list[Element]) -> str:
     missing = sum(right-left for _, left, right, _, _ in edits)
     added = sum(right-left for _, _, _, left, right in edits)
     if edits:
-        _, left, right, start, end = edits[0]
-        offset, owner = 0, '?'
-        for block, text in zip(blocks, texts):
-            if start < offset + len(text):
-                owner = block.get('id', '?')
-                break
-            offset += len(text)
-        detail = (f' First difference near XML block id={owner}, translation offset {left}, XML offset {start}.'
-                  f' Expected {expected[max(0, left-40):min(right+80, left+500)]!r}.'
-                  f' Received {actual[max(0, start-40):min(end+80, start+500)]!r}.')
+        prefix = next((index for index, pair in enumerate(zip(expected, actual)) if pair[0] != pair[1]), min(len(expected), len(actual)))
+        locations = _diagnostic_locations(blocks, prefix, min(prefix+1, len(actual)))
+        detail = (f' First differing character at translation/XML non-whitespace offset {prefix}.'
+                  f' Expected from here {expected[prefix:prefix+180]!r}.'
+                  f' Received from here {actual[prefix:prefix+180]!r}.'
+                  f' Candidate fields: {"; ".join(locations[:6])}.')
+        # Include actual edit spans, not just an ambiguous context excerpt.
+        # These are diagnostics only: the XML engineer decides ownership and
+        # identity; no diff is automatically applied to the accepted candidate.
+        for operation, left, right, start, end in edits[:10]:
+            locations = _diagnostic_locations(blocks, start, end)
+            detail += (f' Edit {operation} at XML [{start}:{end}] / translation [{left}:{right}]: '
+                       f'expected={expected[left:right][:140]!r}, received={actual[start:end][:140]!r}; '
+                       f'fields={"; ".join(locations[:3])}.')
+        if len(edits) > 10:
+            detail += f' {len(edits)-10} additional edit spans remain; preserve the entire original artist text.'
     else:
         old = normalize_whitespace(unicodedata.normalize('NFD', canonical), trim=True)
         new = normalize_whitespace(unicodedata.normalize('NFD', ''.join(''.join(block.itertext()) for block in blocks)), trim=True)
@@ -289,3 +295,23 @@ def canonical_difference(canonical: str, blocks: list[Element]) -> str:
     return ('Visible text differs from the canonical translation after whitespace normalization.'
             f' Missing {missing}, added {added} non-whitespace characters.'
             + detail + ' Fill the complete XML from the same original translation; do not rewrite it.')
+
+
+def _diagnostic_locations(blocks, start, finish):
+    """Bounded XML field provenance for flattened non-whitespace edit positions."""
+    cursor, locations = 0, []
+    def walk(node, path):
+        yield node, 'text', node.text or '', path
+        for child in node:
+            yield from walk(child, path + [child])
+            yield child, 'tail', child.tail or '', path
+    for block in blocks:
+        for node, attribute, value, path in walk(block, [block]):
+            length = sum(not is_whitespace(char) for char in unicodedata.normalize('NFD', value))
+            end = cursor+length
+            if length and ((cursor <= start <= end) if start == finish else cursor < finish and start < end):
+                identities = [part.get('keys', part.get('key')) for part in path if part.tag == 'source-math']
+                locations.append(f'XML block id={block.get("id", "separator")}: '
+                                 f'<{node.tag} id={node.get("id", "none")} keys={identities}>.{attribute}={value[:180]!r}')
+            cursor = end
+    return locations

@@ -170,3 +170,21 @@ class XMLFillRecoveryTests(IsolatedAsyncioTestCase):
                 values = {'s1': SimpleNamespace(latex='\\('+source+'\\)'), 's2': SimpleNamespace(latex=r'\(x\)')}
                 with self.assertRaises(MathProjectionError):
                     list(_partition_unchanged('\\('+target+'x\\)', ['s1', 's2'], values))
+
+    async def test_wrong_math_reference_feedback_identifies_the_exact_xml_field_and_edit(self):
+        translator, model = translator_fixture()
+        bad = '<xml><fragment id="1">模 <expression id="2"><source-math key="s1"><math-ref key="m2"/></source-math></expression>，符号 <expression id="3"><source-math key="s2"><math-ref key="m1"/></source-math></expression>。</fragment></xml>'
+        good = bad.replace('key="m2"', 'key="TEMP"').replace('key="m1"', 'key="m2"').replace('key="TEMP"', 'key="m1"')
+        model_replies(model, r'模 \(q\)，符号 \(\chi_T\)。', [bad, good])
+        target = await NarrativeXMLTransformer(translator).transform(chapter(['Modulus ', expression('q'), ', symbol ', expression(r'\chi_T'), '.']), error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(content_of(target), ['模 ', expression('q'), '，符号 ', expression(r'\chi_T'), '。'])
+        feedback = model.wire_calls[-1][-1].message
+        self.assertIn('First differing character', feedback)
+        self.assertIn('WRONG ARTIST VALUE', feedback)
+        self.assertIn('currently uses math-ref m2', feedback)
+        self.assertIn('instead has math-ref m1', feedback)
+        self.assertIn('source-math id=none', feedback)
+        self.assertIn("keys=['s1']", feedback)
+        self.assertIn('Edit ', feedback)
+        self.assertIn("received=", feedback)
+        self.assertEqual(len(model.wire_calls), 3)
