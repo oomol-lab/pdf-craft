@@ -106,18 +106,36 @@ def _partition_unchanged(text, keys, values):
     else:
         content, opening = text, 0
     originals = [formula_content(values[key].latex)[0] for key in keys]
-    tokenize = lambda value: list(re.finditer(r'\\[A-Za-z]+|\\.|[^\s]', value))
-    tokens = tokenize(content)
-    source_tokens = [[token.group() for token in tokenize(value)] for value in originals]
-    if (not all(source_tokens) or [token.group() for token in tokens] != [token for group in source_tokens for token in group]
-            or not any(unchanged_formula(separator.join(originals), content) for separator in ('', ' '))):
-        raise MathProjectionError(f'Combined identities {keys} do not have a unique unchanged syntax partition. '
+    tokens = _math_tokens(content)
+    source_tokens = [[token.group() for token in _math_tokens(value)] for value in originals]
+    if not all(source_tokens) or [token.group() for token in tokens] != [token for group in source_tokens for token in group]:
+        raise MathProjectionError(f'Combined identities {keys} do not have a unique unchanged syntax partition. Artist span={text!r}; source values={dict(zip(keys, originals, strict=True))!r}. '
                                   'Use adjacent single-key source-math annotations around the exact translated subspans, inside the original delimiters; changed values are allowed.')
     cursor = 0
     for key, group in zip(keys, source_tokens, strict=True):
         end = cursor+len(group)
         yield opening+tokens[cursor].start(), opening+tokens[end-1].end(), key
         cursor = end
+
+
+def _math_tokens(value):
+    """Ignore only ordinary TeX spacing outside groups, preserving text payloads.
+
+    Exact control sequences and all whitespace inside braces remain tokens.
+    No LaTeX semantic comparison or source identity selection takes place here.
+    A changed combined expression must be annotated explicitly by the model.
+    """
+    preserve = bool(re.search(r'(?<!\\)%|\\verb(?:\*|(?=[^A-Za-z]))|\\begin\s*\{\s*(?:verbatim|lstlisting)', value))
+    depth, tokens = 0, []
+    for token in re.finditer(r'\\[A-Za-z]+|\\.|\s+|[^\s]', value):
+        literal = token.group()
+        if literal == '{':
+            depth += 1
+        elif literal == '}':
+            depth -= 1
+        if preserve or not literal.isspace() or depth:
+            tokens.append(token)
+    return tokens
 
 
 def _format_shape(node, math_tags):

@@ -151,3 +151,22 @@ class XMLFillRecoveryTests(IsolatedAsyncioTestCase):
         math = CanonicalMath('$x$ $x$')
         root = fromstring('<xml><p id="1"><source-math key="s2"><math-ref key="m1"/></source-math> <source-math key="s1"><math-ref key="m1"/></source-math></p></xml>')
         self.assertEqual(math.duplication_hint(root), '')
+
+    async def test_explicit_joint_identities_partition_ordinary_tex_spacing_without_editing_artist_math(self):
+        translator, model = translator_fixture()
+        raw = r'\(\chi(n)=\chi^{\prime}(n)\)'
+        response = '<xml><fragment id="1"><expression id="2"><source-math keys="s1 s2"><math-ref key="m1"/></source-math></expression><expression id="3"/></fragment></xml>'
+        model_replies(model, raw, [response])
+        target = await NarrativeXMLTransformer(translator).transform(chapter([expression(r'\chi (n) ='), expression(r'\chi^{\prime}(n)')]), error_policy=False, retry_policy=RetryPolicy(fill=0))
+        self.assertEqual(content_of(target), [expression(r'\chi(n)='), expression(r'\chi^{\prime}(n)')])
+        self.assertEqual(len(model.wire_calls), 2)
+
+    def test_joint_syntax_partition_preserves_text_spaces_and_tex_comment_newlines(self):
+        from types import SimpleNamespace
+        from pdf_craft.transformer.xml_math import _partition_unchanged
+        from pdf_craft.transformer.canonical_projection import MathProjectionError
+        for source, target in [(r'\text{a b}', r'\text{ab}'), ('a%comment\nb', 'a%comment b')]:
+            with self.subTest(source=source):
+                values = {'s1': SimpleNamespace(latex='\\('+source+'\\)'), 's2': SimpleNamespace(latex=r'\(x\)')}
+                with self.assertRaises(MathProjectionError):
+                    list(_partition_unchanged('\\('+target+'x\\)', ['s1', 's2'], values))

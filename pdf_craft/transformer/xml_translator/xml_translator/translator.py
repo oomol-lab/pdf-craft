@@ -117,7 +117,7 @@ class XMLTranslator:
             protocol_version="free-translation-v2",
         )
         self._fill_runtime = runtime_for(
-            fill_llm, fill_executor, protocol_version="xml-fill-group-v7",
+            fill_llm, fill_executor, protocol_version="xml-fill-group-v8",
         )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
