@@ -58,7 +58,8 @@ def allocate(response, calls, raw):
             missing_ids=sorted(expected-counts.keys(), key=int),
             duplicate_ids=sorted(key for key, count in counts.items() if count > 1),
             unexpected_ids=sorted(counts.keys()-expected))))
-    units = expand_boundaries(units, raw)
+    units = expand_boundaries(units, raw, preserved_ids=frozenset(
+        str(index) for index, call in enumerate(calls) if getattr(call, 'preserve_space', False)))
     by_id = {unit['id']: unit for unit in units}
     if any(not isinstance(unit.get('text'), str) for unit in units):
         raise ValueError('Each allocated text must be a string.')

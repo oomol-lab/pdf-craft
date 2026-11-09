@@ -74,12 +74,10 @@ def oracle_allocations(payload, response):
     for index, text in enumerate(expected):
         end = cursor + len(text)
         anchor = text[-32:]
-        # A short heading can recur at the beginning of its following prose.
-        # Exact after context distinguishes that boundary without choosing an
-        # occurrence number or asking the provider to count Unicode offsets.
-        after = ''
-        if raw.find(anchor, cursor) != end-len(anchor) or raw.find(anchor, end-len(anchor)+1) >= 0:
-            after = raw[end:end+32]
+        # Always include following words: paragraph breaks are normalized and
+        # cannot disambiguate a heading from the same phrase in body prose.
+        # Ownership and expected slices above remain the original oracle.
+        after = raw[end:end+32]
         compact.append(dict(id=str(index), end=anchor, after=after, formulas=[]))
         cursor = end
     return expected, json.dumps(compact, ensure_ascii=False)

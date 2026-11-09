@@ -33,14 +33,15 @@ must use one artist request and two engineering requests, preserve every owner a
 all translated text under the existing document-whitespace rules, and successfully
 complete actual XML fill/adoption. End anchors are never used to infer source IDs.
 
-Recorded response character sizes versus compact reference responses:
+Recorded response character sizes versus compact reference responses (including
+following-word context, so whitespace normalization cannot confuse repeated headings):
 
 | Units | Saved incomplete response | Compact complete response |
 | --- | ---: | ---: |
-| 61 | 20,312 | 5,287 |
-| 63 | 20,016 | 5,346 |
-| 60 | 20,044 | 5,285 |
-| 62 | 20,299 | 5,270 |
+| 61 | 20,312 | 7,205 |
+| 63 | 20,016 | 7,404 |
+| 60 | 20,044 | 7,075 |
+| 62 | 20,299 | 7,262 |
 
 This proves offline recovery behavior and reduces the required output size. The
 archives do not record provider finish reasons, so these tests do not establish
