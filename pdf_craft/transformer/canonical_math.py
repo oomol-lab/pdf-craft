@@ -6,6 +6,7 @@ one complete canonical expression without asking the fill model to retype its
 delimiters or split it according to the source slots.
 """
 import re
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 from jinja2 import Template
@@ -56,6 +57,35 @@ class CanonicalMath:
     def matches(text: str) -> list[re.Match[str]]:
         return math_matches(text)
 
+    def duplication_hint(self, root: Element) -> str:
+        """Locate excessive value copies without guessing or changing source identities.
+
+        Only diagnostic: repeated aliases are valid when the complete artist
+        text has that many equal occurrences. Final text validation is decisive.
+        """
+        occurrences = {}
+        def walk(node, block=None, identities=()):
+            if node.get('id') is not None and block is None:
+                block = node.get('id')
+            if node.tag == 'source-math':
+                identities = tuple(node.get('keys', node.get('key', '')).split())
+            if node.tag == _REFERENCE_TAG and node.get('key') in self.values:
+                key = node.get('key')
+                occurrences.setdefault(self.values[key], []).append((key, block, identities))
+            for child in node:
+                walk(child, block, identities)
+        for block in root:
+            walk(block)
+        expected = Counter(self.values.values())
+        rows = []
+        for value, copies in occurrences.items():
+            if len(copies) <= expected[value]:
+                continue
+            keys = [key for _, _, identities in copies for key in identities]
+            rows.append(dict(value=value, expected=expected[value], copies=copies,
+                             source_keys=' '.join(keys), reference=copies[0][0]))
+        return _duplication_template().render(rows=rows) if rows else ''
+
     def expand(self, root: Element, *, require_complete: bool = True) -> str | None:
         """Expand validated references, retaining all canonical delimiter bytes.
 
@@ -104,4 +134,10 @@ class CanonicalMath:
 @lru_cache(maxsize=1)
 def _instructions_template() -> Template:
     path = Path(__file__).parent / 'xml_translator/data/canonical_math.jinja'
+    return Template(path.read_text(encoding='utf-8'))
+
+
+@lru_cache(maxsize=1)
+def _duplication_template() -> Template:
+    path = Path(__file__).parent / 'xml_translator/data/canonical_duplicate.jinja'
     return Template(path.read_text(encoding='utf-8'))

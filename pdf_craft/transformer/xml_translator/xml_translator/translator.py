@@ -117,7 +117,7 @@ class XMLTranslator:
             protocol_version="free-translation-v2",
         )
         self._fill_runtime = runtime_for(
-            fill_llm, fill_executor, protocol_version="xml-fill-group-v6",
+            fill_llm, fill_executor, protocol_version="xml-fill-group-v7",
         )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
@@ -633,6 +633,7 @@ class XMLTranslator:
 
         def validate_candidate(element):
             projected = None
+            duplication_hint = canonical_math.duplication_hint(element) if canonical_math is not None else ''
             error = canonical_math.expand(element, require_complete=False) if canonical_math is not None else None
             if error is None:
                 problems = []
@@ -647,6 +648,8 @@ class XMLTranslator:
                     text_error = canonical_text_validator(element, translated_text)
                     if text_error is not None:
                         problems.append(text_error)
+                if problems and duplication_hint:
+                    problems.append(duplication_hint)
                 error = '\n\n'.join(problems) or None
             if error is None and canonical_math_projector is not None:
                 try:

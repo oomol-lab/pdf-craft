@@ -132,3 +132,22 @@ class XMLFillRecoveryTests(IsolatedAsyncioTestCase):
         self.assertIn('LINE FRAGMENTS', model.wire_calls[-1][-1].message)
         self.assertIn('Neighboring current allocations', model.wire_calls[-1][-1].message)
         self.assertEqual(len(model.wire_calls), 3)
+
+    async def test_duplicate_merged_value_feedback_uses_the_models_own_identity_assignments(self):
+        translator, model = translator_fixture()
+        bad = '<xml><fragment id="1"><expression id="2"><source-math key="s1"><math-ref key="m1"/></source-math></expression><expression id="3"><source-math key="s2"><math-ref key="m1"/></source-math></expression></fragment></xml>'
+        good = '<xml><fragment id="1"><expression id="2"><source-math keys="s1 s2"><math-ref key="m1"/></source-math></expression><expression id="3"/></fragment></xml>'
+        model_replies(model, r'\(x=y\)', [bad, good])
+        target = await NarrativeXMLTransformer(translator).transform(chapter([expression('x='), expression('y')]), error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(content_of(target), [expression('x='), expression('y')])
+        feedback = model.wire_calls[-1][-1].message
+        self.assertIn('EXCESSIVE COPIES IN YOUR XML', feedback)
+        self.assertIn('<source-math keys="s1 s2"><math-ref key="m1"/>', feedback)
+        self.assertEqual(len(model.wire_calls), 3)
+
+    def test_equal_artist_values_allow_reused_alias_without_false_duplicate_feedback(self):
+        from xml.etree.ElementTree import fromstring
+        from pdf_craft.transformer.canonical_math import CanonicalMath
+        math = CanonicalMath('$x$ $x$')
+        root = fromstring('<xml><p id="1"><source-math key="s2"><math-ref key="m1"/></source-math> <source-math key="s1"><math-ref key="m1"/></source-math></p></xml>')
+        self.assertEqual(math.duplication_hint(root), '')
