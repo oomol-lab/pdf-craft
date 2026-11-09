@@ -14,13 +14,15 @@ from pdf_craft.extractor.chapter.chapter import (
     Chapter, InlineExpression, SourceTextFragment, TextFlowItem, SourceAsset, StandaloneAsset, decode, encode,
 )
 from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
-from pdf_craft.transformer.canonical_projection import MathProjectionError
+from pdf_craft.transformer.canonical_projection import MathProjectionError, SourceMath, project_canonical_math
 from pdf_craft.transformer.free_translation import AllocationFillError
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
 from pdf_craft.transformer.structured_translation import StructuredTranslation
+from pdf_craft.transformer.translation_coverage import accepted_translation
 from pdf_craft.transformer.xml_translator.xml.xml_like import XMLLikeNode
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
+from pdf_craft.transformer.xml_translator.segment import TextPosition, combine_text_segments, search_text_segments
 from tests.test_anchored_content_translation import _repairing_translator, _pdf_patch_text
 from tests.test_structured_translation import offline_translator
 
@@ -44,6 +46,87 @@ def content_of(value):
 
 
 class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
+    def test_empty_mappings_survive_on_either_side_of_math(self):
+        for empty_first in (True, False):
+            for bound in (True, False):
+                with self.subTest(empty_first=empty_first, bound=bound):
+                    empty = fromstring('<p role="empty"/>')
+                    formula = fromstring('<p>译文 $x$。</p>')
+                    mappings = [(empty, []), (formula, list(search_text_segments(formula)))]
+                    if not empty_first:
+                        mappings.reverse()
+                    source = fromstring('<inline_expr kind="inline_dollar">x</inline_expr>')
+                    bindings: list[list[SourceMath | str]] = [[SourceMath('$x$', source)]] if bound else [[]]
+                    projected = project_canonical_math([None, *mappings], '译文 $x$。', bindings)
+                    assert projected is not None
+                    self.assertIsNone(projected[0])
+                    for mapping, original in zip(projected[1:], mappings):
+                        assert mapping is not None
+                        self.assertIs(mapping[0], original[0])
+                        root, = [root for root, _ in combine_text_segments(mapping[1])]
+                        if original[0] is empty:
+                            self.assertEqual(root.tag, 'p')
+                            self.assertEqual(root.attrib, {'role': 'empty'})
+                            self.assertEqual(''.join(root.itertext()), '')
+                            self.assertEqual(len(root), 0)
+                            self.assertEqual(mapping[1][0].position, TextPosition.TEXT)
+                        elif bound:
+                            self.assertEqual(tostring(root, encoding='unicode'),
+                                '<p>译文 <inline_expr kind="inline_dollar">x</inline_expr>。</p>')
+                        else:
+                            self.assertEqual(''.join(root.itertext()), '译文 $x$。')
+
+    def test_consumed_tail_field_becomes_empty_root_text(self):
+        first = fromstring('<p>$</p>')
+        second = fromstring('<p><div/>x$</p>')
+        fields = [field for field in search_text_segments(second) if field.position == TextPosition.TAIL]
+        self.assertEqual([field.position for field in fields], [TextPosition.TAIL])
+        source = fromstring('<inline_expr>x</inline_expr>')
+        projected = project_canonical_math([
+            (first, list(search_text_segments(first))), (second, fields),
+        ], '$x$', [[SourceMath('$x$', source)]])
+        assert projected is not None and projected[0] is not None and projected[1] is not None
+        root, = [root for root, _ in combine_text_segments(projected[0][1])]
+        self.assertEqual(tostring(root, encoding='unicode'), '<p><inline_expr>x</inline_expr></p>')
+        self.assertEqual(projected[1][1][0].text, '')
+        self.assertEqual(projected[1][1][0].position, TextPosition.TEXT)
+
+    async def test_empty_cross_page_allocation_commits_translation_and_formula(self):
+        for empty_first in (True, False):
+            with self.subTest(empty_first=empty_first):
+                fragments = [
+                    SourceTextFragment(24, 0, (0, 0, 90, 20), ['Original lead']),
+                    SourceTextFragment(25, 0, (0, 0, 90, 20), ['Original value ', expression('x')]),
+                ]
+                filled = ['<fragment id="1"/>', '<fragment id="2">译文 <expression>'
+                          '<math-ref key="m1"/></expression>。</fragment>']
+                if not empty_first:
+                    fragments.reverse()
+                    filled = [filled[1].replace('id="2"', 'id="1"'), '<fragment id="2"/>']
+                source = Chapter(None, -1, [TextFlowItem('body', -1, [*fragments])])
+                saved = deepcopy(source)
+                translator, runtime = _repairing_translator(['<xml>' + ''.join(filled) + '</xml>'])
+                translator._translate_text_async = AsyncMock(return_value='译文 $x$。')
+                failures = []
+                target = await NarrativeXMLTransformer(translator).transform(
+                    source, error_policy=lambda failure, failures=failures: failures.append(failure) or True,
+                    retry_policy=RetryPolicy(fill=0))
+                self.assertEqual(failures, [])
+                self.assertEqual(runtime.context_value.calls, 1)
+                translator._translate_text_async.assert_awaited_once()
+                self.assertEqual(source, saved)
+                self.assertEqual(decode(fromstring(tostring(encode(target))), allow_legacy=False), target)
+                text = target.flow_items[0]
+                assert isinstance(text, TextFlowItem)
+                self.assertTrue(accepted_translation(text))
+                self.assertEqual(len(text.children), 2)
+                for index, fragment in enumerate(text.children):
+                    assert isinstance(fragment, SourceTextFragment)
+                    self.assertEqual(fragment.page_index, fragments[index].page_index)
+                    self.assertEqual(fragment.content, [] if (index == 0) == empty_first
+                                     else ['译文 ', expression('x'), '。'])
+                self.assertNotIn('Original', tostring(encode(target), encoding='unicode'))
+
     async def translate(self, source, canonical, response):
         saved = deepcopy(source)
         translator, runtime = _repairing_translator([response])
@@ -99,7 +182,6 @@ class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
         response = '<xml><fragment id="1"><expression><math-ref key="m1"/></expression>。</fragment></xml>'
         translator, runtime = _repairing_translator([response, response])
         translator._translate_text_async = AsyncMock(return_value='$x=y$。')
-        from pdf_craft.transformer.canonical_projection import project_canonical_math
         calls = 0
 
         def flaky_projection(*args):

@@ -13,7 +13,7 @@ from xml.etree.ElementTree import Element
 
 from .canonical_math import CanonicalMath
 from .whitespace import WhiteSpace, normalize
-from .xml_translator.segment import TextSegment, combine_text_segments, find_block_depth, search_text_segments
+from .xml_translator.segment import TextPosition, TextSegment, combine_text_segments, find_block_depth, search_text_segments
 from .xml_translator.xml import is_inline_element
 
 MathMapping = tuple[Element, list[TextSegment]]
@@ -128,6 +128,8 @@ def project_canonical_math(
         # payload is format data now; a second CSS pass would change TeX text.
         result = list(search_text_segments(root, normalize_whitespace=False))
         if not result:
-            result = [TextSegment('', [root], 0, 0, 1, fields[0].position)]
+            # This sentinel occupies the new root's text, even when the
+            # accepted allocation has no fields or consumed an entire tail.
+            result = [TextSegment('', [root], 0, 0, 1, TextPosition.TEXT)]
         projected.append((block, result))
     return projected
