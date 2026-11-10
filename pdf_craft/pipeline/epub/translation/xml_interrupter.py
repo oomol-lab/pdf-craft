@@ -11,7 +11,8 @@ from pdf_craft.transformer.xml_translator.segment import TextSegment, combine_te
 from pdf_craft.transformer.xml_translator.utils import ensure_list
 from pdf_craft.transformer.xml_translator.xml import DISPLAY_ATTRIBUTE, clone_element, is_inline_element
 from pdf_craft.transformer.formula_source import SourceMath
-from pdf_craft.transformer.formula_payload import formula_payload, replace_formulas
+from pdf_craft.transformer.formula_payload import replace_formulas
+from pdf_craft.formula.comparison import same_formula
 
 _ID_KEY = "__XML_INTERRUPTER_ID"
 _MATH_TAG = "math"
@@ -67,7 +68,7 @@ class XMLInterrupter:
             if source is not None:
                 result.attrib.update({k: v for k, v in source.attrib.items() if k != _ID_KEY and not k.startswith('__pdf_craft_')})
             if (source is not None and not self._literal_presentation(source)
-                    and formula_payload(self._latex_by_id[key or '']) == formula_payload(value)):
+                    and same_formula(self._latex_by_id[key or ''], value)):
                 # The engineer selected this source node explicitly. Retain its
                 # actual MathML presentation when the whole payload is unchanged.
                 result = deepcopy(source)
