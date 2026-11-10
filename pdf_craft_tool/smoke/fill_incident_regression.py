@@ -162,8 +162,14 @@ async def verify_delivery(data, original, math, display_nodes, accepted, llm, ou
     runtime = RecordingRuntime(translator._fill_runtime, replay_output, accepted)
     translator._fill_runtime = runtime
     protocol = StructuredTranslation(formulas=XMLInterrupter() if math else None)
-    target, _ = await protocol.translate(translator, TranslationTask(source, SubmitKind.REPLACE, None),
-                                         error_policy=False)
+    protocol.prepare(source)
+    async def tasks():
+        yield TranslationTask(source, SubmitKind.REPLACE, None)
+    results = await translator.translate_elements(tasks(), error_policy=False, **protocol.arguments())
+    if len(results) != 1:
+        raise AssertionError('Normal async delivery did not settle exactly one selected document')
+    target, _ = results[0]
+    protocol.finish(target)
     (output / 'delivered.xhtml').write_text(tostring(target, encoding='unicode'))
     if target.tag != 'body' or len(target) != len(reference):
         raise AssertionError('Normal delivery lost the selected document root or blocks')
@@ -180,6 +186,7 @@ async def verify_delivery(data, original, math, display_nodes, accepted, llm, ou
     # Formula identity/projection was already strict. Verify those typed nodes
     # also survived actual adapter callbacks and submission, including values.
     if math_nodes(reference) - math_nodes(target):
+        save(output / 'delivery-math-mismatch.json', {'missing': list((math_nodes(reference)-math_nodes(target)).elements()), 'actual': list(math_nodes(target).elements())})
         raise AssertionError('Normal delivery lost or changed projected formula nodes')
     publish_group(target, output)
     return target
@@ -231,9 +238,9 @@ async def run(fixtures, output, profile):
     load_project_env(ROOT)
     llm = create_llm_from_env(profile, cache_path=output / 'unused-cache', log_dir_path=output / 'request-status')
     llm.cache_path = None
-    llm.temperature, llm.top_p = 0.7, 1.0
     report = {'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
-              'model': llm.model, 'profile': profile, 'source_sha256': fingerprint(),
+              'model': llm.model, 'profile': profile, 'temperature': llm.temperature,
+              'top_p': llm.top_p, 'source_sha256': fingerprint(),
               'passed': False, 'results': []}
     for key in WHITESPACE + CONTEXT:
         report['results'].append(await case(fixtures, key, output / key, llm,

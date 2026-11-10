@@ -6,11 +6,13 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from bs4 import BeautifulSoup
 from mathml2latex.mathml import process_mathml  # pyright: ignore[reportMissingImports]
 
-from pdf_craft.transformer.xml_translator.segment import TextSegment, combine_text_segments, find_block_depth
+from pdf_craft.transformer.xml_translator.segment import TextSegment, combine_text_segments, find_block_depth, search_text_segments, TextPosition
 from pdf_craft.transformer.xml_translator.utils import ensure_list
 from pdf_craft.transformer.xml_translator.xml import DISPLAY_ATTRIBUTE, clone_element, is_inline_element
 from pdf_craft.transformer.canonical_projection import SourceMath, formula_content
 from pdf_craft.formula import latex_to_plain_text
+from pdf_craft.transformer.canonical_math import CanonicalMath
+from pdf_craft.transformer.xml_math import project_formula
 
 _ID_KEY = "__XML_INTERRUPTER_ID"
 _MATH_TAG = "math"
@@ -73,11 +75,86 @@ class XMLInterrupter:
     def interrupt_translated_text_segments(
         self, text_segments: Iterable[TextSegment]
     ) -> Generator[TextSegment, None, None]:
-        for text_segment in text_segments:
+        parts = list(text_segments)
+        if parts:
+            root = parts[0].root
+            key = root.get(_ID_KEY)
+            original = self._placeholder2interrupted.get(key or '')
+            if (key is not None and original is not None and root.tag == _EXPRESSION_TAG
+                    and not is_inline_element(root)):
+                filled = next(combine_text_segments(parts))[0]
+                materialized = self._materialize_display(filled, original, self._latex_by_id[key])
+                self._placeholder2interrupted.pop(key, None)
+                projected = list(search_text_segments(materialized, normalize_whitespace=False)) or [
+                    TextSegment('', [materialized], 0, 0, 1, TextPosition.TEXT)]
+                for part in projected:
+                    # This whole accepted slot belongs to one source block.
+                    part.block_depth = 1
+                    yield part
+                return
+        for text_segment in parts:
             yield from self._expand_translated_text_segment(text_segment)
 
+    def _materialize_display(self, filled: Element, original: Element, latex: str) -> Element:
+        """An accepted display slot may now contain prose and typed mathematics.
+
+        Source display MathML is not a license to discard artist words. Keep
+        an unchanged whole equation as original MathML; mixed content needs an
+        ordinary block containing its exact prose and typed equation nodes.
+        """
+        source = SourceMath(latex, original)
+        def convert(node):
+            if node.tag == _MATH_TAG:
+                return
+            children = list(node)
+            text = node.text or ''
+            node.text = None
+            node[:] = []
+            def append(value):
+                previous, cursor = node[-1] if len(node) else None, 0
+                for match in CanonicalMath.matches(value):
+                    prefix = value[cursor:match.start()]
+                    if previous is None:
+                        node.text = (node.text or '') + prefix
+                    else:
+                        previous.tail = (previous.tail or '') + prefix
+                    previous = project_formula(source, match.group(), self.residual_math)
+                    node.append(previous)
+                    cursor = match.end()
+                if previous is None:
+                    node.text = (node.text or '') + value[cursor:]
+                else:
+                    previous.tail = (previous.tail or '') + value[cursor:]
+            append(text)
+            for child in children:
+                tail, child.tail = child.tail or '', None
+                convert(child)
+                node.append(child)
+                append(tail)
+        convert(filled)
+        if (len(filled) == 1 and filled[0].tag == _MATH_TAG
+                and not (filled.text or '').strip() and not (filled[0].tail or '').strip()):
+            result = filled[0]
+            result.tail = None
+            return result
+        filled.tag = 'div'
+        # The physical source slot remains a link/CFI anchor even when its
+        # accepted content needs a prose container rather than a MathML root.
+        for attribute in ('id', '{http://www.w3.org/XML/1998/namespace}id'):
+            identity = original.get(attribute)
+            if identity is not None:
+                for child in filled.iter():
+                    if child is not filled and child.get(attribute) == identity:
+                        child.attrib.pop(attribute)
+                filled.set(attribute, identity)
+        filled.attrib.pop(_ID_KEY, None)
+        filled.attrib.pop(DISPLAY_ATTRIBUTE, None)
+        from pdf_craft.transformer.xml_translator.xml_translator.source_store import strip_source
+        strip_source(filled)
+        return filled
+
     def interrupt_block_element(self, element: Element) -> Element:
-        interrupted_element = self._placeholder2interrupted.pop(element.get(_ID_KEY, ""), None)
+        interrupted_element = self._placeholder2interrupted.get(element.get(_ID_KEY, ""))
         if interrupted_element is None:
             element.attrib.pop(_ID_KEY, None)
             return element

@@ -10,8 +10,16 @@ Keep source-math identities separate from these value references.
 Edit {{ row.operation }} at candidate non-whitespace offsets [{{ row.start }}:{{ row.end }}].
 Expected artist span:
 {{ row.expected }}
-Full surrounding artist sequence with original formula references:
-{{ row.neighborhood }}
+{% if row.neighborhood %}Full surrounding artist sequence with original formula references:
+{{ row.neighborhood }}{% endif %}
+{% if row.extra_after_complete %}
+Your candidate already contains the COMPLETE artist response before this extra
+suffix. The following content is a duplicate, not missing translation. Remove
+those extra copies; keep their required formatting containers empty. If source
+identities currently wrap the extra copies, MOVE their annotations onto the
+corresponding existing artist spans instead of deleting the identities or
+copying those spans again. Source formatting does not authorize repeated text.
+{% endif %}
 Immediately before that span in the artist response: {{ row.before | tojson }}
 Immediately after that span in the artist response: {{ row.after | tojson }}
 Currently received instead: {{ row.received | tojson }}

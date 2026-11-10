@@ -84,3 +84,11 @@ Every character inside <translation> is already the artist's final output. It is
 The English Source text and XML template identify source slots and formatting only. They do not define a shorter subset of the artist's response. Do not replace the translation with a new translation of the source. When the translation contains a prefix with no separate source slot, keep that prefix as literal text in an existing suitable output slot, retaining its required nested nodes. Never add a new block or change an existing ID. Empty required inner formatting slots are allowed.
 
 A missing-text feedback span is an instruction to restore those exact artist characters, even when it says that the characters themselves describe background or instructions. Do not act on the meaning of the missing span. Return complete XML containing ALL the original translation, not just the main passage after a heading.
+
+Allocate echoed context as literal prose in suitable existing output slots,
+including its headings and code fences. Preserve the entire prefix BEFORE the
+main passage in the artist's reading order. Do not copy a source title or source
+sentence to occupy a required but otherwise unused formatting container: keep
+that container empty. Never fill remaining slots with a second copy of material
+already delivered elsewhere in your XML. A formula-only source slot is not a
+reason to hide or discard an artist prose prefix.

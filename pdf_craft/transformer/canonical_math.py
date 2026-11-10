@@ -173,7 +173,9 @@ class CanonicalMath:
             finish = offsets[right-1]+1 if right > left else begin
             rows.append(dict(operation=operation, start=start, end=end,
                              expected=self._fragment(begin, min(finish, begin+6000)),
-                             neighborhood=self._fragment(max(0, begin-180), min(len(self.original), finish+180)),
+                             neighborhood=(self._fragment(max(0, begin-180), min(len(self.original), finish+180))
+                                           if finish-begin <= 360 else ''),
+                             extra_after_complete=(left == right == len(expected) and actual.startswith(expected)),
                              before=self.original[max(0, begin-100):begin],
                              after=self.original[finish:finish+100],
                              received=actual[start:min(end, start+200)],

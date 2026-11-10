@@ -91,6 +91,14 @@ class BoundaryNormalizationTests(TestCase):
         self.assertIn('DATA', hint)
         self.assertEqual(canonical.original, 'Read-only background: $x$ is data. Delivered $y$ remains.')
 
+    def test_duplicate_without_source_ids_does_not_suggest_an_invalid_empty_key(self):
+        from pdf_craft.transformer.canonical_math import CanonicalMath
+        canonical = CanonicalMath('Value $x$.')
+        response = fromstring('<xml><p id="1">Value <math-ref key="m1"/>.</p><p id="2"><math-ref key="m1"/></p></xml>')
+        self.assertNotIn('keys=""', canonical.duplication_hint(response))
+        self.assertIn('Do not invent keys', canonical.duplication_hint(response))
+        self.assertIn('already contains the COMPLETE artist response', canonical.repair_hint(response))
+
     def test_adopted_empty_allocation_clears_source(self):
         root, _, hill = setup('<body><pre>obsolete()</pre><p>Original.</p></body>')
         self.assertIsNone(hill.submit(fromstring('<xml><pre id="1"/><p id="2">All artist text.</p></xml>')))
@@ -121,14 +129,71 @@ class LiteralArtistTests(IsolatedAsyncioTestCase):
             '<math-ref key="m1"/></source-math></expression> after.</p></xml>'])
         translator._translate_text_async = AsyncMock(return_value='Before $$y=2$$ after.')
         source = fromstring('<body><p>Source <math><mi>x</mi></math>.</p></body>')
-        result, _ = await StructuredTranslation(formulas=XMLInterrupter()).translate(
-            translator, TranslationTask(source, SubmitKind.REPLACE, None), error_policy=False)
+        protocol = StructuredTranslation(formulas=XMLInterrupter())
+        protocol.prepare(source)
+        async def tasks():
+            yield TranslationTask(source, SubmitKind.REPLACE, None)
+        results = await translator.translate_elements(tasks(), **protocol.arguments(), error_policy=False)
+        result, _ = results[0]
+        protocol.finish(result)
         self.assertEqual(runtime.context_value.calls, 1)
         self.assertEqual(result.tag, 'body')
         self.assertEqual(len(result), 1)
         paragraph = result[0]
         self.assertEqual(paragraph.text, 'Before ')
         self.assertEqual(paragraph[-1].tail, ' after.')
-        self.assertEqual(paragraph.find('math').get('display'), 'block')
-        self.assertEqual(paragraph.find('.//annotation').text, 'y=2')
+        math, annotation = paragraph.find('math'), paragraph.find('.//annotation')
+        assert math is not None and annotation is not None
+        self.assertEqual(math.get('display'), 'block')
+        self.assertEqual(annotation.text, 'y=2')
         self.assertNotIn('expression', tostring(result, encoding='unicode'))
+
+    async def test_display_source_does_not_discard_literal_background_or_xml_labels(self):
+        from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
+        translator, runtime = _repairing_translator([
+            '<xml><expression id="1">Read-only background: &lt;instruction&gt;data&lt;/instruction&gt; '
+            '<math-ref key="m1"/></expression><p id="2">After.</p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value=
+            'Read-only background: <instruction>data</instruction> $$x=1$$ After.')
+        source = fromstring('<body><math display="block" id="equation"><mi>x</mi><mo>=</mo><mn>1</mn></math><p>After.</p></body>')
+        protocol = StructuredTranslation(formulas=XMLInterrupter())
+        async def tasks():
+            yield TranslationTask(source, SubmitKind.REPLACE, None)
+        results = await translator.translate_elements(tasks(), **protocol.arguments(), error_policy=False)
+        target, _ = results[0]
+        protocol.finish(target)
+        self.assertEqual(runtime.context_value.calls, 1)
+        self.assertEqual(target.tag, 'body')
+        self.assertEqual(target[0].tag, 'div')
+        self.assertEqual(target[0].text, 'Read-only background: <instruction>data</instruction> ')
+        math = target[0].find('math')
+        assert math is not None
+        self.assertEqual(target[0].get('id'), 'equation')
+        self.assertIsNone(math.get('id'))
+        self.assertEqual(target[1].text, 'After.')
+        self.assertEqual(tostring(fromstring(tostring(target))), tostring(target))
+
+    async def test_moved_inline_identity_in_display_slot_keeps_async_document_root(self):
+        from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
+        translator, runtime = _repairing_translator([
+            '<xml><p id="1">Before <expression/></p><expression id="2">'
+            '<source-math key="s1"><math-ref key="m1"/></source-math> equation. '
+            '<math-ref key="m2"/></expression><p id="3">After equation.</p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='Before $y$ equation.\n\n$$x=1$$\n\nAfter equation.')
+        source = fromstring('<body><p>Before <math id="inline-y"><mi>y</mi></math> equation.</p>'
+                            '<math display="block" id="display-x"><mi>x</mi><mo>=</mo><mn>1</mn></math>'
+                            '<p>After equation.</p></body>')
+        protocol = StructuredTranslation(formulas=XMLInterrupter())
+        async def tasks():
+            yield TranslationTask(source, SubmitKind.REPLACE, None)
+        results = await translator.translate_elements(tasks(), **protocol.arguments(), error_policy=False)
+        target, _ = results[0]
+        protocol.finish(target)
+        self.assertEqual(runtime.context_value.calls, 1)
+        self.assertEqual(target.tag, 'body')
+        self.assertEqual([node.tag for node in target], ['p', 'div', 'p'])
+        self.assertEqual(target[1].get('id'), 'display-x')
+        self.assertEqual([node.get('id') for node in target.iter('math')], ['inline-y', None])
+        self.assertIn(' equation. ', ''.join(target[1].itertext()))
+        self.assertEqual(target[2].text, 'After equation.')
+        self.assertNotIn('expression', tostring(target, encoding='unicode'))
