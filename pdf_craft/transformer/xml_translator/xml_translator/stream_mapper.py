@@ -164,13 +164,17 @@ class XMLStreamMapper:
                         block_element, text_segments = target
                         if isinstance(elements, AsyncIterable):
                             block_element = rebind(current_element, origin, block_element)
-                        if isinstance(elements, AsyncIterable):
-                            by_key = {node.get(NODE_KEY): node for node in current_element.iter() if node.get(NODE_KEY) is not None}
-                            for segment in text_segments:
-                                segment.parent_stack = [by_key.get(parent.get(NODE_KEY), parent) for parent in segment.parent_stack]
                         assert block_element is not None
                         block_element = callbacks.interrupt_block_element(block_element)
                         text_segments = list(callbacks.interrupt_translated_text_segments(text_segments))
+                        if isinstance(elements, AsyncIterable):
+                            # Adapters may restore a cached source pointer or
+                            # materialize fresh translated nodes. Bind the source
+                            # AFTER the callback, never return a detached root.
+                            block_element = rebind(current_element, origin, block_element)
+                            by_key = {node.get(NODE_KEY): node for node in current_element.iter() if node.get(NODE_KEY) is not None}
+                            for segment in text_segments:
+                                segment.parent_stack = [by_key.get(parent.get(NODE_KEY), parent) for parent in segment.parent_stack]
                         if text_segments:
                             if on_mapping is not None:
                                 notifications.append((origin._notification_end, origin, text_segments, block_element))

@@ -5,10 +5,10 @@ from xml.etree.ElementTree import Element
 from tiktoken import Encoding
 
 from pdf_craft.transformer.xml_translator.segment import (
-    BlockImmutableElementsError, BlockSegment, BlockSubmitter, FoundInvalidIDError, TextSegment,
-    search_text_segments,
+    BlockContentError, InlineExpectedIDsError, InlineWrongTagCountError, BlockImmutableElementsError, BlockSegment, BlockSubmitter, FoundInvalidIDError, TextSegment,
+    search_text_segments, TextPosition,
 )
-from pdf_craft.transformer.xml_translator.xml import plain_text
+from pdf_craft.transformer.xml_translator.xml import plain_text, encode_friendly
 from .common import DATA_ORIGIN_LEN_KEY
 from .stream_mapper import InlineSegmentMapping
 from .validation import LEVEL_DEPTH, generate_error_message, nest_as_errors_group, truncate_errors_group
@@ -57,13 +57,13 @@ class HillClimbing:
                 yield None
             else:
                 submitted_element = status.submitter.submitted_element
-                text_segments = list(search_text_segments(submitted_element))
+                text_segments = _submitted_segments(submitted_element)
                 yield inline_segment.parent, text_segments
 
     def candidate_mappings(self, element: Element) -> list[InlineSegmentMapping | None]:
         """Materialize a private, validated candidate before committing it."""
         candidates = {item.id: item for item in self._block_segment.submit(element)}
-        return [(segment.parent, list(search_text_segments(candidates[segment.id].submitted_element, normalize_whitespace=False)))
+        return [(segment.parent, _submitted_segments(candidates[segment.id].submitted_element))
                 if segment.id in candidates else None for segment in self._block_segment]
 
     def submit(self, element: Element) -> str | None:
@@ -94,6 +94,20 @@ class HillClimbing:
                 status.submitter = submitter
 
         return error_message
+
+    def inline_feedback_blocks(self, element: Element) -> list[dict[str, str]]:
+        """Show both allocations for missing inline identities, without guessing semantics."""
+        sources = {node.get('id'): node for node in self._block_segment.create_element()}
+        candidates = {node.get('id'): node for node in element}
+        blocks = []
+        for error in self._block_segment.validate(element):
+            if (isinstance(error, BlockContentError)
+                    and any(isinstance(item, (InlineExpectedIDsError, InlineWrongTagCountError)) for item in error.errors)):
+                key = str(error.id)
+                if key in sources and key in candidates:
+                    blocks.append({'source': encode_friendly(sources[key]),
+                                   'candidate': encode_friendly(candidates[key])})
+        return blocks[:self._max_fill_displaying_errors]
 
     def validate(self, element: Element) -> str | None:
         """Validate a candidate without admitting it to the hill-climbing state.
@@ -139,3 +153,9 @@ class HillClimbing:
             omitted_count=origin_errors_count - errors_group.errors_count,
         )
         return message, block_weights
+
+
+def _submitted_segments(element: Element) -> list[TextSegment]:
+    """An accepted empty allocation must clear its source, not restore it."""
+    return list(search_text_segments(element, normalize_whitespace=False)) or [
+        TextSegment('', [element], 0, 0, 1, TextPosition.TEXT)]

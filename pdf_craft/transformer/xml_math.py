@@ -172,7 +172,7 @@ def strip_bindings(root: Element) -> Element:
     return root
 
 
-def _node(source, text, factory):
+def project_formula(source, text, factory):
     matches = CanonicalMath.matches(text)
     delimited = len(matches) == 1 and matches[0].group() == text
     content = formula_content(text)[0] if delimited else text
@@ -183,6 +183,11 @@ def _node(source, text, factory):
         value = text if delimited else '\\(' + literal_percent(content) + '\\)'
         node = factory(value)
         node.attrib = {**source.element.attrib, **node.attrib}
+    # This is a newly projected value, not a deserialized source pointer.
+    # A copied stream identity would rebind it to the old source MathML and
+    # overwrite the artist's changed display/attributes during async adoption.
+    from .xml_translator.xml_translator.source_store import strip_source
+    strip_source(node)
     node.tail = None
     return node
 
@@ -196,7 +201,7 @@ def _events(text, bindings, factory):
             continue
         if len(selected) == 1 and (selected[0][1].start, selected[0][1].end) == match.span():
             index, binding = selected[0]
-            events.append((*match.span(), [_node(binding.source, binding.text, factory)]))
+            events.append((*match.span(), [project_formula(binding.source, binding.text, factory)]))
             used.add(index)
             continue
         content, inline = formula_content(match.group())
@@ -212,7 +217,7 @@ def _events(text, bindings, factory):
             if cursor < binding.start:
                 residual = text[cursor:binding.start]
                 pieces.append(residual if not residual.strip() else factory(opening + residual + closing))
-            pieces.append(_node(binding.source, binding.text, factory))
+            pieces.append(project_formula(binding.source, binding.text, factory))
             cursor = binding.end
             used.add(index)
         if cursor < end:
@@ -221,7 +226,7 @@ def _events(text, bindings, factory):
         events.append((*match.span(), pieces))
     for index, binding in enumerate(bindings):
         if index not in used:
-            events.append((binding.start, binding.end, [_node(binding.source, binding.text, factory)]))
+            events.append((binding.start, binding.end, [project_formula(binding.source, binding.text, factory)]))
     events.sort(key=lambda event: event[0])
     if any(left[1] > right[0] for left, right in zip(events, events[1:])):
         raise MathProjectionError('Formula identity spans cannot overlap.')
@@ -280,6 +285,10 @@ def project_xml_math(mappings, response, math, factory):
         if _format_shape(root, math_tags) != _format_shape(original_root, math_tags):
             raise MathProjectionError(f'Formula annotation in XML block id={identifier} spans incompatible formatting scopes. '
                                       'Keep every surrounding rich tag. Put source-math inside its intended formatting scope, not around unrelated styled text.')
-        result = list(search_text_segments(root))
+        # The mapping owns this entire validated block, including any artist
+        # display mathematics inserted inside it. Recomputing nearest block
+        # depth for a nested MathML node makes submit strip away the owner and
+        # silently retain only the first of several generated roots.
+        result = [replace(part, block_depth=1) for part in search_text_segments(root)]
         projected.append((block, result or [TextSegment('', [root], 0, 0, 1, TextPosition.TEXT)]))
     return projected

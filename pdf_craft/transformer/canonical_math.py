@@ -5,9 +5,11 @@ mathematical expressions in the first-stage translation. A reference transports
 one complete canonical expression without asking the fill model to retype its
 delimiters or split it according to the source slots.
 """
+from copy import deepcopy
 import re
 import unicodedata
 from collections import Counter
+from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
 from jinja2 import Template
@@ -142,6 +144,65 @@ class CanonicalMath:
                                             following=[(f'm{i+1}', self.values[f'm{i+1}'])
                                                        for i in range(index, min(index+9, len(matches)))])
 
+    def repair_hint(self, root: Element) -> str:
+        """Expose exact missing artist spans with stable math transport references.
+
+        Character diff locates evidence only. It neither chooses source IDs nor
+        changes the response; the same engineer still makes the allocation.
+        """
+        candidate = Element('xml')
+        candidate[:] = [deepcopy(node) for node in root]
+        candidate.text = root.text
+        if self.expand(candidate, require_complete=False) is not None:
+            return ''
+        def visible(text):
+            return ''.join(c for c in unicodedata.normalize('NFD', text) if not is_whitespace(c))
+        expected = visible(self.original)
+        actual = visible(''.join(candidate.itertext()))
+        if expected == actual:
+            return ''
+        # Map decomposed diff positions back to original artist character
+        # boundaries. Diagnostics must retain spaces and literal tag spellings.
+        offsets = [index for index, char in enumerate(self.original)
+                   for part in unicodedata.normalize('NFD', char) if not is_whitespace(part)]
+        rows = []
+        for operation, left, right, start, end in SequenceMatcher(None, expected, actual, autojunk=False).get_opcodes():
+            if operation == 'equal':
+                continue
+            begin = offsets[left] if left < len(offsets) else len(self.original)
+            finish = offsets[right-1]+1 if right > left else begin
+            rows.append(dict(operation=operation, start=start, end=end,
+                             expected=self._fragment(begin, min(finish, begin+6000)),
+                             neighborhood=(self._fragment(max(0, begin-180), min(len(self.original), finish+180))
+                                           if finish-begin <= 360 else ''),
+                             extra_after_complete=(left == right == len(expected) and actual.startswith(expected)),
+                             before=self.original[max(0, begin-100):begin],
+                             after=self.original[finish:finish+100],
+                             received=actual[start:min(end, start+200)],
+                             truncated=finish > begin+6000))
+            if len(rows) == 4:
+                break
+        return _repair_template().render(rows=rows)
+
+    def _fragment(self, start: int, end: int) -> str:
+        root = Element('translation-fragment')
+        previous, cursor = None, start
+        for index, match in enumerate(self.matches(self.original), 1):
+            if match.start() < start or match.end() > end:
+                continue
+            value = self.original[cursor:match.start()]
+            if previous is None:
+                root.text = value
+            else:
+                previous.tail = value
+            previous = SubElement(root, _REFERENCE_TAG, key=f'm{index}')
+            cursor = match.end()
+        if previous is None:
+            root.text = self.original[start:end]
+        else:
+            previous.tail = self.original[cursor:end]
+        return encode_friendly(root)
+
     def expand(self, root: Element, *, require_complete: bool = True) -> str | None:
         """Expand validated references, retaining all canonical delimiter bytes.
 
@@ -202,4 +263,10 @@ def _duplication_template() -> Template:
 @lru_cache(maxsize=1)
 def _alignment_template() -> Template:
     path = Path(__file__).parent / 'xml_translator/data/canonical_alignment.jinja'
+    return Template(path.read_text(encoding='utf-8'))
+
+
+@lru_cache(maxsize=1)
+def _repair_template() -> Template:
+    path = Path(__file__).parent / 'xml_translator/data/canonical_repair.jinja'
     return Template(path.read_text(encoding='utf-8'))

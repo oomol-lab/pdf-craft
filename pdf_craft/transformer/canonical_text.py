@@ -7,6 +7,7 @@ from xml.etree.ElementTree import Element
 
 from ..common.whitespace import is_whitespace, normalize_whitespace
 from .whitespace import WhiteSpace, collapses_breaks, mode_for, normalize
+from .canonical_boundary import structural_gap
 from .xml_translator.xml.matching import element_id, match_children
 
 
@@ -63,6 +64,7 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
     fields: list[_Field] = []
     offset = 0
     replacement_boundaries: set[int] = set()
+    opaque_boundaries: set[int] = set()
 
     def field(element, attribute, path, mode, source):
         nonlocal offset
@@ -93,6 +95,8 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             field(child, 'tail', path, mode, original.tail if original is not None else '')
         if element.tag in replaced_tags:
             replacement_boundaries.update((start, offset))
+            if element.tag not in transparent_tags or start == offset:
+                opaque_boundaries.update((start, offset))
         return True
 
     if sources is not None and len(sources) != len(roots):
@@ -126,6 +130,7 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
         boundary_offsets = {old.start: new.start for old, new in zip(fields, decomposed)}
         boundary_offsets.update({old.end: new.end for old, new in zip(fields, decomposed)})
         replacement_boundaries = {boundary_offsets[index] for index in replacement_boundaries}
+        opaque_boundaries = {boundary_offsets[index] for index in opaque_boundaries}
         root_boundaries = {boundary_offsets[index]: field_index
                            for index, field_index in root_boundaries.items()}
         fields = decomposed
@@ -135,8 +140,18 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
     field_gaps = [_gaps(f.text) for f in fields]
     changes: dict[int, tuple[str, int | None]] = {}
     wanted: dict[int, str] = {}
+    boundary_assignments: dict[int, dict[int, str]] = {}
     for position in actual_gaps.keys() | expected_gaps.keys():
         candidates = [i for i, f in enumerate(fields) if f.start <= position <= f.end]
+        assignments = structural_gap(fields, field_gaps, candidates, position,
+                                     expected_gaps[position], virtual_roots)
+        if assignments is not None:
+            combined = ''.join(assignments.get(i, '') for i in candidates)
+            boundary_assignments[position] = assignments
+            changes[position] = combined, None
+            if combined:
+                wanted[position] = combined
+            continue
         existing = [i for i in candidates if field_gaps[i].get(position - fields[i].start)]
         if position in replacement_boundaries:
             # Replacement erases a node's entire content, but keeps its tail.
@@ -194,7 +209,10 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
         if expected and target is None:
             if protected:
                 return False  # Canonical text cannot allocate multiple preserved fields.
-            if surviving and position not in replacement_boundaries:
+            if surviving and (position not in replacement_boundaries or (
+                    position not in opaque_boundaries
+                    and len({id(fields[i].path[0]) for i in candidates}) == 1
+                    and all(collapses_breaks(fields[i].mode) for i in candidates))):
                 target = surviving[0]  # CSS collapses a normal run across inline boundaries.
             else:
                 # An empty replacement can later restore visible content between
@@ -210,15 +228,20 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             inserted = False
             for char in values[i]:
                 if cursor == position and not inserted:
-                    if i == target:
+                    if position in boundary_assignments:
+                        result.append(boundary_assignments[position].get(i, ''))
+                    elif i == target:
                         result.append(expected)
                     inserted = True
                 if not is_whitespace(char) or cursor != position:
                     result.append(char)
                 if not is_whitespace(char):
                     cursor += 1
-            if cursor == position and not inserted and i == target:
-                result.append(expected)
+            if cursor == position and not inserted:
+                if position in boundary_assignments:
+                    result.append(boundary_assignments[position].get(i, ''))
+                elif i == target:
+                    result.append(expected)
             values[i] = ''.join(result)
     recovered = ''.join(values)
     if dict(_gaps(recovered)) != wanted:
