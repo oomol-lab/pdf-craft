@@ -61,6 +61,19 @@ class LatexComparisonTests(TestCase):
                         self.assertIn('Missing 2, added 0', difference)
                         self.assertIn("'$'", difference)
 
+    def test_postfixed_currency_lists_and_ranges_keep_their_dollar_signs(self):
+        for padding in ('', ' ', '\t', '\n', '\r\n', '\u00a0', '\u2003', '\u3000',
+                        '\x08', '\u200b', '\u2060', '\ufeff', ' \u200b\t\u3000'):
+            for amount in ('30', '.30', '-30', '+30', '−30', '(30)', '− .30', '٫٣٠'):
+                for separator in (' / ', '–', ', '):
+                    raw = f'Prices: 20{padding}${separator}{amount}{padding}$.'
+                    with self.subTest(padding=padding, amount=amount, separator=separator):
+                        self.assertEqual(normalize_latex(raw), raw)
+                        difference = text_difference(raw, raw.replace('$', ''))
+                        assert difference is not None
+                        self.assertIn('Missing 2, added 0', difference)
+                        self.assertIn("'$'", difference)
+
     def test_failures_preserve_construct_and_other_valid_text(self):
         self.assertEqual(normalize_latex(r'$\unknown{a}$ then $\alpha$'), r'$\unknown{a}$ then α')
         for target in ('LatexWalker', 'LatexNodes2Text', '_render'):
@@ -172,6 +185,28 @@ class LatexFillTests(IsolatedAsyncioTestCase):
                     feedback = model.wire_calls[-1][-1].message
                     self.assertIn('Missing 2, added 0', feedback)
                     self.assertIn("'$'", feedback)
+
+    async def test_postfixed_currency_deletion_is_repaired_before_adoption(self):
+        for padding in ('', ' ', '\t', '\n', '\u00a0', '\u3000', '\u200b', ' \u200b\t\u3000'):
+            for amount in ('30', '.30', '-30', '(30)'):
+                for separator in (' / ', '–', ', '):
+                    with self.subTest(padding=padding, amount=amount, separator=separator):
+                        translator, model = translator_fixture()
+                        raw = f'Prices: 20{padding}${separator}{amount}{padding}$.'
+                        missing = raw.replace('$', '')
+                        bad = f'<xml><p id="1">{missing}</p><p id="2"/></xml>'
+                        good = f'<xml><p id="1">{raw}</p><p id="2"/></xml>'
+                        model_replies(model, raw, [bad, good])
+                        result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+                            fromstring('<body><p>Original.</p><p>Next.</p></body>'), SubmitKind.REPLACE, None),
+                            error_policy=False, retry_policy=RetryPolicy(fill=1))
+                        delivered = ''.join(result.itertext())
+                        self.assertEqual(delivered.count('$'), 2)
+                        self.assertEqual(comparison_text(delivered), comparison_text(raw))
+                        self.assertEqual(len(model.wire_calls), 3)
+                        feedback = model.wire_calls[-1][-1].message
+                        self.assertIn('Missing 2, added 0', feedback)
+                        self.assertIn("'$'", feedback)
 
     async def test_visible_braces_cannot_be_removed_by_fill(self):
         for literal, structural in [

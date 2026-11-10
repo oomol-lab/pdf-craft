@@ -45,18 +45,10 @@ def normalize_latex(text: str) -> str:
                 # any nested macro must preserve its braces and delimiters too.
                 node = nodes[0]
                 if isinstance(node, LatexMathNode) and node.delimiters[0] == '$':
-                    # A numeric tail can have padding, signs or punctuation
-                    # (decimal amounts, accounting parentheses, etc.). None
-                    # establishes that the preceding dollars were math. Stop
-                    # at another possible LaTeX construct, rather than look
-                    # through an independent following formula.
-                    following = end
-                    while following < len(text):
-                        char = text[following]
-                        if char in '\\$' or not (is_whitespace(char) or unicodedata.category(char)[0] in 'PS'):
-                            break
-                        following += 1
-                    if text[following:following+1].isnumeric():
+                    # Currency can precede OR follow an amount. Both sides
+                    # must use the same conservative numeric-context check.
+                    if (_numeric_neighbor(text, start-1, -1)
+                            or _numeric_neighbor(text, end, 1)):
                         raise ValueError('Possible adjacent currency amounts')
                 value = _render(node, converter)
             except Exception:  # A parse/conversion failure is not a fill failure.
@@ -67,6 +59,18 @@ def normalize_latex(text: str) -> str:
         return ''.join(parts)
     except Exception:  # Even parser/converter initialization is optional.
         return text
+
+
+def _numeric_neighbor(text: str, position: int, direction: int) -> bool:
+    """Signs/punctuation/padding do not disambiguate currency from math."""
+    while 0 <= position < len(text):
+        char = text[position]
+        if char in '\\$':  # Do not look through another LaTeX construct.
+            return False
+        if not (is_whitespace(char) or unicodedata.category(char)[0] in 'PS'):
+            return char.isnumeric()
+        position += direction
+    return False
 
 
 def _render(node, converter) -> str:
