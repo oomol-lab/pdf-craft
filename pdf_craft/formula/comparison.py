@@ -83,12 +83,19 @@ def _render(node, converter) -> str:
     if isinstance(node, LatexGroupNode):
         return node.delimiters[0] + _children(node, converter) + node.delimiters[1]
     if isinstance(node, LatexMathNode):
+        if (node.delimiters[0] == '$'
+                and not any(char.isalnum() for char in node.latex_verbatim()[1:-1])):
+            # Punctuation/blank space between two dollars does not establish
+            # math: the dollar signs themselves may be the literal content.
+            raise ValueError('No reliable math content between dollar signs')
         # A pair of currency dollars is syntactically valid TeX too. Plain
         # prose words are not enough evidence to strip those dollar signs.
         if any(isinstance(child, LatexCharsNode) and _WORD.search(child.chars)
                for child in node.nodelist):
             raise ValueError('Ambiguous prose inside math delimiters')
         value = _children(node, converter)
+        if node.delimiters[0] == '$' and all(is_whitespace(char) for char in value):
+            raise ValueError('Empty layout is not reliable dollar math content')
         # Braces around ONE script character are only a spelling difference.
         return re.sub(r'([_^])\{([A-Za-z0-9])\}', r'\1\2', value)
     if isinstance(node, LatexMacroNode):

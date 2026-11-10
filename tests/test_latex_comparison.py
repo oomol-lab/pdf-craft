@@ -24,6 +24,9 @@ class LatexComparisonTests(TestCase):
             (r'$$\frac{1}{2}$$', r'\[\frac{1}{2}\]'),
             (r'\frac{1}{2}', r'$\frac{1}{2}$'),
             (r'$\alpha + \beta = \infty$', 'α + β = ∞'),
+            (r'$\infty$', '∞'),
+            (r'$\pm$', '±'),
+            (r'\(+\)', '+'),
             (r'$x^{2}$', 'x^2'),
             (r'$x_{2}$', 'x_2'),
             (r'$x^{2}$.', 'x^2.'),
@@ -73,6 +76,18 @@ class LatexComparisonTests(TestCase):
                         assert difference is not None
                         self.assertIn('Missing 2, added 0', difference)
                         self.assertIn("'$'", difference)
+
+    def test_dollar_signs_without_reliable_math_content_stay_literal(self):
+        for raw in ('The dollar signs ($, $).', 'Symbols: $, $.', 'Symbols: $ / $.',
+                    'Symbols: $ + $.', 'Symbols: $ = $.', 'Symbols: $ … $.',
+                    'Symbols: $ \t $.', 'Symbols: $ \u200b $.', 'Symbols: $ \u3000 $.'):
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize_latex(raw), raw)
+                difference = text_difference(raw, raw.replace('$', ''))
+                assert difference is not None
+                self.assertIn('Missing 2, added 0', difference)
+                self.assertRegex(difference, r"missing: expected\[\d+:\d+\]='\${1,2}'")
+        self.assertEqual(normalize_latex(r'Symbols: $\quad$.'), r'Symbols: $\quad$.')
 
     def test_failures_preserve_construct_and_other_valid_text(self):
         self.assertEqual(normalize_latex(r'$\unknown{a}$ then $\alpha$'), r'$\unknown{a}$ then α')
@@ -207,6 +222,27 @@ class LatexFillTests(IsolatedAsyncioTestCase):
                         feedback = model.wire_calls[-1][-1].message
                         self.assertIn('Missing 2, added 0', feedback)
                         self.assertIn("'$'", feedback)
+
+    async def test_literal_dollar_deletion_requires_existing_loop_repair(self):
+        for raw in ('The dollar signs ($, $).', 'Symbols: $, $.', 'Symbols: $ / $.',
+                    'Symbols: $ + $.', 'Symbols: $ = $.', 'Symbols: $ … $.',
+                    'Symbols: $ \t $.', 'Symbols: $ \u200b $.', 'Symbols: $ \u3000 $.'):
+            with self.subTest(raw=raw):
+                translator, model = translator_fixture()
+                missing = raw.replace('$', '')
+                bad = f'<xml><p id="1">{missing}</p><p id="2"/></xml>'
+                good = f'<xml><p id="1">{raw}</p><p id="2"/></xml>'
+                model_replies(model, raw, [bad, good])
+                result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+                    fromstring('<body><p>Original.</p><p>Next.</p></body>'), SubmitKind.REPLACE, None),
+                    error_policy=False, retry_policy=RetryPolicy(fill=1))
+                delivered = ''.join(result.itertext())
+                self.assertEqual(delivered.count('$'), 2)
+                self.assertEqual(comparison_text(delivered), comparison_text(raw))
+                self.assertEqual(len(model.wire_calls), 3)
+                feedback = model.wire_calls[-1][-1].message
+                self.assertIn('Missing 2, added 0', feedback)
+                self.assertRegex(feedback, r"missing: expected\[\d+:\d+\]='\${1,2}'")
 
     async def test_visible_braces_cannot_be_removed_by_fill(self):
         for literal, structural in [
