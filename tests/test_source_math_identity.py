@@ -6,11 +6,9 @@ from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
 from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly
 
 from pdf_craft import SubmitKind
-from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask, XMLTranslator
 from tests.test_anchored_content_translation import _repairing_translator
-from tests.test_canonical_math_projection import chapter, expression, content_of
 
 
 def provider(translator, replies):
@@ -37,25 +35,13 @@ class SourceMathIdentityTests(IsolatedAsyncioTestCase):
                 calls = provider(translator, [raw])
                 result, _ = await StructuredTranslation().translate(translator, TranslationTask(
                     fromstring('<body><p>Original.</p></body>'), SubmitKind.REPLACE, None), error_policy=False)
-                self.assertEqual(''.join(result.itertext()), ' '.join(raw.split()))
+                self.assertEqual(''.join(result.itertext()), raw)
                 self.assertEqual(len(calls), 1)
                 self.assertEqual(runtime.context_value.calls, 1)
                 payload = runtime.context_value.messages[0][0][1].message.split('Translated text:\n', 1)[1]
                 decoded = next(decode_friendly(payload, tags='translation'))
                 self.assertEqual(''.join(decoded.itertext()), raw)
 
-    async def test_free_formula_translation_has_no_identity_instructions(self):
-        translator, runtime = _repairing_translator([
-            '<xml><fragment id="1">值 <expression><source-math key="s1"><math-ref key="m1"/></source-math></expression>。</fragment></xml>'])
-        calls = provider(translator, [r'值 \(x=1\)。'])
-        source = chapter(['Value ', expression('x=1'), '.'])
-        target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(content_of(target), ['值 ', expression('x=1'), '。'])
-        self.assertEqual(runtime.context_value.calls, 1)
-        actual_prompt = '\n'.join(message.message for message in calls[0])
-        for forbidden in ('source-math', 'JSON', 'placeholder', 's1'):
-            self.assertNotIn(forbidden, actual_prompt)
 
     async def test_fill_retry_does_not_retranslate(self):
         translator, runtime = _repairing_translator([

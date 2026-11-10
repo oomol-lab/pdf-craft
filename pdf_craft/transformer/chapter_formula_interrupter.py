@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 
 from pdf_craft.expression import decode_expression_kind, to_markdown_string
-from .canonical_projection import SourceMath, formula_content
+from .formula_source import SourceMath
+from .formula_payload import formula_payload, replace_formulas
 from pdf_craft.transformer.xml_translator.segment import TextPosition, TextSegment
 from pdf_craft.transformer.xml_translator.xml import (
     DISPLAY_ATTRIBUTE,
@@ -46,8 +47,8 @@ class ChapterFormulaInterrupter:
 
     The temporary ``expression`` nodes never reach a decoded Chapter.  The
     source text shown to the language model contains Markdown-style LaTex
-    delimiters. The first translation carries source references, and accepted
-    math restores original ``inline_expr`` nodes at their translated positions.
+    delimiters. Fill directly writes the editable expression containers, which
+    materialize into current-schema ``inline_expr`` nodes before acceptance.
     Equation asset *content* is injected as
     discarded context into its preceding and following paragraphs, so a token
     budget split cannot hide an equation from either neighboring translation.
@@ -90,14 +91,6 @@ class ChapterFormulaInterrupter:
                 else:
                     element.set(DISPLAY_ATTRIBUTE, display)
 
-    def residual_math(self, canonical: str) -> Element:
-        """Materialize additional artist math, without a source identity."""
-        content, inline = formula_content(canonical)
-        node = Element('inline_expr', {'kind': '\\(' if inline else '\\[',
-                       DISPLAY_ATTRIBUTE: 'inline', _INLINE_DISPLAY_KEY: json.dumps(None)})
-        node.text = content
-        return node
-
     def release(self, root: Element) -> None:
         """Release a settled root's projection tables in a shared stream."""
         nodes = {id(node) for node in root.iter()}
@@ -112,7 +105,7 @@ class ChapterFormulaInterrupter:
         if self._last_paragraph_stack and id(self._last_paragraph_stack[0]) in nodes:
             self._last_paragraph_stack = None
 
-    def source_math(self, segments: Iterable[TextSegment]) -> list[SourceMath]:
+    def source_formulas(self, segments: Iterable[TextSegment]) -> list[SourceMath]:
         identities = {node.get(_FORMULA_ID_KEY): node for segment in segments for node in segment.parent_stack
                       if _FORMULA_ID_KEY in node.attrib}
         return [SourceMath(formula.latex, formula.element, identities[key], context=formula.is_block or ':context:' in key)
@@ -163,52 +156,36 @@ class ChapterFormulaInterrupter:
                     yield standalone
         self._pending_block_formulas.clear()
 
-    def interrupt_translated_text_segments(
-        self, text_segments: Iterable[TextSegment],
-    ) -> Generator[TextSegment, None, None]:
-        """Restore the remaining source-presentation tokens after acceptance.
+    def materialize(self, root: Element) -> Element:
+        def convert(node):
+            value = ''.join(node.itertext())
+            if any(_FORMULA_CONTEXT_KEY in parent.attrib for parent in node.iter()):
+                return node
+            result = Element('inline_expr', {'kind': 'text', DISPLAY_ATTRIBUTE: 'inline',
+                             _INLINE_DISPLAY_KEY: json.dumps(None)})
+            # Plain payloads (40, percentages, prose) remain legal expressions.
+            # Whole-node LaTeX wrappers preserve formula notation without
+            # scanning the artist's text or assigning formula identities.
+            payload = formula_payload(value)
+            if payload != value.strip():
+                result.set('kind', value.strip()[:2] if value.strip().startswith(('\\(', '\\[')) else ('$$' if value.strip().startswith('$$') else '$'))
+                result.text = payload
+            else:
+                result.text = value
+            result.tail = node.tail
+            return result
+        return replace_formulas(root, convert)
 
-        Source math projection has already removed protected inline allocation
-        tokens. Standalone/context tokens retain their existing source path.
-        """
-        for text_segment in text_segments:
-            if any(
-                _FORMULA_CONTEXT_KEY in element.attrib
-                for element in text_segment.parent_stack
-            ):
-                # Context is deliberately visible to the model but has no
-                # counterpart in the source XML.  In particular, discard the
-                # text surrounding its temporary expression as well as the
-                # expression itself; a model may place text in either spot.
-                continue
-            parent_element = text_segment.parent_stack[-1]
-            token_id = parent_element.attrib.pop(_FORMULA_ID_KEY, None)
-            if token_id is None:
-                yield text_segment
-                continue
+    def visible_text(self, root: Element) -> str:
+        if root.tag == _FORMULA_CONTEXT_TAG:
+            return ''
+        if root.tag == 'inline_expr' and root.get('kind') != 'text':
+            return to_markdown_string(decode_expression_kind(root.get('kind', 'text')), plain_text(root))
+        return (root.text or '') + ''.join(self.visible_text(child) + (child.tail or '') for child in root)
 
-            formula = self._formula_by_id.get(token_id)
-            if formula is None:
-                # A foreign temporary node must never become a formula result.
-                continue
-            if formula.is_block:
-                # Equation asset content remains in the source XML.  Returning
-                # no segment prevents XML submission from replacing it.
-                continue
-
-            raw_text_segments = self._raw_text_segments.pop(token_id, None)
-            if not raw_text_segments:
-                # Do not fall back to model-produced formula text if a token was
-                # malformed or lost. Formula fidelity is stricter than text fill.
-                continue
-
-            text_basic_parent_stack = text_segment.parent_stack[:-1]
-            for raw_text_segment in raw_text_segments:
-                raw_text_segment.parent_stack = (
-                    text_basic_parent_stack + raw_text_segment.parent_stack
-                )
-                raw_text_segment.block_depth = _block_depth(raw_text_segment.parent_stack)
-                yield raw_text_segment
+    def interrupt_translated_text_segments(self, text_segments: Iterable[TextSegment]) -> Iterable[TextSegment]:
+        return (part for part in text_segments if not any(
+            _FORMULA_CONTEXT_KEY in node.attrib for node in part.parent_stack))
 
     def interrupt_block_element(self, element: Element) -> Element:
         """Remove transient metadata before the XML submitter sees a token."""
@@ -291,7 +268,7 @@ class ChapterFormulaInterrupter:
 
     def _pop_formula(self, token_id: str) -> TextSegment | None:
         formula = self._formula_by_id.get(token_id)
-        text_segments = self._raw_text_segments.get(token_id)
+        text_segments = self._raw_text_segments.pop(token_id, None)
         if formula is None or not text_segments:
             return None
 
@@ -310,13 +287,6 @@ class ChapterFormulaInterrupter:
         parent_stack = first.parent_stack[:formula_index] + [placeholder]
         left_common_depth = first.left_common_depth
         right_common_depth = text_segments[-1].right_common_depth
-        for text_segment in text_segments:
-            # Preserve just the original formula-relative stack. It is grafted
-            # back below the translated text location during restoration.
-            text_segment.left_common_depth = max(0, text_segment.left_common_depth - formula_index)
-            text_segment.right_common_depth = max(0, text_segment.right_common_depth - formula_index)
-            text_segment.parent_stack = text_segment.parent_stack[formula_index:]
-            text_segment.block_depth = _block_depth(text_segment.parent_stack)
 
         return TextSegment(
             text=f" {formula.latex} ",

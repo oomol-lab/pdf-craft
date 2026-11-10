@@ -11,8 +11,17 @@ from tiktoken import get_encoding
 
 from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
-from pdf_craft.transformer.canonical_projection import SourceMath
-from pdf_craft.transformer.source_math import SourceMathTranslation
+from pdf_craft.transformer.formula_source import SourceMath
+from dataclasses import dataclass, field
+
+
+@dataclass
+class SourceEvidence:
+    """Historical fixture evidence only; never a product protocol."""
+    sources: list
+    blocks: dict = field(default_factory=dict)
+    evidence: dict = field(default_factory=dict)
+
 from pdf_craft.transformer.xml_translator.segment import BlockSegment, search_inline_segments, search_text_segments
 from pdf_craft.transformer.xml_translator.xml import XMLLikeNode, is_inline_element
 from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly
@@ -26,8 +35,34 @@ CONTEXT = ('2fc996758179438caf28f4dc71432321', '7ab7a9fbb1f74dd9a712b758b6226ce6
            'aaad3285686b4693acbdaf586f9868c8')
 
 
+EXTRA = ('47f9aeedb59c4337b01c215663ff73b1', '58e4c2f28a3747faaacdcda39dd39e2e',
+         'c4abdd4df2c840cf9c76050837e13670', '0ba0da62b6084074af18549dbfb2ad51')
+
+
+def read_case(base, key):
+    path = base / 'text-cases' / f'{key}.json'
+    if path.exists():
+        return json.loads(path.read_text())
+    # Reconstruct the additional multi-formula incident from its retained
+    # first request. This is archived-data decoding, not artist preprocessing.
+    path = base / 'unpacked/analysis/0/llm-failures' / key / 'attempts.jsonl'
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    message = rows[0]['messages'][1]['content']
+    template = re.search(r'XML template:\n```XML\n(.*?)\n```', message, re.S)
+    assert template is not None
+    translation = next(decode_friendly(message, tags='translation'))
+    table = dict(re.findall(r'(?ms)^m(\d+): (.*?)(?=^m\d+: |\n\n<math-ref)', message))
+    values = {'m'+key: value.rstrip('\n') for key, value in table.items()}
+    canonical = translation.text or ''
+    for child in translation:
+        canonical += values[child.get('key')] + (child.tail or '')
+    return dict(id=key, job='b8d7ed0b-65c2-495e-8a2d-6857ab739bb4', canonical=canonical,
+                source_template=template[1], artist_math_values=values,
+                rounds=[dict(candidate=row['response']) for row in rows])
+
+
 def load_case(base, key):
-    data = json.loads((base / 'text-cases' / f'{key}.json').read_text())
+    data = read_case(base, key)
     source = next(decode_friendly(data['source_template'], tags='xml'))
     segments = []
     for node in source:
@@ -103,7 +138,7 @@ def source_math(base, key, data, source, segments):
     if len(matches) != 1:
         raise ValueError('Original source formula sequence is not unique')
     found = available[matches[0]:matches[0]+len(wanted)]
-    math = SourceMathTranslation([SourceMath(value, deepcopy(node)) for value, node in found])
+    math = SourceEvidence([SourceMath(value, deepcopy(node)) for value, node in found])
     by_id = {segment.id: segment for segment in segments}
     for row in table:
         identity = row.get('key')

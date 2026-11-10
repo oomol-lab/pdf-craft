@@ -141,7 +141,7 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
                 source_chapter = decode(read_xml(paths.chapters/'chapter_head.xml'))
                 target_chapter = decode(read_xml(paths.translations/'notes/chapters/chapter_head.xml'))
                 self.assertEqual([cast(SourceTextFragment, cast(TextFlowItem, note.flow_items[0]).children[0]).content for note in target_chapter.definitions],
-                                 [['第一 note.'], ['第二 note.']])
+                                 [['第一 note. '], ['第二 note.']])
                 states = read_coverage(paths.translations/'notes/coverage.xml').narrative
                 for note in source_chapter.definitions:
                     identity = paragraph_identity(source_chapter, cast(TextFlowItem, note.flow_items[0]))

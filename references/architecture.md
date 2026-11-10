@@ -97,14 +97,13 @@ mapper 连续收集跨章节来源，以 token 预算和最多 64 个文本块�
 通过 JSON 外壳重新聚合。`request_batch.py` 只维护操作级请求并发容量，
 共享 executor 继续限制供应商并发。源码暂停时有界交付尾组，不预载全书。
 
-fill 按整组全文、模板结构和公式来源身份进行原子验收；重试不会采用任何部分结果，
+fill 按整组全文、模板结构和必要来源结构进行原子验收；重试不会采用任何部分结果，
 不同 group 可并发前进。验证成功后按稳定身份回填各来源章节、节点与 CFI，
 正文与脚注的通知通道仍独立。无歧义的程序填充也必须通过同样的验收。
 XML 回答输出预算由模板、整组译文与公式身份数量确定，所有重试共用一个有限预算。
 
 离线请求计数、跨章节、取消及回填回归见 `tests/test_translation_grouping.py`；
-公式身份和值变化回归见 `tests/test_elastic_formula_restore.py`、
-`tests/test_canonical_math_projection.py` 与 `tests/test_online_formula_allocation.py`。
+最终公式内容与文档完整性回归见 `tests/test_fill_boundary.py`。
 
 ## 外部包边界
 

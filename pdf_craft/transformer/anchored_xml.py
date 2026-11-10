@@ -213,7 +213,7 @@ def _asset_structure(element: Element, projected_units: set[str] | None = None,
     leading = True if canonical_text else bool(element.text and element.text.strip())
     children = []
     for child in element:
-        if canonical_math and child.tag == 'inline_expr' and child.get('kind') != 'text':
+        if canonical_math and child.tag == 'inline_expr':
             # Typed math occupies the same mixed-content slot as its canonical
             # text. Do not freeze its old count/value after validating the new
             # mathematical allocation; keep every non-math markup boundary.

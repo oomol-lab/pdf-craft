@@ -29,7 +29,9 @@ class EchoModel:
     @staticmethod
     def answer(messages):
         user = messages[1 if len(messages) > 1 else 0]['content']
-        template = re.search(r'XML template:\n```XML\n(.*?)\n```', user, re.S)
+        template = re.search(r'Source XML .*?:\n```XML\n(.*?)\n```', user, re.S)
+        if template is None:
+            template = re.search(r'XML template:\n```XML\n(.*?)\n```', user, re.S)
         return xml_echo(template[1], user) if template else user.split('Text to translate:\n', 1)[-1].strip('\n')
 
 def paragraph(index):
@@ -48,23 +50,17 @@ def translator_fixture(*, max_group_score=10000, encoding='cl100k_base'):
     return translator, model
 
 
-def xml_echo(template, user):
+def xml_echo(template, _user):
     """Offline identity translator: emit the real XML engineering protocol."""
-    from xml.etree.ElementTree import SubElement
     from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly, encode_friendly
     root = next(decode_friendly(template, tags='xml'))
-    tables = list(decode_friendly(user, tags='source-formulas'))
-    context_expressions = set()
+    from pdf_craft.transformer.fill_text import plain_translation
+    for node in root.iter():
+        if node.text:
+            node.text = plain_translation(node.text)
+        if node.tail:
+            node.tail = plain_translation(node.tail)
     for context in root.iter('formula_context'):
         for node in context.iter():
-            context_expressions.add(id(node))
             node.text = node.tail = None
-    if tables:
-        keys = iter(node.attrib['key'] for node in tables[0])
-        for node in list(root.iter('expression')):
-            if id(node) in context_expressions:
-                continue
-            value = node.text
-            node.text = None
-            SubElement(node, 'source-math', key=next(keys)).text = value
     return encode_friendly(root)

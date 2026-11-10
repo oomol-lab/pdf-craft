@@ -41,7 +41,6 @@ from pdf_craft.transformer.xml_translator.xml import (
 )
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind, TranslationTask, XMLTranslator
 from .epub_transcode import decode_metadata, decode_toc_list, encode_metadata, encode_toc_list
-from .punctuation import unwrap_french_quotes
 from .xml_interrupter import XMLInterrupter
 from ....transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator.submitter import submit as submit_xml
@@ -156,7 +155,7 @@ async def translate(
         chapters_to_write: dict[Path, XMLLikeNode] = {}
         translated_metadata_element = next(
             (
-                unwrap_french_quotes(element)
+                element
                 for element, context in results
                 if context.element_type == _ElementType.METADATA
             ),
@@ -177,7 +176,6 @@ async def translate(
         )
         for translated_elem, context in results:
             if context.element_type == _ElementType.TOC:
-                translated_elem = unwrap_french_quotes(translated_elem)
                 if context.toc_context is not None:
                     write_toc(
                         archive,
@@ -297,7 +295,7 @@ async def translate(
             element, context = result
             protocol.finish(element)
             if context.element_type == _ElementType.METADATA and on_metadata is None:
-                await notify_metadata(decode_metadata(unwrap_french_quotes(element)))
+                await notify_metadata(decode_metadata(element))
             if context.element_type in (_ElementType.TOC, _ElementType.METADATA):
                 header_results.append(result)
             else:
@@ -322,7 +320,7 @@ async def translate(
                 # source tree. Presentation writeback keeps the original maps.
                 source, replacements = deepcopy((element, mappings))
                 replacement = submit_xml(source, SubmitKind.REPLACE, replacements)
-                return [field for field in decode_metadata(unwrap_french_quotes(replacement))
+                return [field for field in decode_metadata(replacement)
                         if field.tag_name not in context.missing_metadata_tags]
 
             await notify_metadata(await ARCHIVE_DOMAIN.run(replacement_fields))

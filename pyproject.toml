@@ -43,6 +43,7 @@ dependencies = [
     "resource-segmentation>=0.0.7,<0.1.0",
     "mathml2latex>=0.2.12,<0.3.0",
     "pdfminer.six==20260107",
+    "markdown-it-py (>=3,<5)",
 ]
 
 [project.urls]

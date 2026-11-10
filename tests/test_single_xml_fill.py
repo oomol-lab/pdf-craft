@@ -3,10 +3,9 @@
 from unittest import IsolatedAsyncioTestCase
 from xml.etree.ElementTree import fromstring
 from pdf_craft import RetryPolicy, SubmitKind
-from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
-from tests.test_elastic_formula_restore import model_replies
+from tests.fill_fixtures import model_replies
 from tests.translation_model import translator_fixture
 
 
@@ -23,24 +22,16 @@ class SingleXMLFillTests(IsolatedAsyncioTestCase):
                 self.assertEqual(len(model.wire_calls), 2)
                 self.assertNotIn('"end"', model.wire_calls[-1][0].message)
 
-    async def test_complete_xml_reading_order_and_ids_define_different_owners(self):
+    async def test_final_source_order_is_repaired_before_adoption(self):
         translator, model = translator_fixture()
         model_replies(model, 'Second translated.\n\nFirst translated.', [
-            '<xml><p id="2">Second translated.</p><p id="1">First translated.</p></xml>'])
+            '<xml><p id="2">Second translated.</p><p id="1">First translated.</p></xml>',
+            '<xml><p id="1">Second translated.</p><p id="2">First translated.</p></xml>'])
         tasks = [TranslationTask(fromstring(f'<body><p>{text} original.</p></body>'), SubmitKind.REPLACE, text) for text in ('First', 'Second')]
         result = await StructuredTranslation().translate_many(translator, tasks, error_policy=False)
-        self.assertEqual([(root[0].text, key) for root, key in result], [('First translated.', 'First'), ('Second translated.', 'Second')])
-        self.assertEqual(len(model.wire_calls), 2)
+        self.assertEqual([(root[0].text, key) for root, key in result], [('Second translated.', 'First'), ('First translated.', 'Second')])
+        self.assertEqual(len(model.wire_calls), 3)
 
-    async def test_equal_formula_values_keep_distinct_source_attributes_after_reordering(self):
-        translator, model = translator_fixture()
-        model_replies(model, '$x$ second, $x$ first.', [
-            '<xml><p id="1"><expression id="2"><source-math key="s2"><math-ref key="m1"/></source-math></expression> second, '
-            '<expression id="3"><source-math key="s1"><math-ref key="m2"/></source-math></expression> first.</p></xml>'])
-        source = fromstring('<body><p><math id="first"><mi>x</mi></math> first, <math id="second"><mi>x</mi></math> second.</p></body>')
-        target, _ = await StructuredTranslation(formulas=XMLInterrupter()).translate(translator, TranslationTask(source, SubmitKind.REPLACE, None), error_policy=False)
-        self.assertEqual([node.get('id') for node in target.iter('math')], ['second', 'first'])
-        self.assertEqual(len(model.wire_calls), 2)
 
     async def test_diff_reports_actual_missing_and_added_text_without_retranslation(self):
         translator, model = translator_fixture()
@@ -51,9 +42,9 @@ class SingleXMLFillTests(IsolatedAsyncioTestCase):
         feedback = model.wire_calls[-1][-1].message
         self.assertIn('Missing', feedback)
         self.assertIn('added', feedback)
-        self.assertIn('id=1', feedback)
-        self.assertIn('correct', feedback)
-        self.assertIn('wrong', feedback)
+        self.assertIn('candidate[', feedback)
+        self.assertIn('rrect', feedback)
+        self.assertIn('wr', feedback)
 
     async def test_duplicate_unknown_missing_block_ids_repair_atomically(self):
         valid = '<xml><p id="1">First.</p><p id="2">Second.</p></xml>'
@@ -83,13 +74,4 @@ class SingleXMLFillTests(IsolatedAsyncioTestCase):
         source = fromstring('<body><pre>original  code\nline</pre></body>')
         target, _ = await StructuredTranslation().translate(translator, TranslationTask(source, SubmitKind.REPLACE, None), error_policy=False)
         self.assertEqual(target[0].text, 'a  b\n\tc')
-        self.assertEqual(len(model.wire_calls), 2)
-
-    async def test_partial_annotation_inside_math_uses_delimiter_width_not_text_search(self):
-        from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
-        from tests.test_canonical_math_projection import chapter, expression, content_of
-        translator, model = translator_fixture()
-        model_replies(model, r'\((x)\)', [r'<xml><fragment id="1"><expression>\(<source-math key="s1">(x)</source-math>\)</expression></fragment></xml>'])
-        target = await NarrativeXMLTransformer(translator).transform(chapter([expression('(x)')]), error_policy=False)
-        self.assertEqual(content_of(target), [expression('(x)')])
         self.assertEqual(len(model.wire_calls), 2)

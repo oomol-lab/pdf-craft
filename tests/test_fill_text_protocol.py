@@ -122,7 +122,7 @@ class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
         assert isinstance(item, TextFlowItem)
         fragment = item.children[0]
         assert isinstance(fragment, SourceTextFragment)
-        self.assertEqual(fragment.content, [text])
+        self.assertEqual(fragment.content, [text + ' '])
         self.assertEqual(runtime.context_value.calls, 1)
 
     async def test_pcex_escaped_translation_passes_real_canonical_fill(self):

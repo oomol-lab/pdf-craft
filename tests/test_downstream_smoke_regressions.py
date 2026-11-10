@@ -11,14 +11,13 @@ from pdf_craft._policy import policy_operation
 from pdf_craft.extractor.chapter.chapter import SourceAsset
 from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
 from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
-from pdf_craft.transformer.canonical_math import CanonicalMath
 from pdf_craft.transformer.xml_translator.xml_translator.translator import XMLFillError
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.segment import search_inline_segments, search_text_segments
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
 from tests.translation_model import translator_fixture
 from tests.test_anchored_content_translation import _repairing_translator
-from tests.test_canonical_math_allocation import source as formula_source
+from tests.fill_fixtures import source as formula_source
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from tests.test_structured_translation import offline_translator
 
@@ -28,11 +27,6 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
     async def _translations(self, translator, texts, *, retry_policy=None):
         return await asyncio.gather(*(translator._translate_text_async(text) for text in texts),
                                     return_exceptions=True)
-
-
-
-
-
 
 
     async def test_identical_text_and_quotations_are_not_quality_retry_triggers(self):
@@ -66,18 +60,6 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
         self.assertEqual(target.content, source.content)
         self.assertEqual(source, saved)
 
-    def test_mixed_literal_math_still_requires_exact_canonical_text(self):
-        protocol = StructuredTranslation()
-        segments = list(search_inline_segments(search_text_segments(fromstring('<p>source</p>'))))
-        segments[0].id = 1
-        canonical = '$x$ and $y$'
-        math = CanonicalMath(canonical)
-        response = fromstring('<xml><p id="1"><math-ref key="m1"/> and $y$</p></xml>')
-        self.assertIsNone(math.expand(response, require_complete=False))
-        self.assertIsNone(protocol.validate(segments, canonical, response))
-        broken = fromstring('<xml><p id="1"><math-ref key="m1"/> and </p></xml>')
-        self.assertIsNone(math.expand(broken, require_complete=False))
-        self.assertIsNotNone(protocol.validate(segments, canonical, broken))
 
     async def test_extra_canonical_math_cannot_be_adopted_as_a_new_source_formula(self):
         translator, runtime = _repairing_translator(['<xml><fragment id="1"/></xml>'] * 2)
@@ -94,7 +76,7 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
         response = fromstring('<xml><fragment id="1">e\u0301 label</fragment><fragment id="2">next</fragment></xml>')
         protocol = StructuredTranslation(owner=lambda _segment: root)
         self.assertIsNone(protocol.validate(segments, 'é label next', response))
-        self.assertEqual(response[0].text, 'e\u0301 label ')
+        self.assertEqual(response[0].text, 'e\u0301 label')
 
     def test_cosmetic_gap_between_slots_of_one_owner_survives_submission(self):
         source = fromstring('<text><fragment>11. Visit disposition</fragment><fragment>Figure 10</fragment></text>')
@@ -104,6 +86,6 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
         protocol = StructuredTranslation(owner=lambda _segment: source)
         response = fromstring('<xml><fragment id="1">11. 就诊处置</fragment><fragment id="2">图10</fragment></xml>')
         self.assertIsNone(protocol.validate(segments, '11. 就诊处置 图10', response))
-        self.assertEqual(response[0].text, '11. 就诊处置 ')
+        self.assertEqual(response[0].text, '11. 就诊处置')
         self.assertIsNone(response[0].tail)
         self.assertNotIn(b'math-ref', tostring(response))

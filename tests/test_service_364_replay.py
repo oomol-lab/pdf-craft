@@ -13,9 +13,13 @@ from zipfile import ZipFile
 
 from pdf_craft import SubmitKind
 from pdf_craft.transformer.whitespace import normalize
-from pdf_craft.transformer.canonical_projection import formula_content
+from pdf_craft.transformer.formula_payload import formula_payload
+
+def formula_content(value):
+    return formula_payload(value), not value.startswith(("$$", r"\["))
+
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
-from tests.test_canonical_math_projection import chapter, expression, content_of
+from tests.fill_fixtures import chapter, expression, content_of
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Chapter, TextFlowItem, SourceTextFragment
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
@@ -81,8 +85,9 @@ def xml_oracle(template, texts, sources, allocations):
     xml = re.search(r'XML template:\n```XML\n(.*?)\n```', template, re.S)
     assert xml is not None
     root = next(decode_friendly(xml[1], tags='xml'))
-    offset = 0
     for node, text, source, allocation in zip(root, texts, sources, allocations, strict=True):
+        formulas = list(node.iter('expression'))
+        keys = list(source['formulas'])
         for field in node.iter():
             field.text = field.tail = None
         spans = []
@@ -93,29 +98,26 @@ def xml_oracle(template, texts, sources, allocations):
             positions = [start for start in positions if text[:start].endswith(before)
                          and text[start+len(literal):].startswith(after)]
             assert len(positions) == 1, (literal, positions)
-            cursor = positions[0]
-            parts = formula.get('parts', [dict(keys=[formula['key']], text=literal)])
-            for part in parts:
-                for key in part.get('keys', []):
-                    spans.append((cursor, cursor+len(part['text']), f's{offset+int(key[1:])}'))
-                cursor += len(part['text'])
-        offset += len(source['formulas'])
-        cursor, previous, tokens = 0, None, []
-        for start, end, key in sorted(spans):
+            position = positions[0]
+            spans.append((position, position+len(literal), formulas[keys.index(formula['key'])]))
+        cursor, previous = 0, None
+        used = []
+        original = list(node)
+        node[:] = []
+        for start, end, expression_node in sorted(spans, key=lambda item: item[0]):
             if previous is None:
                 node.text = text[cursor:start]
             else:
                 previous.tail = text[cursor:start]
-            previous = Element('source-math', key=key)
-            previous.text = text[start:end]
-            tokens.append(previous)
-            cursor = end
+            expression_node.text = text[start:end]
+            node.append(expression_node)
+            used.append(expression_node)
+            previous, cursor = expression_node, end
         if previous is None:
             node.text = text
         else:
             previous.tail = text[cursor:]
-        # Keep annotation order independent of empty template expression slots.
-        node[:] = tokens + [child for child in node if child.tag != 'source-math']
+        node.extend(child for child in original if child not in used)
     return encode_friendly(root)
 
 
@@ -186,7 +188,7 @@ class Service364ReplayTests(IsolatedAsyncioTestCase):
             engineers.append(messages)
             units = json.loads(rows[10]['response'])
             xml = xml_oracle(messages[1]['content'], [unit['text'] for unit in units], payload['sources'], units)
-            return xml.replace('key="s1"', 'key="unknown"', 1) if len(engineers) == 1 else xml
+            return xml.replace('id="1"', 'id="9999"', 1) if len(engineers) == 1 else xml
         model.answer = answer
         target = await NarrativeXMLTransformer(translator).transform(Chapter(None, -1, items), error_policy=False)
         self.assertEqual(len(artists), 1)
