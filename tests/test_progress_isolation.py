@@ -242,8 +242,11 @@ class TranslationIsolationTests(IsolatedAsyncioTestCase):
         for kind in ('pcex', 'epub', 'pdf'):
             with self.subTest(kind=kind), TemporaryDirectory() as directory:
                 events = []
+                # PDF's disk feed forwards producer failures as RuntimeError;
+                # either task may report first. Both must fail the operation.
+                error_type = (OSError, RuntimeError) if kind == 'pdf' else OSError
                 with patch('pdf_craft.transformer.xml_translator.xml_translator.source_store.TaskStore.save',
-                           side_effect=OSError('business task storage')), self.assertRaisesRegex(OSError, 'business task storage'):
+                           side_effect=OSError('business task storage')), self.assertRaisesRegex(error_type, 'business task storage'):
                     await self.convert(kind, Path(directory), events.append)
                 self.assertFalse(operation_completed(events))
 
