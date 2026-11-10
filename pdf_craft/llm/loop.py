@@ -7,6 +7,7 @@ from typing import Any, Generic, Protocol, TypeVar
 from pathlib import Path
 
 from .failure_log import FailureLog
+from .failure_scope import active_failure_scope
 
 from .types import Message, MessageRole
 from ..usage import UsageScope
@@ -77,11 +78,21 @@ async def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
         'max_attempts': max(1, options.max_attempts), 'history_limit': options.history_limit,
         **(options.failure_log_context or {}),
     })
-    with log.scope():
+    owner = active_failure_scope()
+    try:
+        with log.scope():
+            result = await _run(options, log)
+    except BaseException as error:
         try:
-            return await _run(options, log)
+            await log.failed(error)
         finally:
             await log.close()
+        raise
+    if owner is None:
+        await log.close()
+    else:
+        owner.add(log)
+    return result
 
 
 async def _run(options: RepairLoopOptions[T, S], log: FailureLog) -> T:
@@ -96,6 +107,7 @@ async def _run(options: RepairLoopOptions[T, S], log: FailureLog) -> T:
         with UsageScope() as scope:
             response = await options.request(current, attempt, attempts - 1)
             last_response = response
+            log.record['response'] = response
             result = (
                 await options.protocol.empty(state, attempt, attempts)
                 if not normalize_whitespace(response, trim=True)
@@ -123,10 +135,4 @@ async def _run(options: RepairLoopOptions[T, S], log: FailureLog) -> T:
         additions.append(Message(MessageRole.USER, result.feedback))
         retry_history = [*retry_history, *additions][-max(1, options.history_limit):]
         current = [*initial, *retry_history]
-    try:
-        return await options.protocol.exhausted(state, attempts, last_response)
-    except Exception as error:
-        identifier = await log.retain(error, attempts)
-        if identifier is not None:
-            setattr(error, "failure_log_id", identifier)
-        raise
+    return await options.protocol.exhausted(state, attempts, last_response)

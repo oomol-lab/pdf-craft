@@ -1,4 +1,4 @@
-"""Request-local, disk-backed evidence retained only on protocol exhaustion."""
+"""Disk-backed loop evidence, retained on failure until adoption completes."""
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
+import traceback
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 import uuid
@@ -59,6 +60,8 @@ class FailureLog:
         self.secrets: set[str] = set()
         self.complete = True
         self.retained = False
+        self.attempt = 0
+        self.recorded = False
 
     @contextmanager
     def scope(self) -> Iterator[None]:
@@ -101,6 +104,8 @@ class FailureLog:
             stream.write(json.dumps(self._redact(record), ensure_ascii=True) + '\n')
 
     def begin(self, attempt: int, messages) -> None:
+        self.attempt = attempt
+        self.recorded = False
         self.record = {'attempt': attempt, 'started_at': _now(), 'messages': [
             {'role': message.role.name.lower(), 'content': message.message} for message in messages]}
 
@@ -152,22 +157,38 @@ class FailureLog:
         self.record.update(response=response, completed_at=_now(), validation=type(result).__name__,
                            feedback=getattr(result, 'feedback', None))
         await self._io(lambda: self._append('attempts.jsonl', self.record))
+        self.recorded = True
 
-    async def retain(self, error: Exception, attempts: int) -> str | None:
+    async def retain(self, error: BaseException, attempts: int) -> str | None:
         if self.path is None:
             return None
+        if self.retained:
+            return self.identifier
         destination = self.path
         def publish():
             directory = self._directory()
             summary = {**self.context, 'format_version': 1, 'failure_log_id': self.identifier,
                        'started_at': self.started, 'completed_at': _now(), 'attempts': attempts,
-                       'complete': self.complete, 'error': {'type': type(error).__name__, 'message': str(error)}}
+                       'complete': self.complete, 'error': {'type': type(error).__name__, 'message': str(error),
+                           'traceback': ''.join(traceback.format_exception(error))}}
             (directory / 'summary.json').write_text(
                 json.dumps(self._redact(summary), ensure_ascii=True, indent=2), encoding='utf-8')
             directory.rename(destination / self.identifier)
             self.retained = True
             return self.identifier
         return await self._io(publish)
+
+    async def failed(self, error: BaseException) -> None:
+        """Archive any exceptional exit, including an unfinished attempt."""
+        await self.flush()
+        if self.path is not None and self.record and not self.recorded:
+            self.record.update(completed_at=_now(), validation='Exception',
+                               error={'type': type(error).__name__, 'message': str(error)})
+            await self._io(lambda: self._append('attempts.jsonl', self.record))
+            self.recorded = True
+        identifier = await self.retain(error, self.attempt)
+        if identifier is not None and getattr(error, 'failure_log_id', None) is None:
+            setattr(error, 'failure_log_id', identifier)
 
     async def close(self) -> None:
         pending = self.pending

@@ -30,6 +30,7 @@ from pdf_craft._policy import current, recover
 from pdf_craft.policies import FailureCategory, RetryScope
 from pdf_craft._failure_sources import tag_locations, segment_locations, task_locations
 from .hill_climbing import HillClimbing
+from .fill_diagnostics import FillDiagnostics
 from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
 from .submitter import SubmitKind, submit
 from ...word_count import count_xml_words
@@ -419,44 +420,49 @@ class XMLTranslator:
             strip_source(element)
             await invoke_callback(on_task_result, (element, task))
 
+        diagnostics = FillDiagnostics()
         mapping_stream = stream_mapper.map_stream_async(
             elements=generate_async_elements() if async_tasks is not None else generate_elements(),
             callbacks=callbacks, window=window, progress=progress, ownership=translation_protocol, ordered_roots=ordered_roots,
             on_mapping=mapping_callback if on_mapping is not None or on_task_mapping is not None else None,
-            map=translate_round, on_empty=empty_task,
+            map=translate_round, on_empty=empty_task, diagnostics=diagnostics,
         )
-        async with aclosing(mapping_stream):
-            async for element, mappings in mapping_stream:
-                from .source_store import source_identity, strip_source
-                task = (await IO_DOMAIN.run(_task_store.pop, source_identity(element))
-                        if _task_store is not None else element2task.pop(id(element), None))
-                if task is None:
-                    continue
-                from .source_store import owner_outcomes
-                task.outcomes.update(owner_outcomes(element, mappings))
-                if on_before_submit is not None:
-                    await invoke_callback(on_before_submit, (element, mappings, task.payload))
-                identity = source_identity(element) if _task_store is not None else id(element)
-                strip_source(element)
-                translated_element = submit(
-                    element=element, action=task.action, mappings=mappings,
-                )
-                unit = await load_unit(identity)
-                if disk_units is not None and progress is not None:
-                    await progress.attempt(IO_DOMAIN.run, disk_units.delete, identity)
-                else:
-                    live_units.pop(identity, None)
-                if unit is not None:
-                    if task.outcomes and not all(task.outcomes.values()):
-                        unit.outcome = UnitOutcome.FALLBACK
-                    if scope_item is None and progress is not None and unit not in progress.headers.values():
-                        await unit.finish()
-                strip_source(translated_element)
-                await invoke_callback(on_task_result, (translated_element, task))
-                result = (translated_element, task.payload)
-                await invoke_callback(on_result, result)
-                if collect_results:
-                    results.append(result)
+        try:
+            async with aclosing(mapping_stream):
+                async for element, mappings in mapping_stream:
+                    async with diagnostics.submission(element):
+                        from .source_store import source_identity, strip_source
+                        task = (await IO_DOMAIN.run(_task_store.pop, source_identity(element))
+                                if _task_store is not None else element2task.pop(id(element), None))
+                        if task is None:
+                            continue
+                        from .source_store import owner_outcomes
+                        task.outcomes.update(owner_outcomes(element, mappings))
+                        if on_before_submit is not None:
+                            await invoke_callback(on_before_submit, (element, mappings, task.payload))
+                        identity = source_identity(element) if _task_store is not None else id(element)
+                        strip_source(element)
+                        translated_element = submit(
+                            element=element, action=task.action, mappings=mappings,
+                        )
+                        unit = await load_unit(identity)
+                        if disk_units is not None and progress is not None:
+                            await progress.attempt(IO_DOMAIN.run, disk_units.delete, identity)
+                        else:
+                            live_units.pop(identity, None)
+                        if unit is not None:
+                            if task.outcomes and not all(task.outcomes.values()):
+                                unit.outcome = UnitOutcome.FALLBACK
+                            if scope_item is None and progress is not None and unit not in progress.headers.values():
+                                await unit.finish()
+                        strip_source(translated_element)
+                        await invoke_callback(on_task_result, (translated_element, task))
+                        result = (translated_element, task.payload)
+                        await invoke_callback(on_result, result)
+                        if collect_results:
+                            results.append(result)
+        finally:
+            await diagnostics.close()
 
         if owns_progress and progress is not None and _progress_owner is None:
             await progress.finish()

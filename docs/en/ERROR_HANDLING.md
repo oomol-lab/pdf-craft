@@ -225,29 +225,33 @@ redaction policy before logging or sending them to analytics. Structured reasons
 not alter fallback decisions, retry classification or document usability checks.
 
 
-## Exhausted LLM repair evidence
+## LLM repair and adoption failure evidence
 
 Set the keyword-only `LLM(..., failure_log_path="analysis/llm-failures")` to
-retain full interaction evidence only when a protocol repair loop exhausts its
-integrity-validation budget. The default `None` disables it. This is independent
+retain full interaction evidence when a repair loop exhausts its budget or exits
+exceptionally during requests, parsing, validation or feedback. The default `None` disables it. This is independent
 of response caching and ordinary `log_dir_path` events, and also works without
 `analysing_path`. Both Craft facades share the same implementation.
 
 The exception and `FailureContext.error.failure_log_id` identify
 `<failure_log_path>/<failure_log_id>/`. Read `summary.json` for the stage, model,
-targets when known, attempt count, final error and `complete` flag;
+targets when known, attempt count, final error/traceback and `complete` flag;
 `attempts.jsonl` contains every repair attempt's actual messages, effective
 parameters, response and validation feedback. `transports.jsonl` separately
 records transport requests/responses (including transport retries) and available
 provider request IDs. The loop ID does not replace a provider's `request_id`.
 
-Successful loops, including repaired ones, remove temporary evidence. A callback
-that accepts a fallback still receives the ID and leaves the exhausted loop's
-files available for a diagnostics archive. Cancellation and ordinary transport
-failure clean temporary records rather than creating a protocol-exhaustion log.
+Translation fill keeps temporary evidence after validation until its owning results
+complete adapter processing, writeback, submission and direct content callbacks.
+A group spanning source roots waits for all its roots to commit. An exceptional
+exit in that scope retains the whole loop, including transport failures and
+in-loop cancellation, with the actual cause. A callback accepting fallback still
+receives the ID and leaves the evidence available. Later whole-book finalization
+errors do not recover already-cleaned successful logs; unrelated unsubmitted
+siblings only discard staging rather than inheriting another group's failure.
 Transport events are flushed in order after the request releases provider capacity.
 Evidence disk I/O does not consume the LLM transport timeout budget; cancellation
-waits for an in-flight write to settle before removing temporary records.
+waits for an in-flight write to settle before finalizing evidence.
 Disk errors issue a `pdf_craft.llm.failure_log` warning and do not replace the
 business result; a retained summary may have `complete=false`, or no ID may be
 available if publication failed. Records are written incrementally, with only the
