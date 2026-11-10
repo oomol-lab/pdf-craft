@@ -7,6 +7,8 @@ from pylatexenc.latexwalker import (
     LatexMathNode, LatexEnvironmentNode, LatexCommentNode, LatexSpecialsNode,
 )
 
+from ..common.whitespace import is_whitespace
+
 _START = re.compile(r'(?<!\\)\\(?:[A-Za-z]+|[([%&#_$])|(?<!\\)\$')
 _WORD = re.compile(r'\b[A-Za-z]{2,}\b')
 
@@ -40,9 +42,14 @@ def normalize_latex(text: str) -> str:
                 # Remember the whole construct before conversion: a failure in
                 # any nested macro must preserve its braces and delimiters too.
                 node = nodes[0]
-                if (isinstance(node, LatexMathNode) and node.delimiters[0] == '$'
-                        and text[end:end+1].isdigit()):
-                    raise ValueError('Possible adjacent currency amounts')
+                if isinstance(node, LatexMathNode) and node.delimiters[0] == '$':
+                    # Use the same whitespace policy as comparison: padding
+                    # after the second currency sign is not evidence of math.
+                    following = end
+                    while following < len(text) and is_whitespace(text[following]):
+                        following += 1
+                    if text[following:following+1].isdigit():
+                        raise ValueError('Possible adjacent currency amounts')
                 value = _render(node, converter)
             except Exception:  # A parse/conversion failure is not a fill failure.
                 pass
