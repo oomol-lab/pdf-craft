@@ -82,6 +82,22 @@ class LatexComparisonTests(TestCase):
             with self.subTest(left=left):
                 self.assertNotEqual(comparison_text(left), comparison_text(right))
 
+    def test_literal_tex_glyphs_do_not_collide_with_structural_syntax(self):
+        for literal, structural in [
+            (r'$\frac{\{1\}}{2}$', r'$\frac{{1}}{2}$'),
+            (r'$A_{\{1\}}$', r'$A_{{1}}$'),
+            (r'$x_\{2\}$', r'$x_{2}$'),
+            (r'$\{1\}$', r'${1}$'),
+            (r'$x\_2$', r'$x_2$'),
+            (r'$x\textunderscore2$', r'$x_2$'),
+            (r'$x\textasciicircum{2}$', r'$x^{2}$'),
+            (r'$\begin{matrix}1\&2\end{matrix}$', r'$\begin{matrix}1&2\end{matrix}$'),
+            (r'$94\%$', '$94%\n$'),
+        ]:
+            with self.subTest(literal=literal):
+                self.assertNotEqual(comparison_text(literal), comparison_text(structural))
+                self.assertIsNotNone(text_difference(literal, structural))
+
     def test_diff_uses_same_complete_string_rules_across_fields(self):
         block = fromstring(r'<p id="1">Result $\frac{1}<b>{ 2}</b>$.</p>')
         self.assertIsNone(text_difference(r'Result \(\frac{1}{2}\).', ''.join(block.itertext()), [block]))
@@ -156,6 +172,29 @@ class LatexFillTests(IsolatedAsyncioTestCase):
                     feedback = model.wire_calls[-1][-1].message
                     self.assertIn('Missing 2, added 0', feedback)
                     self.assertIn("'$'", feedback)
+
+    async def test_visible_braces_cannot_be_removed_by_fill(self):
+        for literal, structural in [
+            (r'$\frac{\{1\}}{2}$', r'$\frac{{1}}{2}$'),
+            (r'$A_{\{1\}}$', r'$A_{{1}}$'),
+            (r'$x_\{2\}$', r'$x_{2}$'),
+        ]:
+            with self.subTest(literal=literal):
+                translator, model = translator_fixture()
+                raw = f'Value {literal}.'
+                bad = f'<xml><p id="1">Value {structural}.</p><p id="2"/></xml>'
+                good = f'<xml><p id="1">{raw}</p><p id="2"/></xml>'
+                model_replies(model, raw, [bad, good])
+                result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+                    fromstring('<body><p>Original.</p><p>Next.</p></body>'), SubmitKind.REPLACE, None),
+                    error_policy=False, retry_policy=RetryPolicy(fill=1))
+                self.assertEqual(''.join(result.itertext()), raw)
+                self.assertEqual(len(model.wire_calls), 3)  # Artist once, bad fill, repaired fill.
+                feedback = model.wire_calls[-1][-1].message
+                self.assertIn('Visible text differs', feedback)
+                self.assertIn('missing:', feedback)
+                self.assertIn('expected[', feedback)
+                self.assertIn(r'\\', feedback.split('LITERAL CONTENT REPAIR', 1)[0])
 
     async def test_conversion_failure_does_not_add_requests_or_modify_content(self):
         translator, model = translator_fixture()

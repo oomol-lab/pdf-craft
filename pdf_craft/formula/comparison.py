@@ -12,6 +12,7 @@ from ..common.whitespace import is_whitespace
 
 _START = re.compile(r'(?<!\\)\\(?:[A-Za-z]+|[([%&#_$])|(?<!\\)\$')
 _WORD = re.compile(r'\b[A-Za-z]{2,}\b')
+_TEX_SYNTAX = frozenset(r'\{}_^&#$~')
 
 
 def normalize_latex(text: str) -> str:
@@ -71,7 +72,9 @@ def normalize_latex(text: str) -> str:
 def _render(node, converter) -> str:
     if isinstance(node, LatexCharsNode):
         return node.chars
-    if isinstance(node, (LatexCommentNode, LatexSpecialsNode)):
+    if isinstance(node, LatexCommentNode):
+        raise ValueError('Comments cannot be treated as visible text')
+    if isinstance(node, LatexSpecialsNode):
         return node.latex_verbatim()
     if isinstance(node, LatexGroupNode):
         return node.delimiters[0] + _children(node, converter) + node.delimiters[1]
@@ -96,11 +99,15 @@ def _render(node, converter) -> str:
             # text approximation: frac{1}{2+3} must differ from frac{1}{2}+3.
             return '\\' + node.macroname + ''.join(
                 _render(argument, converter) for argument in arguments if argument is not None)
-        if node.macroname in '%&#_$':
-            return node.macroname
+        if node.macroname == '%':
+            return '%'
         if not isinstance(spec.simplify_repl, str):
             raise ValueError('Context-dependent LaTeX replacement')
         value = converter.nodelist_to_text([node])
+        # Keep literal glyph commands distinct from grouping/script/column
+        # syntax. Otherwise \{1\} collides with {1}, and x\_2 with x_2.
+        if any(char in _TEX_SYNTAX for char in value):
+            return node.latex_verbatim()
         if not value and node.macroname not in (',', ';', ':', '!', ' '):
             raise ValueError('Unrepresentable LaTeX command')
         return value
