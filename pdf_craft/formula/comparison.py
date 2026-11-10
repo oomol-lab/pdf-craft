@@ -1,47 +1,40 @@
-"""Transactional str -> str normalization of explicitly enclosed mathematics."""
+"""Transactional string comparison view for mathematical spelling and wrappers."""
+import re
 import unicodedata
 
 from pylatexenc.latex2text import LatexNodes2Text
 
 from ..common.whitespace import is_whitespace, normalize_whitespace
-from .math_subset import MAX_LENGTH, MathParser
+from .math_subset import MAX_LENGTH, MathParser, MathSyntaxError
 
 
-def _openings(text: str, position: int, floor: int) -> tuple[int, list[str]]:
+def _left_wrappers(text: str, position: int, floor: int) -> tuple[int, int]:
     """Find only adjacent opening wrappers, never search through prose."""
-    closings = []
-    while position > floor and len(closings) < 16:
+    count = 0
+    while position > floor and count < 16:
+        previous = position
         while position > floor and is_whitespace(text[position-1]):
             position -= 1
         if position <= floor:
+            position = previous
             break
         if position >= floor + 2 and text[position-2:position] in ('\\(', '\\['):
-            closings.append('\\)' if text[position-1] == '(' else '\\]')
             position -= 2
         elif text[position-1:position] == '$' and (position < 2 or text[position-2] != '\\'):
             opening = '$$' if position >= floor+2 and text[position-2:position] == '$$' else '$'
-            closings.append(opening)
             position -= len(opening)
         else:
+            position = previous
             break
-    return position, closings
-
-
-def _closing(text: str, position: int, closings: list[str]) -> int | None:
-    for closing in closings:
-        while position < len(text) and is_whitespace(text[position]):
-            position += 1
-        if not text.startswith(closing, position):
-            return None
-        position += len(closing)
-    return position
+        count += 1
+    return position, count
 
 
 def normalize_latex(text: str) -> str:
-    """Try a bounded math prefix, then confirm its immediate paired wrappers.
+    """Recognize math first and ignore its adjacent, even one-sided wrappers.
 
     Parsing does not scan for a closing dollar, does not accept prose, and never
-    removes an isolated symbol. Any uncertain conversion rolls back the entire
+    removes an isolated non-mathematical symbol. Any uncertain conversion rolls back the entire
     optional pass. There is no partial conversion left behind on failure.
     """
     try:
@@ -51,18 +44,31 @@ def normalize_latex(text: str) -> str:
             if is_whitespace(text[cursor]) or text[cursor] in '$':
                 cursor += 1
                 continue
-            start, closings = _openings(text, cursor, literal)
-            if not closings:
-                cursor += 1
+            if text.startswith(('\\(', '\\)', '\\[', '\\]'), cursor):
+                cursor += 2
                 continue
-            parser = MathParser(text[cursor:cursor+MAX_LENGTH], converter)
-            body = parser.expression()
-            end = _closing(text, cursor + parser.pos, closings)
-            if end is None:
-                # No established enclosing expression: keep it as ordinary text.
-                cursor += max(1, parser.pos)
+            start, opening_count = _left_wrappers(text, cursor, literal)
+            parser = MathParser(text[cursor:cursor+MAX_LENGTH], converter, comparison=True)
+            try:
+                body = parser.expression()
+            except MathSyntaxError:
+                if opening_count or text[cursor] == '\\':
+                    raise
+                word = re.match(r'[A-Za-z]+', text[cursor:])
+                cursor += len(word[0]) if word else 1
                 continue
-            output.extend((text[literal:start], '$' + body + '$'))
+            if parser.pos >= MAX_LENGTH:
+                raise MathSyntaxError('Comparison expression exceeds its optional bound')
+            end = cursor + parser.pos
+            if not (opening_count or parser.has_delimiters):
+                cursor = max(cursor + 1, end)
+                continue
+            # Keep prose spacing outside the parsed prefix; content comparison
+            # separately handles the shared Unicode whitespace policy.
+            trailing = end
+            while trailing > cursor and is_whitespace(text[trailing-1]):
+                trailing -= 1
+            output.extend((text[literal:start], body, text[trailing:end]))
             cursor = literal = end
         output.append(text[literal:])
         return ''.join(output)

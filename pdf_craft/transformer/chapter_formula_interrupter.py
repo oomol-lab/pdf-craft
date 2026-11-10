@@ -164,7 +164,11 @@ class ChapterFormulaInterrupter:
             if any(_FORMULA_CONTEXT_KEY in parent.attrib for parent in node.iter()):
                 return node
             source = self._formula_by_id.get(node.get(_FORMULA_ID_KEY, ''))
-            if source is not None and not source.is_block and same_formula(source.latex, value):
+            if (source is not None and not source.is_block and same_formula(source.latex, value)
+                    and formula_payload(value) != value.strip()):
+                # Reuse is optional: a source math kind can add delimiters to a
+                # bare artist value. Keep the filled payload in that case,
+                # rather than asking fill to repair our formatting change.
                 result = deepcopy(source.element)
                 result.tail = node.tail
                 return result
