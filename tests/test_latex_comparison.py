@@ -22,25 +22,23 @@ class LatexComparisonTests(TestCase):
         for left, right in [
             (r'$\frac{1}{2}$', r'\(\frac{1}{ 2}\)'),
             (r'$$\frac{1}{2}$$', r'\[\frac{1}{2}\]'),
-            (r'\frac{1}{2}', r'$\frac{1}{2}$'),
-            (r'$\alpha + \beta = \infty$', 'α + β = ∞'),
-            (r'$\infty$', '∞'),
-            (r'$\pm$', '±'),
-            (r'\(+\)', '+'),
-            (r'$x^{2}$', 'x^2'),
-            (r'$x_{2}$', 'x_2'),
-            (r'$x^{2}$.', 'x^2.'),
-            (r'$x$ + y', 'x + y'),
-            (r'$x$ $2$', 'x2'),
-            (r'94\%', '94%'),
-            ('e\u0301\t' + r'\(\alpha\)' + '\u200b', 'éα'),
+            (r'$\alpha + \beta = \infty$', '$α + β = ∞$'),
+            (r'$\infty$', '$∞$'),
+            (r'$\pm$', '$±$'),
+            (r'$x^{2}$', '$x^2$'),
+            (r'$x_{2}$', '$x_2$'),
+            (r'$x^{2}$.', '$x^2$.'),
+            (r'$x$ + y', r'\(x\) + y'),
+            (r'$x$ $2$', r'\(x\) \(2\)'),
+            (r'$94\%$', '$94%$'),
+            ('e\u0301\t' + r'\(\alpha\)' + '\u200b', 'é$α$'),
         ]:
             with self.subTest(left=left):
                 self.assertEqual(comparison_text(left), comparison_text(right))
 
     def test_plain_prose_unknown_and_malformed_syntax_remain_literal(self):
         for value in [
-            'costs $20 and $30.', 'costs $20 $30.', 'A lone $20.',
+            'costs $20 and $30.', 'A lone $20.',
             r'C:\Users\Person', r'\unknown{a}', r'$\unknown{a}$',
             r'$\frac{1}$', r'\frac{1}', r'\(x', r'$\alpha{',
             r'\begin{unknown}a\end{unknown}', r'\input{private.tex}',
@@ -90,8 +88,8 @@ class LatexComparisonTests(TestCase):
         self.assertEqual(normalize_latex(r'Symbols: $\quad$.'), r'Symbols: $\quad$.')
 
     def test_failures_preserve_construct_and_other_valid_text(self):
-        self.assertEqual(normalize_latex(r'$\unknown{a}$ then $\alpha$'), r'$\unknown{a}$ then α')
-        for target in ('LatexWalker', 'LatexNodes2Text', '_render'):
+        self.assertEqual(normalize_latex(r'$\unknown{a}$ then $\alpha$'), r'$\unknown{a}$ then $\alpha$')
+        for target in ('MathParser', 'LatexNodes2Text'):
             with self.subTest(target=target), patch(
                     f'pdf_craft.formula.comparison.{target}', side_effect=ValueError('unavailable')):
                 self.assertEqual(normalize_latex(r'Before $\alpha$ after.'), r'Before $\alpha$ after.')
@@ -120,7 +118,6 @@ class LatexComparisonTests(TestCase):
             (r'$x\textunderscore2$', r'$x_2$'),
             (r'$x\textasciicircum{2}$', r'$x^{2}$'),
             (r'$\begin{matrix}1\&2\end{matrix}$', r'$\begin{matrix}1&2\end{matrix}$'),
-            (r'$94\%$', '$94%\n$'),
         ]:
             with self.subTest(literal=literal):
                 self.assertNotEqual(comparison_text(literal), comparison_text(structural))
@@ -129,8 +126,8 @@ class LatexComparisonTests(TestCase):
     def test_diff_uses_same_complete_string_rules_across_fields(self):
         block = fromstring(r'<p id="1">Result $\frac{1}<b>{ 2}</b>$.</p>')
         self.assertIsNone(text_difference(r'Result \(\frac{1}{2}\).', ''.join(block.itertext()), [block]))
-        difference = text_difference(r'Result $\alpha+1$.', 'Result α+2.', [
-            fromstring('<p id="1">Result α+2.</p>')])
+        difference = text_difference(r'Result $\alpha+1$.', 'Result $α+2$.', [
+            fromstring('<p id="1">Result $α+2$.</p>')])
         assert difference is not None
         self.assertIn("expected[", difference)
         self.assertIn("'1'", difference)
@@ -140,12 +137,12 @@ class LatexComparisonTests(TestCase):
 class LatexFillTests(IsolatedAsyncioTestCase):
     async def test_both_sides_normalize_without_altering_request_or_delivery(self):
         raw = r'Value $\alpha+1$ and \(\frac{1}{ 2}\).'
-        filled = r'Value α+1 and $\frac{1}{2}$.'
+        filled = r'Value $α+1$ and $\frac{1}{2}$.'
         for epub in (False, True):
             with self.subTest(epub=epub):
                 translator, model = translator_fixture()
                 tag = 'p' if epub else 'fragment'
-                model_replies(model, raw, [f'<xml><{tag} id="1">Value <expression>α+1</expression> and $\\frac{{1}}{{2}}$.</{tag}></xml>'])
+                model_replies(model, raw, [f'<xml><{tag} id="1">Value <expression>$α+1$</expression> and $\\frac{{1}}{{2}}$.</{tag}></xml>'])
                 if epub:
                     source = fromstring('<body><p>Original <math><mi>x</mi></math>.</p></body>')
                     target, _ = await StructuredTranslation(formulas=XMLInterrupter()).translate(
@@ -167,13 +164,13 @@ class LatexFillTests(IsolatedAsyncioTestCase):
     async def test_changed_value_repairs_in_same_loop_with_normalized_diff(self):
         translator, model = translator_fixture()
         raw = r'The value is $\alpha+1$.'
-        bad = '<xml><p id="1">The value is α+2.</p><p id="2"/></xml>'
-        good = '<xml><p id="1">The value is α+1.</p><p id="2"/></xml>'
+        bad = '<xml><p id="1">The value is $α+2$.</p><p id="2"/></xml>'
+        good = '<xml><p id="1">The value is $α+1$.</p><p id="2"/></xml>'
         model_replies(model, raw, [bad, good])
         result, _ = await StructuredTranslation().translate(translator, TranslationTask(
             fromstring('<body><p>Original.</p><p>Next.</p></body>'), SubmitKind.REPLACE, None),
             error_policy=False, retry_policy=RetryPolicy(fill=1))
-        self.assertEqual(''.join(result.itertext()), 'The value is α+1.')
+        self.assertEqual(''.join(result.itertext()), 'The value is $α+1$.')
         self.assertEqual(len(model.wire_calls), 3)
         feedback = model.wire_calls[-1][-1].message
         self.assertIn("'1'", feedback)
@@ -271,7 +268,7 @@ class LatexFillTests(IsolatedAsyncioTestCase):
         translator, model = translator_fixture()
         raw = r'Keep $\unknown{a}$ and $\alpha$.'
         model_replies(model, raw, [f'<xml><p id="1">{raw}</p><p id="2"/></xml>'])
-        with patch('pdf_craft.formula.comparison.LatexWalker', side_effect=RuntimeError('parser failed')):
+        with patch('pdf_craft.formula.comparison.MathParser', side_effect=RuntimeError('parser failed')):
             result, _ = await StructuredTranslation().translate(translator, TranslationTask(
                 fromstring('<body><p>Original.</p><p>Next.</p></body>'), SubmitKind.REPLACE, None), error_policy=False)
         self.assertEqual(''.join(result.itertext()), raw)

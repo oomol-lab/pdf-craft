@@ -41,6 +41,9 @@ def comparison_text(text: str) -> str:
 
 def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     raw_actual = actual
+    # Optional mathematical interpretation cannot invalidate existing text equivalence.
+    if _document_text(expected) == _document_text(actual):
+        return None
     expected, actual = comparison_text(expected), comparison_text(actual)
     if expected == actual:
         return None

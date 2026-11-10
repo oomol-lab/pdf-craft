@@ -7,12 +7,14 @@ the same XMLTranslator interruption protocol with the PCEX schema instead.
 """
 
 import json
+from copy import deepcopy
 from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 
 from pdf_craft.expression import decode_expression_kind, to_markdown_string
 from .formula_source import SourceMath
+from ..formula.comparison import same_formula
 from .formula_payload import formula_payload, replace_formulas
 from pdf_craft.transformer.xml_translator.segment import TextPosition, TextSegment
 from pdf_craft.transformer.xml_translator.xml import (
@@ -161,6 +163,11 @@ class ChapterFormulaInterrupter:
             value = ''.join(node.itertext())
             if any(_FORMULA_CONTEXT_KEY in parent.attrib for parent in node.iter()):
                 return node
+            source = self._formula_by_id.get(node.get(_FORMULA_ID_KEY, ''))
+            if source is not None and not source.is_block and same_formula(source.latex, value):
+                result = deepcopy(source.element)
+                result.tail = node.tail
+                return result
             result = Element('inline_expr', {'kind': 'text', DISPLAY_ATTRIBUTE: 'inline',
                              _INLINE_DISPLAY_KEY: json.dumps(None)})
             # Plain payloads (40, percentages, prose) remain legal expressions.
