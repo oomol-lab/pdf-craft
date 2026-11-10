@@ -12,7 +12,8 @@ from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
-from pdf_craft.extractor.chapter.chapter import encode
+from pdf_craft.transformer.chapter_formula_interrupter import ChapterFormulaInterrupter
+from pdf_craft.extractor.chapter.chapter import encode, decode
 from tests.fill_fixtures import chapter, expression, model_replies
 from tests.translation_model import translator_fixture
 
@@ -83,6 +84,34 @@ class MathSubsetTests(TestCase):
 
 
 class MathSubsetFillTests(IsolatedAsyncioTestCase):
+    async def test_bare_scalar_survives_source_reuse_in_both_formats(self):
+        for epub in (False, True):
+            for source, translated in [('20', '20'), ('4', '40')]:
+                with self.subTest(epub=epub, source=source):
+                    translator, model = translator_fixture()
+                    tag = 'p' if epub else 'fragment'
+                    artist = f'{translated} 亿'
+                    model_replies(model, artist, [
+                        f'<xml><{tag} id="1"><expression>{translated}</expression> 亿</{tag}></xml>'])
+                    if epub:
+                        adapter = XMLInterrupter()
+                        result, _ = await StructuredTranslation(formulas=adapter).translate(
+                            translator, TranslationTask(fromstring(
+                                f'<body><p><math><mn>{source}</mn></math> billion.</p></body>'),
+                                SubmitKind.REPLACE, None), error_policy=False, retry_policy=RetryPolicy(fill=0))
+                        delivered = adapter.visible_text(result)
+                    else:
+                        value = await NarrativeXMLTransformer(translator).transform(
+                            chapter([expression(source), ' billion.']),
+                            error_policy=False, retry_policy=RetryPolicy(fill=0))
+                        persisted = encode(value)
+                        self.assertEqual(decode(persisted), value)
+                        fragment = persisted.find('.//fragment')
+                        assert fragment is not None
+                        delivered = ChapterFormulaInterrupter().visible_text(fragment)
+                    self.assertEqual(delivered, artist)
+                    self.assertEqual(len(model.wire_calls), 2)  # No repair of program-introduced delimiters.
+
     async def test_correct_answer_with_lone_dollar_needs_one_fill(self):
         artist = '$� 开头\n\n$$x$$\n$y$ 计算\n$$z$$'
         delivered = artist.replace('\n', '')
