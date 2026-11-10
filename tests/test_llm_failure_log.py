@@ -141,12 +141,15 @@ class FailureLogTests(IsolatedAsyncioTestCase):
             _, rows = self.read(identifier)
             self.assertEqual(len(rows), 2)
 
-    async def test_cancel_and_transport_failure_remove_staging(self):
+    async def test_cancel_and_transport_failure_retain_without_staging(self):
         for failure in (asyncio.CancelledError(), ValueError('transport failed')):
             _, runtime, _ = self.runtime(['WRONG', failure])
-            with self.assertRaises(BaseException):
+            with self.assertRaises(BaseException) as caught:
                 await self.execute(runtime)
-            self.assertEqual(list((self.root / 'evidence').iterdir()), [])
+            summary, rows = self.read(getattr(caught.exception, 'failure_log_id'))
+            self.assertEqual(summary['attempts'], 2)
+            self.assertEqual(rows[-1]['validation'], 'Exception')
+            self.assertFalse(list((self.root / 'evidence').glob('.pending-*')))
 
     async def test_empty_protocol_response_is_recorded(self):
         async def request(*_args):
@@ -154,7 +157,7 @@ class FailureLogTests(IsolatedAsyncioTestCase):
         with self.assertRaises(Exhausted) as caught:
             await run_repair_loop(RepairLoopOptions([Message(MessageRole.USER, 'source')],
                 request, Protocol(), None, max_attempts=2, failure_log_path=self.root / 'evidence'))
-        _, rows = self.read(caught.exception.failure_log_id)
+        _, rows = self.read(getattr(caught.exception, 'failure_log_id'))
         self.assertEqual([r['response'] for r in rows], ['', ''])
         self.assertEqual([r['feedback'] for r in rows], ['Empty response'] * 2)
 
@@ -222,7 +225,10 @@ class FailureLogTests(IsolatedAsyncioTestCase):
                 await asyncio.wait_for(self.execute(runtime, 1), timeout=2)
         self.assertIsInstance(caught.exception.__cause__, TimeoutError)
         self.assertTrue(stopped.is_set())
-        self.assertEqual(list((self.root / 'evidence').iterdir()), [])
+        summary, rows = self.read(getattr(caught.exception, 'failure_log_id'))
+        self.assertEqual(summary['error']['type'], 'LLMTransportError')
+        self.assertEqual(rows[0]['validation'], 'Exception')
+        self.assertFalse(list((self.root / 'evidence').glob('.pending-*')))
 
     async def test_evidence_exclusion_preserves_shared_retry_budget(self):
         append = FailureLog._append
@@ -272,7 +278,7 @@ class FailureLogTests(IsolatedAsyncioTestCase):
         transports = [json.loads(line) for line in (folder / 'transports.jsonl').read_text().splitlines()]
         self.assertEqual([row['event'] for row in transports], ['request', 'response'])
         self.assertEqual(transports[1]['response'], 'WRONG\x00')
-        _, records = self.read(caught.exception.failure_log_id)
+        _, records = self.read(getattr(caught.exception, 'failure_log_id'))
         self.assertEqual(records[0]['response'], 'WRONG')
 
     async def test_executor_rate_limit_retries_keep_every_transport_request(self):
@@ -339,7 +345,10 @@ class FailureLogTests(IsolatedAsyncioTestCase):
                             await task
                 self.assertTrue(finished.is_set())
                 self.assertEqual(len(seen), 1)
-                self.assertEqual(list((self.root / 'evidence').iterdir()), [])
+                self.assertFalse(list((self.root / 'evidence').glob('.pending-*')))
+                archives = list((self.root / 'evidence').glob('*/summary.json'))
+                self.assertTrue(archives)
+                self.assertEqual(json.loads(archives[-1].read_text())['error']['type'], 'CancelledError')
 
     async def test_unwritable_destination_leaves_original_exception(self):
         destination = self.root / 'file'

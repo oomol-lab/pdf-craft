@@ -215,23 +215,26 @@ Vendor OCR HTTP 失败通过 `FailureError.http_status`、`provider_code`、`pro
 调用方写日志或分析事件前需采用适当脱敏策略。这些字段不改变降级、重试与可用性规则。
 
 
-## LLM 完整性修复耗尽的现场记录
+## LLM 修复与提交失败的现场记录
 
 通过仅接受关键字的 `LLM(..., failure_log_path="analysis/llm-failures")`
 启用记录；默认 `None` 关闭。它独立于响应缓存和普通 `log_dir_path` 事件，
-不依赖 `analysing_path`，同步/异步 Craft 门面共用实现。仅完整性约束的修复预算
-耗尽才保留本轮现场，不记录全部成功调用。
+不依赖 `analysing_path`，同步/异步 Craft 门面共用实现。Loop 耗尽或在请求、解析、
+校验、反馈期间异常退出时保留本轮现场，不永久记录全部成功调用。
 
 异常与 `FailureContext.error.failure_log_id` 指向
 `<failure_log_path>/<failure_log_id>/`。`summary.json` 保存阶段、模型、可获得的
-目标单元、次数、最终原因和 `complete` 标志；`attempts.jsonl` 按轮保存实际
+目标单元、次数、最终原因、异常堆栈和 `complete` 标志；`attempts.jsonl` 按轮保存实际
 messages、实际生效参数、完整响应和校验反馈。`transports.jsonl` 另记底层传输
 请求/响应（包括传输重试）与可获得的供应商请求 ID。loop ID 不覆盖 `request_id`。
 
-首次或修复后成功会删除暂存；上层允许降级并最终成功时，已耗尽 loop 的目录和 ID
-仍保留，可放入诊断包。取消或普通传输失败会清理暂存，不伪装成完整性耗尽。
+翻译 fill 通过校验后仍保留暂存，直至关联结果完成适配、回填、提交和直接内容回调。
+跨多个来源根的 group 等这些根全部提交成功才清理；该范围内异常退出则归档整轮，
+包括普通传输失败及 Loop 内取消，并如实记录原因。上层允许降级并最终成功时，
+失败目录和 ID 仍保留，可放入诊断包。更晚无法关联具体 Loop 的整本收尾错误
+不追溯已清理成功组；未提交的无关兄弟组只清理暂存，不归因于其他组的错误。
 日志逐轮落盘，内存只持有当前轮。传输事件在请求结束并释放供应商容量后按序写盘，
-取证写盘耗时不计入 LLM 传输总超时预算；取消会等待已开始的写盘结束再清理暂存。
+取证写盘耗时不计入 LLM 传输总超时预算；取消会等待已开始的写盘结束再收尾。
 写盘故障通过 `pdf_craft.llm.failure_log`
 warning 报告，不替换原业务结果。保留记录可能 `complete=false`；发布失败时可能
 没有 ID。API Key、Authorization 值和带凭证 URL 会脱敏，但其余文档上下文仍属

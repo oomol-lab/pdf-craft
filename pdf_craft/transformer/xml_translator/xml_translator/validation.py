@@ -116,7 +116,8 @@ def generate_error_message(encoding: Encoding, errors_group: ErrorsGroup, omitte
             elif isinstance(block_error.error, InlineError | FoundInvalidIDError):
                 message = _format_inline_error(encoding, block_error.error, block_group.block_id)
             else:
-                raise RuntimeError()
+                raise TypeError(f"Unsupported XML validation error {type(block_error.error).__name__} "
+                                f"in {block_tag}#{block_group.block_id}")
             message_lines.append(f"  - {message}")
 
     if not message_lines:

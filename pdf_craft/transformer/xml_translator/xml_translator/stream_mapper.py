@@ -1,6 +1,6 @@
 # pylint: disable=protected-access
 from collections.abc import AsyncIterable, AsyncGenerator, Awaitable, Callable, Iterable, Iterator
-from contextlib import aclosing
+from contextlib import aclosing, nullcontext
 from collections import deque
 from dataclasses import dataclass
 from itertools import chain, islice
@@ -17,6 +17,7 @@ from ...request_batch import MAX_BATCH_UNITS
 import asyncio
 import time
 from .callbacks import Callbacks
+from .fill_diagnostics import FillDiagnostics
 from .concurrency import run_async_parameters
 from .source_store import source_identity, rebind, NODE_KEY, ROOT_KEY
 from .score import ScoreSegment, expand_to_score_segments, truncate_score_segment
@@ -63,7 +64,7 @@ class XMLStreamMapper:
         on_mapping: Callable[[tuple[InlineSegment, list[TextSegment]]], object] | None = None,
         progress: OperationProgress | None = None,
         on_empty: Callable[[Element], object] | None = None,
-        *, ownership=None, ordered_roots=True,
+        *, ownership=None, ordered_roots=True, diagnostics: FillDiagnostics | None = None,
     ) -> AsyncGenerator[tuple[Element, list[InlineSegmentMapping]], None]:
         current_element: Element | None = None
         mapping_buffer: list[InlineSegmentMapping] = []
@@ -112,10 +113,11 @@ class XMLStreamMapper:
         async def execute(work):
             if isinstance(work, _EmptyElement):
                 await invoke_callback(on_empty, work.root)
-                return ()
-            mappings = await map(work.segments)
-            return [(origin, target) for origin, target, primary in
-                    zip(work.segments, mappings, work.primary, strict=True) if primary]
+                return (), 0
+            async with diagnostics.group(work.segments) if diagnostics is not None else nullcontext(0) as key:
+                mappings = await map(work.segments)
+                return [(origin, target) for origin, target, primary in
+                        zip(work.segments, mappings, work.primary, strict=True) if primary], key
 
         # A bounded group is accepted atomically. Other groups can advance
         # independently within the operation window.
@@ -136,63 +138,63 @@ class XMLStreamMapper:
             ) for works in batch_works([group]))
             results = run_async_parameters(work_items_sync, execute, capacity, expand=lambda works: works)
         async with aclosing(results):
-            async for mapping_pairs in results:
-                for origin, target in mapping_pairs:
-                    origin_element = origin.head.root
-                    if not ordered_roots:
-                        key = source_identity(origin_element)
-                        current_element, mapping_buffer = root_states.setdefault(key, (origin_element, []))
-                    if current_element is None:
-                        current_element = origin_element
+            async for mapping_pairs, key in results:
+                async with diagnostics.processing(key) if diagnostics is not None else nullcontext():
+                    for origin, target in mapping_pairs:
+                        origin_element = origin.head.root
+                        if not ordered_roots:
+                            key = source_identity(origin_element)
+                            current_element, mapping_buffer = root_states.setdefault(key, (origin_element, []))
+                        if current_element is None:
+                            current_element = origin_element
 
-                    if ordered_roots and source_identity(current_element) != source_identity(origin_element):
-                        assert current_element is not None
-                        yield current_element, accepted(current_element, mapping_buffer)
-                        current_element = origin_element
-                        mapping_buffer = []
-
-                    owner = ownership.unit(origin) if ownership is not None else origin.parent
-                    if isinstance(elements, AsyncIterable):
-                        owner = rebind(current_element, origin, owner)
-                    assert owner is not None
-                    owner.set('__pdf_craft_unit', ownership.key(owner) if ownership is not None else
-                              owner.get(NODE_KEY) or str(id(owner)))
-                    if target is None:
-                        owner.set('__pdf_craft_missing', '1')
-                    if target:
-                        assert current_element is not None
-                        block_element, text_segments = target
-                        if isinstance(elements, AsyncIterable):
-                            block_element = rebind(current_element, origin, block_element)
-                        assert block_element is not None
-                        block_element = callbacks.interrupt_block_element(block_element)
-                        text_segments = list(callbacks.interrupt_translated_text_segments(text_segments))
-                        if isinstance(elements, AsyncIterable):
-                            # Adapters may restore a cached source pointer or
-                            # materialize fresh translated nodes. Bind the source
-                            # AFTER the callback, never return a detached root.
-                            block_element = rebind(current_element, origin, block_element)
-                            by_key = {node.get(NODE_KEY): node for node in current_element.iter() if node.get(NODE_KEY) is not None}
-                            for segment in text_segments:
-                                segment.parent_stack = [by_key.get(parent.get(NODE_KEY), parent) for parent in segment.parent_stack]
-                        if text_segments:
-                            if on_mapping is not None:
-                                notifications.append((origin._notification_end, origin, text_segments, block_element))
-                            mapping_buffer.append((block_element, text_segments))
-                    if on_mapping is not None:
-                        await notify_ready(current_element, origin._notification_index)
-                    if not ordered_roots:
-                        key = source_identity(origin_element)
-                        completed[key] = completed.get(key, 0) + 1
-                        if completed[key] == expected.get(key):
-                            completed.pop(key)
-                            expected.pop(key)
-                            root_states.pop(key)
+                        if ordered_roots and source_identity(current_element) != source_identity(origin_element):
                             assert current_element is not None
                             yield current_element, accepted(current_element, mapping_buffer)
-                            current_element = None
+                            current_element = origin_element
                             mapping_buffer = []
 
+                        owner = ownership.unit(origin) if ownership is not None else origin.parent
+                        if isinstance(elements, AsyncIterable):
+                            owner = rebind(current_element, origin, owner)
+                        assert owner is not None
+                        owner.set('__pdf_craft_unit', ownership.key(owner) if ownership is not None else
+                                  owner.get(NODE_KEY) or str(id(owner)))
+                        if target is None:
+                            owner.set('__pdf_craft_missing', '1')
+                        if target:
+                            assert current_element is not None
+                            block_element, text_segments = target
+                            if isinstance(elements, AsyncIterable):
+                                block_element = rebind(current_element, origin, block_element)
+                            assert block_element is not None
+                            block_element = callbacks.interrupt_block_element(block_element)
+                            text_segments = list(callbacks.interrupt_translated_text_segments(text_segments))
+                            if isinstance(elements, AsyncIterable):
+                                # Adapters may restore a cached source pointer or
+                                # materialize fresh translated nodes. Bind the source
+                                # AFTER the callback, never return a detached root.
+                                block_element = rebind(current_element, origin, block_element)
+                                by_key = {node.get(NODE_KEY): node for node in current_element.iter() if node.get(NODE_KEY) is not None}
+                                for segment in text_segments:
+                                    segment.parent_stack = [by_key.get(parent.get(NODE_KEY), parent) for parent in segment.parent_stack]
+                            if text_segments:
+                                if on_mapping is not None:
+                                    notifications.append((origin._notification_end, origin, text_segments, block_element))
+                                mapping_buffer.append((block_element, text_segments))
+                        if on_mapping is not None:
+                            await notify_ready(current_element, origin._notification_index)
+                        if not ordered_roots:
+                            key = source_identity(origin_element)
+                            completed[key] = completed.get(key, 0) + 1
+                            if completed[key] == expected.get(key):
+                                completed.pop(key)
+                                expected.pop(key)
+                                root_states.pop(key)
+                                assert current_element is not None
+                                yield current_element, accepted(current_element, mapping_buffer)
+                                current_element = None
+                                mapping_buffer = []
 
         if ordered_roots and current_element is not None:
             yield current_element, accepted(current_element, mapping_buffer)
