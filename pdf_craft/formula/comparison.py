@@ -1,5 +1,6 @@
 """Best-effort LaTeX spelling normalization, solely for string comparison."""
 import re
+import unicodedata
 
 from pylatexenc.latex2text import LatexNodes2Text
 from pylatexenc.latexwalker import (
@@ -43,12 +44,18 @@ def normalize_latex(text: str) -> str:
                 # any nested macro must preserve its braces and delimiters too.
                 node = nodes[0]
                 if isinstance(node, LatexMathNode) and node.delimiters[0] == '$':
-                    # Use the same whitespace policy as comparison: padding
-                    # after the second currency sign is not evidence of math.
+                    # A numeric tail can have padding, signs or punctuation
+                    # (decimal amounts, accounting parentheses, etc.). None
+                    # establishes that the preceding dollars were math. Stop
+                    # at another possible LaTeX construct, rather than look
+                    # through an independent following formula.
                     following = end
-                    while following < len(text) and is_whitespace(text[following]):
+                    while following < len(text):
+                        char = text[following]
+                        if char in '\\$' or not (is_whitespace(char) or unicodedata.category(char)[0] in 'PS'):
+                            break
                         following += 1
-                    if text[following:following+1].isdigit():
+                    if text[following:following+1].isnumeric():
                         raise ValueError('Possible adjacent currency amounts')
                 value = _render(node, converter)
             except Exception:  # A parse/conversion failure is not a fill failure.

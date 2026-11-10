@@ -26,6 +26,9 @@ class LatexComparisonTests(TestCase):
             (r'$\alpha + \beta = \infty$', 'α + β = ∞'),
             (r'$x^{2}$', 'x^2'),
             (r'$x_{2}$', 'x_2'),
+            (r'$x^{2}$.', 'x^2.'),
+            (r'$x$ + y', 'x + y'),
+            (r'$x$ $2$', 'x2'),
             (r'94\%', '94%'),
             ('e\u0301\t' + r'\(\alpha\)' + '\u200b', 'éα'),
         ]:
@@ -46,16 +49,17 @@ class LatexComparisonTests(TestCase):
     def test_currency_padding_does_not_turn_missing_dollars_into_equivalence(self):
         for padding in ('', ' ', '\t', '\n', '\r\n', '\u00a0', '\u2003', '\u3000',
                         '\x08', '\u200b', '\u2060', '\ufeff', ' \u200b\t\u3000'):
-            for separator in (' / ', ', '):
-                raw = f'Prices: $20{separator}${padding}30.'
-                missing = f'Prices: 20{separator}{padding}30.'
-                with self.subTest(padding=padding, separator=separator):
-                    self.assertEqual(normalize_latex(raw), raw)
-                    self.assertNotEqual(comparison_text(raw), comparison_text(missing))
-                    difference = text_difference(raw, missing)
-                    assert difference is not None
-                    self.assertIn('Missing 2, added 0', difference)
-                    self.assertIn("'$'", difference)
+            for amount in ('30', '.30', '-30', '+30', '−30', '(30)', '− .30', '٫٣٠'):
+                for separator in (' / ', ', '):
+                    raw = f'Prices: $20{separator}${padding}{amount}.'
+                    missing = raw.replace('$', '')
+                    with self.subTest(padding=padding, amount=amount, separator=separator):
+                        self.assertEqual(normalize_latex(raw), raw)
+                        self.assertNotEqual(comparison_text(raw), comparison_text(missing))
+                        difference = text_difference(raw, missing)
+                        assert difference is not None
+                        self.assertIn('Missing 2, added 0', difference)
+                        self.assertIn("'$'", difference)
 
     def test_failures_preserve_construct_and_other_valid_text(self):
         self.assertEqual(normalize_latex(r'$\unknown{a}$ then $\alpha$'), r'$\unknown{a}$ then α')
@@ -133,23 +137,25 @@ class LatexFillTests(IsolatedAsyncioTestCase):
         self.assertNotIn('Missing 8', feedback)
 
     async def test_currency_deletion_requires_repair_with_space_and_unicode_padding(self):
-        for padding in (' ', '\t', '\n', '\u00a0', '\u3000', '\u200b', ' \u200b\t\u3000'):
-            with self.subTest(padding=padding):
-                translator, model = translator_fixture()
-                raw = f'Prices: $20 / ${padding}30.'
-                bad = '<xml><p id="1">Prices: 20 / 30.</p><p id="2"/></xml>'
-                good = f'<xml><p id="1">{raw}</p><p id="2"/></xml>'
-                model_replies(model, raw, [bad, good])
-                result, _ = await StructuredTranslation().translate(translator, TranslationTask(
-                    fromstring('<body><p>Original.</p><p>Next.</p></body>'), SubmitKind.REPLACE, None),
-                    error_policy=False, retry_policy=RetryPolicy(fill=1))
-                delivered = ''.join(result.itertext())
-                self.assertEqual(delivered.count('$'), 2)
-                self.assertEqual(comparison_text(delivered), comparison_text(raw))
-                self.assertEqual(len(model.wire_calls), 3)  # Artist once, bad fill, repaired fill.
-                feedback = model.wire_calls[-1][-1].message
-                self.assertIn('Missing 2, added 0', feedback)
-                self.assertIn("'$'", feedback)
+        for padding in ('', ' ', '\t', '\n', '\u00a0', '\u3000', '\u200b', ' \u200b\t\u3000'):
+            for amount in ('30', '.30', '-30', '+.30', '−30', '(30)'):
+                with self.subTest(padding=padding, amount=amount):
+                    translator, model = translator_fixture()
+                    raw = f'Prices: $20 / ${padding}{amount}.'
+                    missing = raw.replace('$', '')
+                    bad = f'<xml><p id="1">{missing}</p><p id="2"/></xml>'
+                    good = f'<xml><p id="1">{raw}</p><p id="2"/></xml>'
+                    model_replies(model, raw, [bad, good])
+                    result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+                        fromstring('<body><p>Original.</p><p>Next.</p></body>'), SubmitKind.REPLACE, None),
+                        error_policy=False, retry_policy=RetryPolicy(fill=1))
+                    delivered = ''.join(result.itertext())
+                    self.assertEqual(delivered.count('$'), 2)
+                    self.assertEqual(comparison_text(delivered), comparison_text(raw))
+                    self.assertEqual(len(model.wire_calls), 3)  # Artist once, bad fill, repaired fill.
+                    feedback = model.wire_calls[-1][-1].message
+                    self.assertIn('Missing 2, added 0', feedback)
+                    self.assertIn("'$'", feedback)
 
     async def test_conversion_failure_does_not_add_requests_or_modify_content(self):
         translator, model = translator_fixture()
