@@ -25,9 +25,11 @@ protocol, not a general XML parser; CDATA is not a supported text escape.
 
 Required formatting tags and IDs remain present even when a shorter translation
 leaves some inline slots empty. Fill must not pad them with source text, invented
-placeholders or duplicate translation. PCEX canonical full-text validation and
-structural checks remain strict; formula restoration still happens after the
-accepted fill loop. Generic XHTML fill does not receive PCEX-only canonical rules.
+placeholders or duplicate translation. Both PCEX and EPUB compare normalized
+content using the same engineering view and retain structural checks protecting
+real delivery requirements. Format materialization happens within candidate
+acceptance, before submission; no later formula substitution may change accepted
+content. See the [translation/fill boundary](../../references/translation-fill-boundary.md).
 
 ## Optional input assertions
 
@@ -206,11 +208,12 @@ See [shared rate-limit scopes](API_REFERENCE.md#shared-rate-limit-scopes).
 
 ## Recoverable model formatting
 
-XML fill restores unambiguous whitespace from the known translation before
-adoption. Cosmetic formatting alone need not trigger another model request;
-ambiguous ownership, changed wording and protected whitespace remain validated.
-See [LLM acceptance and whitespace](LLM_ACCEPTANCE.md) for the shared policy,
-HTML/CSS references and supported transport subset.
+XML fill compares normalized content on both sides using one shared string
+comparison function. It does not require a unique text/tail owner for whitespace
+or reconstruct fields from source CSS modes. Real content edits and structural
+damage receive concrete feedback in the existing finite fill loop. Comparison
+does not rewrite the delivered content. See
+[LLM acceptance and content comparison](LLM_ACCEPTANCE.md).
 
 
 `FailureError.frames` contains serializable filename/function/optional line locations, first for the outer exception and then its cause chain (or unsuppressed implicit context). Cycles stop traversal. It excludes source lines and frame locals; filenames may be absolute.
