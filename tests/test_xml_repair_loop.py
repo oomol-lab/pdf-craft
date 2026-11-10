@@ -40,6 +40,9 @@ class _Hill:
     def request_element(self):
         return Element("xml")
 
+    def inline_feedback_blocks(self, _element):
+        return []
+
     def validate(self, _element):
         return next(self.errors)
 

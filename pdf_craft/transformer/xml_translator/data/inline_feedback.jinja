@@ -1,0 +1,12 @@
+TARGETED INLINE-ID DIAGNOSTIC
+The following blocks show the source identity assignments and YOUR current XML side by side. Compare the identities, not just the words:
+{% for item in blocks %}
+Source block:
+{{ item.source }}
+Your current block:
+{{ item.candidate }}
+{% endfor %}
+Every source formatting ID and every required non-ID tag still needs its node.
+An empty required formatting tag, including code or br, can retain the structural
+slot without inventing a copy of the original source words. Do not insert a
+source heading or source sentence merely to carry a missing formatting tag. If the required words are already in another inline node, do not duplicate those words to satisfy the missing ID. Reconsider the existing node's assignment using the source template. You may move the existing text into the correct required node and retain the other required formatting node empty, or place its own corresponding translated words there. Preserve the exact artist text and every original formatting identity. Return the entire corrected XML.

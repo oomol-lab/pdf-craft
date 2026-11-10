@@ -280,6 +280,10 @@ def project_xml_math(mappings, response, math, factory):
         if _format_shape(root, math_tags) != _format_shape(original_root, math_tags):
             raise MathProjectionError(f'Formula annotation in XML block id={identifier} spans incompatible formatting scopes. '
                                       'Keep every surrounding rich tag. Put source-math inside its intended formatting scope, not around unrelated styled text.')
-        result = list(search_text_segments(root))
+        # The mapping owns this entire validated block, including any artist
+        # display mathematics inserted inside it. Recomputing nearest block
+        # depth for a nested MathML node makes submit strip away the owner and
+        # silently retain only the first of several generated roots.
+        result = [replace(part, block_depth=1) for part in search_text_segments(root)]
         projected.append((block, result or [TextSegment('', [root], 0, 0, 1, TextPosition.TEXT)]))
     return projected

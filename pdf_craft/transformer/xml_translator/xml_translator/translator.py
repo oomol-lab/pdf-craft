@@ -117,7 +117,7 @@ class XMLTranslator:
             protocol_version="free-translation-v2",
         )
         self._fill_runtime = runtime_for(
-            fill_llm, fill_executor, protocol_version="xml-fill-group-v9",
+            fill_llm, fill_executor, protocol_version="xml-fill-group-v10",
         )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
@@ -631,10 +631,13 @@ class XMLTranslator:
         from ...canonical_math import CanonicalMath
         canonical_math = CanonicalMath(translated_text) if canonical_text_validator is not None else None
 
+        feedback_template = await self._fill_runtime.template("inline_feedback")
+
         def validate_candidate(element):
             projected = None
             duplication_hint = canonical_math.duplication_hint(element) if canonical_math is not None else ''
-            alignment_hint = canonical_math.difference_hint(element) if canonical_math is not None else ''
+            alignment_hint = ('\n\n'.join(filter(None, (canonical_math.difference_hint(element),
+                                canonical_math.repair_hint(element)))) if canonical_math is not None else '')
             error = canonical_math.expand(element, require_complete=False) if canonical_math is not None else None
             if error is None:
                 problems = []
@@ -645,6 +648,9 @@ class XMLTranslator:
                 shape_error = hill_climbing.validate(strip_bindings(element))
                 if shape_error is not None:
                     problems.append(shape_error)
+                    blocks = hill_climbing.inline_feedback_blocks(strip_bindings(element))
+                    if blocks:
+                        problems.append(feedback_template.render(blocks=blocks))
                 elif canonical_text_validator is not None:
                     text_error = canonical_text_validator(element, translated_text)
                     if text_error is not None:
