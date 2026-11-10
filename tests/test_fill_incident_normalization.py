@@ -99,6 +99,22 @@ class BoundaryNormalizationTests(TestCase):
         self.assertIn('Do not invent keys', canonical.duplication_hint(response))
         self.assertIn('already contains the COMPLETE artist response', canonical.repair_hint(response))
 
+    def test_incident_epub_publisher_restores_mathml_namespace(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from zipfile import ZipFile
+        from pdf_craft_tool.smoke.fill_incident_regression import publish_group
+        source = fromstring('<body><p>Value <math id="value"><mi>x</mi></math>.</p></body>')
+        with TemporaryDirectory() as directory:
+            publish_group(source, Path(directory))
+            with ZipFile(Path(directory) / 'adopted.epub') as archive:
+                restored = fromstring(archive.read('content.xhtml'))
+            math = restored.find('.//{http://www.w3.org/1998/Math/MathML}math')
+            assert math is not None
+            self.assertEqual(math.get('id'), 'value')
+            self.assertEqual(math[0].tag, '{http://www.w3.org/1998/Math/MathML}mi')
+        self.assertNotIn('xmlns', source[0][0].attrib)
+
     def test_adopted_empty_allocation_clears_source(self):
         root, _, hill = setup('<body><pre>obsolete()</pre><p>Original.</p></body>')
         self.assertIsNone(hill.submit(fromstring('<xml><pre id="1"/><p id="2">All artist text.</p></xml>')))

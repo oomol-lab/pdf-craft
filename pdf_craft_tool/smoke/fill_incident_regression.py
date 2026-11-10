@@ -119,6 +119,8 @@ def publish_group(target, output):
     body = SubElement(html, 'body')
     article = deepcopy(target)
     article.tag = 'article'
+    for math in article.iter('math'):
+        math.set('xmlns', 'http://www.w3.org/1998/Math/MathML')
     body.append(article)
     payload = tostring(html, encoding='utf-8', xml_declaration=True)
     with ZipFile(output / 'adopted.epub', 'w') as archive:
@@ -128,7 +130,10 @@ def publish_group(target, output):
         archive.writestr('content.xhtml', payload)
         archive.writestr('nav.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol><li><a href="content.xhtml">Incident</a></li></ol></nav></body></html>')
     with ZipFile(output / 'adopted.epub') as archive:
-        if tostring(fromstring(archive.read('content.xhtml'))) != tostring(fromstring(payload)):
+        reopened = fromstring(archive.read('content.xhtml'))
+        if sum(node.tag == '{http://www.w3.org/1998/Math/MathML}math' for node in reopened.iter()) != sum(node.tag == 'math' for node in target.iter()):
+            raise AssertionError('Published formulas lost their MathML namespace')
+        if tostring(reopened) != tostring(fromstring(payload)):
             raise AssertionError('EPUB materialization did not round trip')
 
 
