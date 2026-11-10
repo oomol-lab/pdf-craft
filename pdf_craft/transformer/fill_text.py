@@ -5,6 +5,7 @@ import unicodedata
 from markdown_it import MarkdownIt
 
 from ..common.whitespace import is_whitespace
+from ..formula.comparison import normalize_latex
 
 
 def plain_translation(text: str) -> str:
@@ -24,16 +25,22 @@ def plain_translation(text: str) -> str:
                     parts.append('\n')
             return ''.join(parts)
         rendered = content(parser.parse(text))
-        return text if comparison_text(rendered) == comparison_text(text) else rendered
+        return text if _document_text(rendered) == _document_text(text) else rendered
     except Exception:  # This optional optimization cannot reject artist output.
         return text
 
 
-def comparison_text(text: str) -> str:
+def _document_text(text: str) -> str:
     return ''.join(char for char in unicodedata.normalize('NFC', text) if not is_whitespace(char))
 
 
+def comparison_text(text: str) -> str:
+    """Symmetric comparison only; never an artist or delivery transformation."""
+    return _document_text(normalize_latex(text))
+
+
 def text_difference(expected: str, actual: str, blocks=()) -> str | None:
+    raw_actual = actual
     expected, actual = comparison_text(expected), comparison_text(actual)
     if expected == actual:
         return None
@@ -47,6 +54,11 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                         f'expected context={expected[max(0,a-50):min(len(expected),b+50)]!r}; '
                         f'candidate context={actual[max(0,c-50):min(len(actual),d+50)]!r}'
                         for kind, a, b, c, d in edits[:10])
+    message = f'Visible text differs from the canonical translation: Missing {missing}, added {added} characters.\n{details}'
+    if actual != _document_text(raw_actual):
+        # LaTeX normalization need not be compositional across XML fields.
+        # Keep the exact whole-string diff, not guessed raw-field offsets.
+        return message
     cursor, locations = 0, []
     for block in blocks:
         end = cursor + len(comparison_text(''.join(block.itertext())))
