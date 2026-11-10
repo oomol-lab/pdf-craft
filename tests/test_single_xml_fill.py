@@ -22,14 +22,15 @@ class SingleXMLFillTests(IsolatedAsyncioTestCase):
                 self.assertEqual(len(model.wire_calls), 2)
                 self.assertNotIn('"end"', model.wire_calls[-1][0].message)
 
-    async def test_complete_xml_reading_order_and_ids_define_different_owners(self):
+    async def test_final_source_order_is_repaired_before_adoption(self):
         translator, model = translator_fixture()
         model_replies(model, 'Second translated.\n\nFirst translated.', [
-            '<xml><p id="2">Second translated.</p><p id="1">First translated.</p></xml>'])
+            '<xml><p id="2">Second translated.</p><p id="1">First translated.</p></xml>',
+            '<xml><p id="1">Second translated.</p><p id="2">First translated.</p></xml>'])
         tasks = [TranslationTask(fromstring(f'<body><p>{text} original.</p></body>'), SubmitKind.REPLACE, text) for text in ('First', 'Second')]
         result = await StructuredTranslation().translate_many(translator, tasks, error_policy=False)
-        self.assertEqual([(root[0].text, key) for root, key in result], [('First translated.', 'First'), ('Second translated.', 'Second')])
-        self.assertEqual(len(model.wire_calls), 2)
+        self.assertEqual([(root[0].text, key) for root, key in result], [('Second translated.', 'First'), ('First translated.', 'Second')])
+        self.assertEqual(len(model.wire_calls), 3)
 
 
     async def test_diff_reports_actual_missing_and_added_text_without_retranslation(self):

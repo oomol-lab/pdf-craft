@@ -84,8 +84,8 @@ class StructuredTranslation:
                 return 'Visible tail has ambiguous fragment ownership.'
             child.text = (child.text or '') + (child.tail or '')
             child.tail = None
-        source_by_id = {segment.id: segment for segment in segments}
-        filled = [slot for slot in response if element_id(slot) in source_by_id]
+        slots_by_id = {element_id(slot): slot for slot in response}
+        filled = [slots_by_id[segment.id] for segment in segments if segment.id in slots_by_id]
         error = text_difference(canonical, ''.join(''.join(slot.itertext()) for slot in filled), filled)
         if error is None:
             if self.require_nonempty_units:
@@ -131,7 +131,7 @@ class StructuredTranslation:
         return SourceView(sources)
 
     def materialize_candidate(self, mappings: list[MathMapping | None], canonical: str,
-                              response: Element, segments: list[InlineSegment]) -> list[MathMapping | None] | None:
+                              _response: Element, segments: list[InlineSegment]) -> list[MathMapping | None] | None:
         if self.formulas is None:
             return None
         projected, visible = [], {}
@@ -149,7 +149,7 @@ class StructuredTranslation:
             output = list(search_text_segments(root, normalize_whitespace=False)) or [
                 TextSegment('', [root], 0, 0, 1, TextPosition.TEXT)]
             projected.append((block, output))
-        error = text_difference(canonical, ''.join(visible[element_id(slot)] for slot in response if element_id(slot) in visible))
+        error = text_difference(canonical, ''.join(visible[segment.id] for segment in segments))
         if error is not None:
             raise MathProjectionError(error)
         if self._record_units:

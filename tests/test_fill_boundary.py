@@ -183,8 +183,8 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
             from pdf_craft.transformer.xml_translator.xml.friendly import encode_friendly
             return encode_friendly(root)
         model.answer = answer
-        async def invoke(_runtime, messages, *args, **kwargs):
-            return await model.invoke(messages, *args, **kwargs)
+        async def invoke(_runtime, messages, *args, _model=model, **kwargs):
+            return await _model.invoke(messages, *args, **kwargs)
         with TemporaryDirectory() as folder:
             source, target = Path(folder)/'source.epub', Path(folder)/'target.epub'
             book(source, [('c.xhtml', 'application/xhtml+xml', '<html xmlns="http://www.w3.org/1999/xhtml"><body><article><p>Before <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>y</mi></math> equation.</p><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mi>x</mi><mo>=</mo><mn>1</mn></math><p>After equation.</p></article></body></html>')])
@@ -202,8 +202,8 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
 
     async def test_epub_metadata_quotes_survive_final_publication(self):
         translator, model = translator_fixture()
-        async def invoke(_runtime, messages, *args, **kwargs):
-            return await model.invoke(messages, *args, **kwargs)
+        async def invoke(_runtime, messages, *args, _model=model, **kwargs):
+            return await _model.invoke(messages, *args, **kwargs)
         with TemporaryDirectory() as folder:
             source, target = Path(folder)/'source.epub', Path(folder)/'target.epub'
             book(source, [('c.xhtml', 'application/xhtml+xml', '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Text.</p></body></html>')])
@@ -241,14 +241,17 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual(len(model.wire_calls), 3)
         self.assertIn('expected context=', model.wire_calls[-1][-1].message)
 
-    async def test_final_format_check_respects_candidate_reading_order_and_source_ids(self):
+    async def test_final_format_check_matches_actual_source_order(self):
         translator, model = translator_fixture()
-        model_replies(model, 'Second. First.', ['<xml><p id="2">Second.</p><p id="1">First.</p></xml>'])
+        model_replies(model, 'Second. First.', [
+            '<xml><p id="2">Second.</p><p id="1">First.</p></xml>',
+            '<xml><p id="1">Second.</p><p id="2">First.</p></xml>'])
         tasks = [TranslationTask(fromstring(f'<body><p>{word} original.</p></body>'), SubmitKind.REPLACE, word)
                  for word in ('First', 'Second')]
-        results = await StructuredTranslation(formulas=XMLInterrupter()).translate_many(translator, tasks, error_policy=False)
-        self.assertEqual([(root[0].text, key) for root, key in results], [('First.', 'First'), ('Second.', 'Second')])
-        self.assertEqual(len(model.wire_calls), 2)
+        results = await StructuredTranslation(formulas=XMLInterrupter()).translate_many(translator, tasks,
+            error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual([(root[0].text, key) for root, key in results], [('Second.', 'First'), ('First.', 'Second')])
+        self.assertEqual(len(model.wire_calls), 3)
 
     async def test_plain_percent_is_not_eaten_as_a_tex_comment(self):
         source = fromstring('<body><p><math><mn>4</mn></math></p></body>')
@@ -265,3 +268,89 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual([key for _, key in results], ['x', 'y'])
         self.assertEqual([sum(node.tag == 'math' for node in root.iter()) for root, _ in results], [1, 1])
         self.assertEqual(len(model.wire_calls), 2)
+
+    async def test_literal_and_mixed_expression_display_is_not_only_in_annotation(self):
+        for text in ('costs $20 today', 'A & B', '$x$ and $y$', r'plain \name'):
+            with self.subTest(text=text):
+                from pdf_craft.transformer.xml_translator.xml.friendly import encode_friendly
+                candidate = fromstring('<xml><p id="1"><expression/></p></xml>')
+                candidate[0][0].text = text
+                target, _ = await self.translate(text, [encode_friendly(candidate)],
+                    source=fromstring('<body><p><math><mi>x</mi></math></p></body>'), formulas=XMLInterrupter())
+                self.assertEqual(target.findtext('.//mtext'), text)
+                target.find('.//annotation').text = 'hidden text must not win'
+                self.assertEqual(XMLInterrupter().visible_text(target).strip(), text)
+
+    async def test_actual_epub_and_pcex_order_is_checked_before_adoption(self):
+        from pdf_craft.extractor.chapter.chapter import Chapter, SourceTextFragment, TextFlowItem
+        for epub in (False, True):
+            with self.subTest(epub=epub):
+                translator, model = translator_fixture()
+                tag = 'p' if epub else 'fragment'
+                bad = f'<xml><{tag} id="2">Second.</{tag}><{tag} id="1">First.</{tag}></xml>'
+                good = f'<xml><{tag} id="1">Second.</{tag}><{tag} id="2">First.</{tag}></xml>'
+                model_replies(model, 'Second. First.', [bad, good])
+                if not epub:
+                    source = Chapter(None, -1, [TextFlowItem('body', i, [SourceTextFragment(
+                        1, i, (0, i*20, 100, i*20+18), [f'{word} original.'])])
+                        for i, word in enumerate(('First', 'Second'))])
+                    target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False,
+                        retry_policy=RetryPolicy(fill=1))
+                    target = decode(encode(target))
+                    contents = []
+                    for item in target.flow_items:
+                        assert isinstance(item, TextFlowItem)
+                        fragment = item.children[0]
+                        assert isinstance(fragment, SourceTextFragment)
+                        contents.append(fragment.content)
+                    self.assertEqual(contents, [['Second.'], ['First.']])
+                else:
+                    async def invoke(_runtime, messages, *args, _model=model, **kwargs):
+                        return await _model.invoke(messages, *args, **kwargs)
+                    with TemporaryDirectory() as folder:
+                        source, target = Path(folder)/'source.epub', Path(folder)/'target.epub'
+                        book(source, [('c.xhtml', 'application/xhtml+xml', '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>First original.</p><p>Second original.</p></body></html>')])
+                        with ZipFile(source) as archive:
+                            contents = {name: archive.read(name) for name in archive.namelist()}
+                        contents['EPUB/book.opf'] = contents['EPUB/book.opf'].replace(b'<title>Book title</title>', b'')
+                        contents['EPUB/toc.ncx'] = b'<ncx><navMap/></ncx>'
+                        with ZipFile(source, 'w') as archive:
+                            for name, data in contents.items():
+                                archive.writestr(name, data)
+                        with patch.object(LLMRuntime, '_invoke_async', invoke):
+                            await AsyncPDFCraft(error_policy=False, retry_policy=RetryPolicy(fill=1)).translate_epub(
+                                source, target, llm=translator._translation_llm, executor=translator._translation_runtime.executor,
+                                target_language='Chinese', max_group_tokens=2600, window=1, submit=SubmitKind.REPLACE)
+                        with ZipFile(target) as archive:
+                            root = fromstring(archive.read('EPUB/c.xhtml'))
+                        self.assertEqual([''.join(node.itertext()) for node in root.iter() if node.tag.split('}')[-1] == 'p'], ['Second.', 'First.'])
+                self.assertEqual(len(model.wire_calls), 3)
+
+    async def test_public_epub_keeps_displayed_currency_and_ampersand(self):
+        from pdf_craft.transformer.xml_translator.xml.friendly import encode_friendly
+        for text in ('costs $20 today', 'A & B'):
+            with self.subTest(text=text):
+                translator, model = translator_fixture()
+                answer = fromstring('<xml><p id="1"><expression/></p></xml>')
+                answer[0][0].text = text
+                model_replies(model, text, [encode_friendly(answer)])
+                async def invoke(_runtime, messages, *args, _model=model, **kwargs):
+                    return await _model.invoke(messages, *args, **kwargs)
+                with TemporaryDirectory() as folder:
+                    source, target = Path(folder)/'source.epub', Path(folder)/'target.epub'
+                    book(source, [('c.xhtml', 'application/xhtml+xml', '<html xmlns="http://www.w3.org/1999/xhtml"><body><p><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi></math></p></body></html>')])
+                    with ZipFile(source) as archive:
+                        contents = {name: archive.read(name) for name in archive.namelist()}
+                    contents['EPUB/book.opf'] = contents['EPUB/book.opf'].replace(b'<title>Book title</title>', b'')
+                    contents['EPUB/toc.ncx'] = b'<ncx><navMap/></ncx>'
+                    with ZipFile(source, 'w') as archive:
+                        for name, data in contents.items():
+                            archive.writestr(name, data)
+                    with patch.object(LLMRuntime, '_invoke_async', invoke):
+                        await AsyncPDFCraft(error_policy=False).translate_epub(source, target,
+                            llm=translator._translation_llm, executor=translator._translation_runtime.executor,
+                            target_language='Chinese', max_group_tokens=2600, window=1, submit=SubmitKind.REPLACE)
+                    with ZipFile(target) as archive:
+                        reopened = fromstring(archive.read('EPUB/c.xhtml'))
+                    visible = [node.text for node in reopened.iter() if node.tag.split('}')[-1] == 'mtext']
+                    self.assertEqual(visible, [text])

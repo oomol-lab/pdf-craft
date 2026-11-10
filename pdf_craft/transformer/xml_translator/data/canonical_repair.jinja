@@ -30,3 +30,9 @@ math delimiters, braces, backticks and symbols verbatim in text, including when
 using the required formatting tags. Empty a required formatting tag and keep
 the complete literal text beside it if necessary; do not silently render away
 characters to obtain a similar-looking expression.
+
+A field location identifies the exact XML text/tail containing a difference.
+If entire_field_extra=True, clear ONLY that text field, not its element or its
+neighbors. Keep the required tag and its other text/tail fields. In particular,
+if a sup node contains an extra copy of a number already present in the literal
+translation nearby, keep the sup tag empty; do not remove the literal formula.

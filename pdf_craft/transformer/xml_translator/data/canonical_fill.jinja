@@ -27,3 +27,9 @@ them. Move words, never copy them or add words to fill a section.
 {% endif %}
 When repairing, return the whole corrected XML with every required block and
 formatting identity. Preserve the unchanged surrounding text.
+
+Block IDs select fixed positions in the delivered document. Reordering XML
+blocks does not reorder those positions. Put the complete artist text into
+source block order so the FINAL reading flow matches the translation, even
+when the artist changed sentence order. Inline formatting may move inside its
+own block, retaining its required identities.

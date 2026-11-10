@@ -11,7 +11,6 @@ from pdf_craft.transformer.xml_translator.segment import TextSegment, combine_te
 from pdf_craft.transformer.xml_translator.utils import ensure_list
 from pdf_craft.transformer.xml_translator.xml import DISPLAY_ATTRIBUTE, clone_element, is_inline_element
 from pdf_craft.transformer.formula_source import SourceMath
-from pdf_craft.formula import latex_to_plain_text
 from pdf_craft.transformer.formula_payload import formula_payload, replace_formulas
 
 _ID_KEY = "__XML_INTERRUPTER_ID"
@@ -67,7 +66,8 @@ class XMLInterrupter:
             source = self._placeholder2interrupted.get(key or '')
             if source is not None:
                 result.attrib.update({k: v for k, v in source.attrib.items() if k != _ID_KEY and not k.startswith('__pdf_craft_')})
-            if source is not None and formula_payload(self._latex_by_id[key or '']) == formula_payload(value):
+            if (source is not None and not self._literal_presentation(source)
+                    and formula_payload(self._latex_by_id[key or '']) == formula_payload(value)):
                 # The engineer selected this source node explicitly. Retain its
                 # actual MathML presentation when the whole payload is unchanged.
                 result = deepcopy(source)
@@ -87,7 +87,7 @@ class XMLInterrupter:
                         semantics.remove(annotation)
             else:
                 semantics = SubElement(result, 'semantics')
-                SubElement(semantics, 'mtext').text = latex_to_plain_text(re.sub(r'(?<!\\)%', r'\\%', formula_payload(value)))
+                SubElement(semantics, 'mtext').text = value
             # Exact engineer payload is represented once; annotation is not a
             # second visible copy of the presentation children.
             SubElement(semantics, 'annotation', {'encoding': 'application/x-tex'}).text = value
@@ -95,11 +95,25 @@ class XMLInterrupter:
             return result
         return replace_formulas(root, convert)
 
+    @staticmethod
+    def _literal_presentation(root: Element) -> bool:
+        presentation = root.find('semantics')
+        children = list(root if presentation is None else presentation)
+        children = [node for node in children if node.tag not in ('annotation', 'annotation-xml')]
+        return len(children) == 1 and children[0].tag == 'mtext'
+
     def visible_text(self, root: Element) -> str:
         if root.tag == 'math':
+            if self._literal_presentation(root):
+                # Validate what a reader sees, not a hidden original string.
+                presentation = root.find('semantics')
+                return ''.join(node.text or '' for node in (root if presentation is None else presentation)
+                               if node.tag == 'mtext')
             annotation = next((node for node in root.iter('annotation')
                                if node.get('encoding') == 'application/x-tex'), None)
             if annotation is not None:
+                # Complex presentation is reused only from the explicitly
+                # selected unchanged source node, never a lossy new conversion.
                 return annotation.text or ''
         return (root.text or '') + ''.join(self.visible_text(child) + (child.tail or '') for child in root)
 

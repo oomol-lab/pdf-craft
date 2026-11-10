@@ -57,6 +57,26 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
             locations.append(f'block id={block.get("id")}: candidate[{cursor}:{end}], '
                              f'entire_block_extra={whole_extra}, text={"".join(block.itertext())[:200]!r}')
         cursor = end
+    prefix = ''
+    def fields(node, path):
+        yield path + '.text', node.text or ''
+        for index, child in enumerate(node):
+            child_path = f'{path}/{child.tag}[{index}]'
+            yield from fields(child, child_path)
+            yield child_path + '.tail', child.tail or ''
+    for block in blocks:
+        for path, value in fields(block, f'{block.tag}#{block.get("id")}'):
+            start = len(comparison_text(prefix))
+            prefix += value
+            end = len(comparison_text(prefix))
+            if end <= start:
+                continue
+            if any((start <= left < end) if left == right else (start < right and left < end)
+                   for _, _, _, left, right in edits):
+                extra = any(kind == 'insert' and left <= start and end <= right
+                            for kind, _, _, left, right in edits)
+                locations.append(f'field={path}, candidate[{start}:{end}], '
+                                 f'entire_field_extra={extra}, value={value[:300]!r}')
     if locations:
-        details += '\n' + '\n'.join(locations[:6])
+        details += '\n' + '\n'.join(locations[:12])
     return f'Visible text differs from the canonical translation: Missing {missing}, added {added} characters.\n{details}'

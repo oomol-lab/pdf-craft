@@ -29,7 +29,9 @@ class EchoModel:
     @staticmethod
     def answer(messages):
         user = messages[1 if len(messages) > 1 else 0]['content']
-        template = re.search(r'XML template:\n```XML\n(.*?)\n```', user, re.S)
+        template = re.search(r'Source XML .*?:\n```XML\n(.*?)\n```', user, re.S)
+        if template is None:
+            template = re.search(r'XML template:\n```XML\n(.*?)\n```', user, re.S)
         return xml_echo(template[1], user) if template else user.split('Text to translate:\n', 1)[-1].strip('\n')
 
 def paragraph(index):
