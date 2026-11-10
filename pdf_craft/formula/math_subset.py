@@ -15,12 +15,13 @@ MAX_DEPTH = 16
 _NUMBER = re.compile(r'(?:\d+(?:\.\d+)?|\.\d+)')
 _NAME = re.compile(r'[A-Za-z]+')
 _COMMAND = re.compile(r'\\([A-Za-z]+|[^\n])')
-_FUNCTIONS = frozenset(('sin', 'cos', 'tan', 'log', 'ln', 'exp', 'lim', 'max', 'min'))
+_FUNCTIONS = frozenset(('sin', 'cos', 'tan', 'log', 'ln', 'exp', 'lim', 'max', 'min', 'gcd'))
 _ARGUMENTS = {'frac': 2, 'dfrac': 2, 'tfrac': 2, 'sqrt': 1,
               'mathrm': 1, 'mathbf': 1, 'mathit': 1, 'mathbb': 1, 'mathcal': 1,
               'hat': 1, 'bar': 1, 'vec': 1, 'overline': 1, 'underline': 1}
 _OPERATORS = frozenset('+-−*/=<>≤≥≠≈×÷·⋅±∓∈∉⊂⊆∪∩:;,')
 _LITERAL = frozenset('{}_^&#$%\\')
+_MATH_SYMBOLS = frozenset('′″‴⁗')
 
 
 class MathSyntaxError(ValueError):
@@ -30,10 +31,33 @@ class MathSyntaxError(ValueError):
 class MathParser:
     """Consume one mathematical prefix without searching for a closing dollar."""
 
-    def __init__(self, text: str, converter: LatexNodes2Text):
+    def __init__(self, text: str, converter: LatexNodes2Text, *, comparison: bool = False):
         self.text = text[:MAX_LENGTH]
         self.pos = 0
         self.converter = converter
+        self.comparison = comparison
+        self.has_delimiters = False
+
+    def _delimiters(self) -> None:
+        """Comparison may cross adjacent wrappers, never ordinary grouping."""
+        while self.pos < len(self.text):
+            if self.text.startswith(('\\(', '\\)', '\\[', '\\]'), self.pos):
+                self.pos += 2
+            elif self.text[self.pos] == '$':
+                self.pos += 1
+            else:
+                break
+            self.has_delimiters = True
+            self.whitespace()
+
+    def _prose(self) -> bool:
+        char = self.text[self.pos]
+        name = _NAME.match(self.text, self.pos)
+        if name is not None:
+            return len(name[0]) > 1 and name[0] not in _FUNCTIONS
+        return (char not in '\\{([%^_' and char not in _OPERATORS
+                and _NUMBER.match(self.text, self.pos) is None
+                and not _symbol(char))
 
     def whitespace(self) -> None:
         while self.pos < len(self.text) and is_whitespace(self.text[self.pos]):
@@ -45,12 +69,24 @@ class MathParser:
         parts, atom, pending = [], False, False
         while self.pos < len(self.text):
             self.whitespace()
+            if self.comparison:
+                self._delimiters()
             if self.pos == len(self.text):
                 break
             char = self.text[self.pos]
             if char in '$)}]' or self.text.startswith(('\\)', '\\]'), self.pos):
                 break
             if char in _OPERATORS:
+                if not atom and char in '±∓':
+                    parts.append(char)
+                    self.pos += 1
+                    atom, pending = True, False
+                    continue
+                if not atom and closing and char in '+-−*':
+                    parts.append(char)
+                    self.pos += 1
+                    atom, pending = True, False
+                    continue
                 if not atom and char not in '+-−':
                     raise MathSyntaxError('Missing mathematical operand')
                 parts.append(char)
@@ -64,9 +100,11 @@ class MathParser:
                 argument = self.atom(depth + 1, single=True)
                 parts.append(char + (argument if argument.startswith('{') else '{' + argument + '}'))
             else:
+                if self.comparison and not closing and self._prose():
+                    break
                 parts.append(self.atom(depth + 1))
                 atom, pending = True, False
-        if not atom or pending:
+        if not atom or (pending and not self.comparison):
             raise MathSyntaxError('Incomplete mathematical expression')
         if closing:
             if self.pos == len(self.text) or self.text[self.pos] != closing:
@@ -91,13 +129,11 @@ class MathParser:
         match = _NAME.match(self.text, self.pos)
         if match is not None:
             value = match[0]
-            if len(value) > 1 and value not in _FUNCTIONS:
+            if len(value) > 1 and value not in _FUNCTIONS and not (self.comparison and depth > 1):
                 raise MathSyntaxError('Plain prose is not a mathematical expression')
             self.pos += len(value)
             return '\\' + value + '{}' if value in _FUNCTIONS else value
-        code = ord(char)
-        if (0x370 <= code <= 0x3ff or 0x2100 <= code <= 0x214f
-                or 0x1d400 <= code <= 0x1d7ff or unicodedata.category(char) == 'Sm'):
+        if _symbol(char) or (single and char in '+-−*'):
             self.pos += 1
             return char
         if char == '%':
@@ -111,6 +147,8 @@ class MathParser:
             raise MathSyntaxError('Incomplete mathematical command')
         name = match[1]
         self.pos = match.end()
+        if name in ('prime', 'Re', 'Im'):
+            return {'prime': '′', 'Re': 'ℜ', 'Im': 'ℑ'}[name]
         if name in _LITERAL:
             return '\\' + name
         if name in _FUNCTIONS:
@@ -131,7 +169,12 @@ class MathParser:
         spec = self.converter.latex_context.get_macro_spec(name)
         value = spec.simplify_repl if spec is not None else None
         if (not isinstance(value, str) or not value
-                or not all(unicodedata.category(c) == 'Sm' or 0x370 <= ord(c) <= 0x3ff
-                           or 0x2100 <= ord(c) <= 0x214f for c in value)):
+                or not all(_symbol(c) for c in value)):
             raise MathSyntaxError('Not a supported mathematical symbol command')
         return value
+
+
+def _symbol(char: str) -> bool:
+    code = ord(char)
+    return (char in _MATH_SYMBOLS or 0x370 <= code <= 0x3ff or 0x2100 <= code <= 0x214f
+            or 0x1d400 <= code <= 0x1d7ff or unicodedata.category(char) == 'Sm')
