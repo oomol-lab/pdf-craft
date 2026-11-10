@@ -1,117 +1,73 @@
-# LLM acceptance and whitespace
+# LLM acceptance and content comparison
 
-PDF Craft accepts recoverable results, not a model's ability to reproduce
-unnecessary surface formatting. **When the intended result is unambiguous and
-an algorithm can restore it, restore and validate it without another model
-request.** Request correction when information is missing or multiple meaningful
-allocations remain possible. This principle applies to LLM operations generally;
-it does not authorize guessing wording or weakening final-result correctness.
+PDF Craft validates deliverable content and structure rather than a model's ability
+to reproduce irrelevant surface formatting. Differences that the program can handle
+unambiguously should not cost another model request. When an algorithm rejects a
+legitimate expression, fix the algorithm instead of adding protocols or gates that
+make the model accommodate the implementation.
 
-## No acceptance gate on translation output
+## Translation and fill responsibilities
 
-Translation prompts may guide translation, tone, style and terminology, but must
-not prescribe output formats, formula identities or placeholders. Every returned
-translation goes unchanged to fill, without prior programmatic or model review,
-rejection or requests to retranslate. The acceptance and repair rules below apply
-to structural recovery in fill. Batch wrappers must respect the same boundary.
-See the [translation/fill boundary](../../references/translation-fill-boundary.md).
+The translation LLM owns expression. Prompts guide translation, tone, style and
+terminology, not XML/JSON, formula identities, placeholders or other output protocols.
+The artist's response is not subject to content review, rejection or retranslation.
 
-## XML fill
+Keep the raw response for diagnostics. In addition to shared invalid-character
+cleaning, an adjustable optimization may use a Markdown parser to remove recognized
+formatting while retaining its text, producing a plain-text engineering view.
+Unrecognized syntax survives; cleanup errors fall back to the original response.
+Fill input and full-text comparison use the same view, unchanged throughout repair.
 
-The first-stage translated paragraph is the trusted text. Original XML supplies
-source identities, structure, styling and whitespace context, never replacement
-untranslated wording. After structural validation, unchanged non-whitespace
-characters are aligned with that translated paragraph. Uniquely owned
-whitespace is reconstructed before the candidate is adopted. A trailing cosmetic
-space or a missing word separator inside one text slot need not cost another
-fill call. A missing separator between differently styled slots needs an existing
-or unique source owner; otherwise the model must clarify its allocation. Source
-formula restoration retains its explicit outside-expression padding rule.
+PCEX body, footnotes, independent image/table fields and native EPUB share one finite
+XML fill loop. Source XML supplies stable identities, structure and resources. One
+fill response handles text ownership, formatting and formula placement. The program
+does not create artist formula placeholders, identity tables or range protocols, or
+infer correspondence from position or similarity. There is no separate JSON
+allocation, helper model or reverse retranslation stage.
 
-Acceptance also accounts for subsequent transformations. The PCEX adapter marks
-temporary formula nodes whose contents will be replaced. Shared recovery places
-their boundary separators in surviving text/tail fields before acceptance, even
-if the candidate's concatenated text already matches. A space inside a formula
-token must not disappear when that token is restored. Interior formula spaces
-remain formula content. Empty tokens will restore real formulas, so their two
-sides are distinct positions; an ambiguous missing separator still needs explicit
-allocation. This uses the same recovery algorithm, not a second formula cleanup.
+## Full-text and structural acceptance
 
-Narrative, independent image/table fields and native EPUB share the structured
-translation protocol: immutable math references, required empty slots and source
-formula restoration after acceptance. Adapters supply unit boundaries and formula
-formats (PCEX inline_expr or EPUB MathML). Caption context is read-only, not part
-of the translated text. PCEX serialization is a separate,
-lossless boundary: both chapter writers preserve the accepted mixed content;
-they do not apply friendly XML's whitespace normalization when saving it.
+Full-text acceptance only compares normalized content.
 
-Changes are transactional: unsuccessful recovery leaves the candidate untouched.
-Words, punctuation, source IDs and required tags remain checked. Ordinary
-whitespace is normalized using the shared document-text policy. Missing/changed prose or ambiguous slot ownership still enters
-the bounded repair loop. Punctuation/spelling correction is not part of this
-whitespace refactor.
+Extract content in the final candidate's actual delivery order and apply the same
+shared string comparison function to that text and the translation engineering view.
+Source block identities determine writeback positions; response-tree order alone
+cannot establish correct delivery order. The comparison view does not rewrite output
+or change source offsets or CFIs. Character rules belong in the
+[translation/fill boundary](../../references/translation-fill-boundary.md), not in
+separate adapter policies. CSS preservation modes and the text/tail field owning a
+space are not additional full-text acceptance gates.
 
-## Shared HTML/CSS transport subset
+Structural checks protect real delivery requirements: parseable XML/format, complete
+required identities and resources, valid references and legal submission targets.
+Required formatting tags and identities remain present; slots may be empty when no
+translated characters belong there. Do not fill them with source wording, placeholders
+or duplicate translation. Read-only context cannot hide text discarded on delivery.
 
-`common/whitespace.py` owns ordinary text normalization; the preservation context
-in `transformer/whitespace.py` is used by friendly XML,
-segmentation and canonical recovery. Block/inline classification comes from the
-existing `xml/inline.py` registry and its explicit `display` override.
+PCEX/EPUB adapters own format materialization and content extraction. Materialization
+happens within candidate acceptance. Formula presentation and hidden annotations must
+not count as two copies, and hidden data must not mask lost visible content. Submission
+must not rewrite accepted words or substitute another formula. Detached nodes cannot
+become the document root. PCEX serialization preserves adopted content without applying
+interactive whitespace rules to it.
 
-| Context | Processing |
-| --- | --- |
-| `normal`, `nowrap` | Collapse Unicode whitespace, backspace and segment breaks; remove explicit zero-width padding; normal paragraph edges can be trimmed. |
-| `pre-line` | Collapse spaces/tabs, retain segment breaks. |
-| `pre`, `pre-wrap`, `break-spaces` | Preserve spaces, tabs and breaks. |
-| NBSP and full-width spaces in ordinary prose | Normalize to ordinary spaces rather than requiring exact model reproduction. |
-| Block-only containers in collapsing modes | May add inter-block indentation. |
-| Text mixed with inline elements | Never introduce separators that were absent; normalize existing runs continuously across slots. |
+Real content edits or structural damage receive concrete differences and locations in
+the same finite fill loop. Failure must not adopt partial results or label source
+fallback as translation. Diagnostic evidence survives until the owning results and
+direct content callbacks complete. See the lifecycle in
+[error handling](ERROR_HANDLING.md#llm-repair-and-adoption-failure-evidence).
 
-Ordinary text covers Unicode `\s`, backspace and explicit zero-width padding.
-Join controls and variation selectors remain content. Explicitly preserved code and
-formula syntax retain their own whitespace. Raw model answers remain diagnostic
-evidence; fill normalizes its engineering view and adopted text, never an entire
-serialized XML/JSON/Markdown response.
+## Friendly XML and storage boundaries
 
-Modes inherit through the tree. HTML `pre`/`textarea` defaults, explicit
-`white-space` transport hints and inline `style` declarations are supported.
-An explicit `xml:space="preserve"` is treated as a preservation hint at that
-node; descendants inherit it and may override with an explicit supported mode.
-Unknown explicit modes are conservatively preserved. External stylesheets and
-selectors are not evaluated. Source context, not model-supplied styling, governs
-acceptance. Temporary context hints in fill templates are replaced by original
-source attributes on adoption.
+All model XML inputs and outputs use the shared friendly codec. It handles
+representation and structure without granting additional semantic validation powers.
+Literal tags, entity spellings and actual structure must remain distinguishable.
+See the [LLM XML boundary](../../references/llm-xml-boundary.md).
 
-Friendly XML normalizes existing ordinary whitespace and indents block-only
-containers. It never treats a block's mixed text as disposable indentation.
-The protocol wrapper remains readable while inline sequences remain semantic.
-Preserved contexts keep literal whitespace; explicit `br` and other structural
-nodes are retained, not converted to disposable whitespace.
-
-The normative reference is [CSS Text 3: white-space](https://www.w3.org/TR/css-text-3/#white-space-property)
-and [whitespace processing](https://www.w3.org/TR/css-text-3/#white-space-processing).
-HTML defaults are checked against the [HTML rendering standard](https://html.spec.whatwg.org/multipage/rendering.html).
-Our stated transport subset does not promise complete CSS/browser equivalence
-when external styling or unsupported layout behavior is involved.
-
-Source contexts use the same ID/tag/occurrence matching as final attribute adoption,
-including different-tag reordering without IDs. An unmatched source context is
-rejected. A protected node does not protect its normal parent-owned tail; gaps
-are classified by actual field ownership. Known normal padding cannot migrate
-into a preserved slot merely to satisfy comparison.
-
-A missing edge gap is not automatically normal paragraph padding. Its possible
-source text/tail owners determine the preservation context, even if neither the
-source nor the candidate contains edge whitespace. In a single protected field,
-the known canonical leading/trailing whitespace can be restored exactly. At a
-mixed boundary with multiple possible owners, correction is required rather than
-silently discarding it or guessing which style owns it. This is recovery from
-known translated text, not permission to collapse protected CSS whitespace.
-
-Gap ownership is decided once, before normalization and reconstruction. A unique
-source owner takes precedence over the model's placement: whitespace moved from
-`pre` to a normal parent (or the reverse) is restored to that owner, even when
-concatenated characters already match. Inside one text field, canonical spaces,
-tabs and breaks are restored using that field's mode without another fill call.
-This includes protected whitespace: it is restored exactly, not normalized away.
-Multiple protected owners without a unique allocation still require clarification.
+`common/whitespace.py` provides shared character rules; `transformer/whitespace.py`
+handles preservation contexts used by friendly XML and source segmentation. HTML/CSS
+normal, pre and pre-line rules may still serve those transport/source representations;
+they do not reconstruct fill field whitespace ownership or establish another content
+comparison gate. Encoding and segmentation retain meaningful mixed-content boundaries;
+independent per-node trimming must not concatenate words. Storage uses standard XML
+and preserves adopted results, never the comparison view as output text.
