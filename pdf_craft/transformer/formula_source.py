@@ -1,6 +1,5 @@
 """Source formula evidence and typed mapping primitives shared by format adapters."""
 from dataclasses import dataclass
-import re
 from xml.etree.ElementTree import Element
 
 from .xml_translator.segment import TextSegment
@@ -21,14 +20,3 @@ class SourceMath:
     slot: Element | None = None
     context: bool = False
 
-
-def formula_content(value: str) -> tuple[str, bool]:
-    """Read the delimiters recognized by the canonical transport protocol."""
-    if value.startswith('$$'):
-        return value[2:-2], False
-    if value.startswith('$'):
-        return value[1:-1], True
-    match = re.fullmatch(r'\\+([\(\[])(.*?)\\+[)\]]', value, re.DOTALL)
-    if match is None:
-        raise MathProjectionError('Invalid canonical mathematical delimiters.')
-    return match[2], match[1] == '('

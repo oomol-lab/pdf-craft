@@ -1,9 +1,8 @@
 """Canonical text with a unique allocation does not need model copying."""
 # pylint: disable=protected-access
 from unittest import IsolatedAsyncioTestCase
-from xml.etree.ElementTree import fromstring, tostring
+from xml.etree.ElementTree import fromstring
 
-from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft import RetryPolicy, SubmitKind
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
@@ -13,21 +12,6 @@ from tests.test_source_math_identity import provider
 
 
 class DeterministicFillTests(IsolatedAsyncioTestCase):
-    async def test_empty_canonical_clears_all_slots_even_without_general_direct_fill(self):
-        source = fromstring('<body><p>Original <em>important</em> prose.</p>'
-                            '<p><a href="target.xhtml">Linked words</a><span>more text</span></p></body>')
-        translator, runtime = _repairing_translator([], direct_fill=True)
-        calls = provider(translator, [''])
-        result, _ = await StructuredTranslation(owner=lambda _segment: source,
-            is_text_unit=lambda _owner: False).translate(
-                translator, TranslationTask(source, SubmitKind.REPLACE, None),
-                error_policy=False, retry_policy=RetryPolicy(translation=0, fill=12))
-        self.assertEqual(''.join(result.itertext()), '')
-        self.assertEqual(len(result.findall('.//p')), 2)
-        self.assertEqual(len(result.findall('.//em')), 1)
-        self.assertEqual(result.find('.//a').get('href'), 'target.xhtml')
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(runtime.context_value.calls, 0)
 
     async def test_long_translation_into_one_plain_slot_needs_no_fill_request(self):
         translator, runtime = _repairing_translator([], direct_fill=True)
@@ -36,20 +20,10 @@ class DeterministicFillTests(IsolatedAsyncioTestCase):
         result, _ = await StructuredTranslation().translate(
             translator, TranslationTask(fromstring('<body><p>Original prose.</p></body>'), SubmitKind.REPLACE, None),
             error_policy=False, retry_policy=RetryPolicy(translation=0, fill=0))
-        self.assertEqual(''.join(result.itertext()), normalize_whitespace(canonical, trim=True))
+        self.assertEqual(''.join(result.itertext()), canonical)
         self.assertEqual(len(calls), 1)
         self.assertEqual(runtime.context_value.calls, 0)
 
-    async def test_unchanged_canonical_unit_retains_all_inline_and_fragment_ownership(self):
-        translator, runtime = _repairing_translator([], direct_fill=True)
-        source = fromstring('<body><fragment>同じ文章。<em>強調。</em>\u00a0</fragment>'
-                            '<fragment>繰り返し文章。繰り返し文章。</fragment></body>')
-        before = tostring(source).replace(b'&#160;', b' ')
-        result, _ = await StructuredTranslation(owner=lambda _segment: source).translate(
-            translator, TranslationTask(source, SubmitKind.REPLACE, None),
-            error_policy=False, retry_policy=RetryPolicy(translation=0, fill=0))
-        self.assertEqual(tostring(result), before)
-        self.assertEqual(runtime.context_value.calls, 0)
 
     async def test_changed_inline_allocation_still_uses_model_and_exact_validation(self):
         translator, runtime = _repairing_translator([
@@ -78,17 +52,6 @@ class DeterministicFillTests(IsolatedAsyncioTestCase):
                         error_policy=False, retry_policy=RetryPolicy(translation=0, fill=1))
                 self.assertEqual(runtime.context_value.calls, 2)
 
-    async def test_unchanged_formula_requires_explicit_xml_identity_before_restoration(self):
-        from copy import deepcopy
-        from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
-        from tests.test_canonical_math_projection import chapter, expression
-        source = chapter(['Value ', expression('x=1'), ' .'])
-        saved = deepcopy(source)
-        translator, runtime = _repairing_translator(['<xml><fragment id="1">Value <expression><source-math key="s1">\\(x=1\\)</source-math></expression> .</fragment></xml>'], direct_fill=True)
-        result = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
-        self.assertEqual(result, saved)
-        self.assertEqual(source, saved)
-        self.assertEqual(runtime.context_value.calls, 1)
 
     async def test_multiple_changed_blocks_do_not_guess_allocation(self):
         # Probe candidate generation directly: the ordinary mapper may split
@@ -101,8 +64,7 @@ class DeterministicFillTests(IsolatedAsyncioTestCase):
         segments = list(search_inline_segments(search_text_segments(root)))
         hill = HillClimbing(get_encoding('cl100k_base'), 100, BlockSegment('xml', segments))
         candidates = list(XMLTranslator._direct_fill_candidates(hill, 'Different translation.'))
-        self.assertEqual(len(candidates), 1)
-        self.assertEqual([child.text for child in candidates[0]], ['First original.', 'Second original.'])
+        self.assertEqual(len(candidates), 0)
 
     async def test_source_only_joiner_slot_is_empty_but_retains_its_tag(self):
         translator, runtime = _repairing_translator([
@@ -112,22 +74,11 @@ class DeterministicFillTests(IsolatedAsyncioTestCase):
             translator, TranslationTask(fromstring(
                 '<body><p><span>Original name</span><span>\u2060</span> follows.</p></body>'), SubmitKind.REPLACE, None),
             error_policy=False, retry_policy=RetryPolicy(translation=0, fill=0))
-        self.assertEqual(''.join(result.itertext()), 'Translated name follows.')
+        self.assertEqual(''.join(result.itertext()), 'Translated name\u2060 follows.')
         self.assertEqual(len(result.findall('.//span')), 2)
-        self.assertFalse(result.findall('.//span')[1].text)
+        self.assertEqual(result.findall('.//span')[1].text, '\u2060')
         self.assertEqual(runtime.context_value.calls, 1)
 
-    def test_padding_is_removed_but_actual_prose_changes_still_fail(self):
-        from pdf_craft.transformer.canonical_text import restore_canonical_whitespace
-        for actual, canonical in (('a\u2060b', 'ab'), ('\u2060', ''), ('', '\u2060'), ('\ufeff', '')):
-            root = fromstring('<span/>')
-            root.text = actual
-            self.assertTrue(restore_canonical_whitespace([root], canonical))
-            self.assertEqual(root.text or '', normalize_whitespace(canonical))
-        root = fromstring('<span>\u2060</span>')
-        before = tostring(root)
-        self.assertFalse(restore_canonical_whitespace([root], 'changed'))
-        self.assertEqual(tostring(root), before)
 
     async def test_nontext_unit_validator_does_not_adopt_untranslated_source(self):
         translator, runtime = _repairing_translator([

@@ -16,6 +16,9 @@ class SubmitKind(Enum):
 
 def submit(element: Element, action: SubmitKind, mappings: list[InlineSegmentMapping]) -> Element:
     from .source_store import strip_source
+    members = {id(node) for node in element.iter()}
+    if any(id(block) not in members for block, _ in mappings):
+        raise ValueError('A submission target is detached from the current document tree.')
     strip_source(element)
     for block, _ in mappings:
         strip_source(block)

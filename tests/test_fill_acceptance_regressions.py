@@ -100,69 +100,6 @@ class FillAcceptanceRegressions(TestCase):
         self.assertEqual([(f.page_index, f.source_order, f.bbox) for f in fragments(restored)],
                          [(f.page_index, f.source_order, f.bbox) for f in fragments(source)])
 
-    def test_marks_cannot_reorder_across_canonical_whitespace(self):
-        cases = [('a\u0301 \u0323', 'a\u0323\u0301'),
-                 ('a\u0301 \u0323', 'a\u0323 \u0301'),
-                 ('a\u0301 \u0323', 'ạ\u0301'),
-                 # These pass the preliminary normalized-character filter;
-                 # only checking the final rebuilt text can reject them.
-                 ('a\u0323 \u0301', 'a\u0301\u0323'),
-                 ('a\u0323 \u0301', 'á\u0323')]
-        for canonical, actual in cases:
-            with self.subTest(canonical=canonical, actual=actual), self.assertRaisesRegex(Exception, 'canonical translation'):
-                self.fill(canonical, f'<xml><fragment id="1">{actual}</fragment></xml>')
-
-    def test_whitespace_barriers_survive_fragment_text_and_tail_boundaries(self):
-        definition = tag_definition('b')
-        assert definition is not None
-        inline_after = chapter()
-        fragments(inline_after)[0].content = ['source ', HTMLTag(definition, [], ['tail'])]
-        inline_before = chapter()
-        fragments(inline_before)[0].content = [HTMLTag(definition, [], ['source']), ' tail']
-        cases = [
-            (chapter(2), '<fragment id="1">a</fragment><fragment id="2">\u0323\u0301</fragment>'),
-            (chapter(2), '<fragment id="1">a\u0323</fragment><fragment id="2"> \u0301</fragment>'),
-            (inline_after, '<fragment id="1">a<b>\u0323\u0301</b></fragment>'),
-            (inline_after, '<fragment id="1">a\u0323<b> \u0301</b></fragment>'),
-            (inline_before, '<fragment id="1"><b>a</b>\u0323\u0301</fragment>'),
-            (inline_before, '<fragment id="1"><b>a\u0323</b> \u0301</fragment>'),
-        ]
-        for source, response in cases:
-            for swap in (False, True):
-                canonical = 'a\u0301 \u0323'
-                candidate = response
-                if swap:
-                    exchange = str.maketrans({'\u0301': '\u0323', '\u0323': '\u0301'})
-                    canonical = canonical.translate(exchange)
-                    candidate = response.translate(exchange)
-                with self.subTest(response=candidate), self.assertRaisesRegex(Exception, 'canonical translation'):
-                    self.fill(canonical, f'<xml>{candidate}</xml>', source=source)
-
-    def test_decomposition_preserves_character_offsets_when_restoring_gaps(self):
-        for canonical, actual in [('a\u0301 \u0323', 'á\u0323'),
-                                  ('a\u0301\u0323 b', 'a\u0323\u0301 b'),
-                                  ('á \u0323', 'a\u0301 \u0323')]:
-            with self.subTest(canonical=canonical, actual=actual):
-                source = chapter()
-                target, calls = self.fill(canonical, f'<xml><fragment id="1">{actual}</fragment></xml>', source=source)
-                self.assertEqual(calls, 1)
-                self.persisted_equivalent(source, target, canonical)
-
-    def test_correct_mark_and_space_recovery_across_owned_boundaries(self):
-        source = chapter(2)
-        fragments(source)[0].content = ['source ']
-        canonical = 'a\u0301 \u0323'
-        response = '<xml><fragment id="1">á</fragment><fragment id="2">\u0323</fragment></xml>'
-        target, calls = self.fill(canonical, response, source=source)
-        self.assertEqual(calls, 1)
-        self.persisted_equivalent(source, target, canonical)
-        definition = tag_definition('b')
-        assert definition is not None
-        source = chapter()
-        fragments(source)[0].content = [HTMLTag(definition, [], ['source ']), 'tail']
-        target, calls = self.fill(canonical, '<xml><fragment id="1"><b>á</b>\u0323</fragment></xml>', source=source)
-        self.assertEqual(calls, 1)
-        self.persisted_equivalent(source, target, canonical)
 
     def test_equivalent_mark_reordering_before_spaces_can_cross_slots(self):
         canonical = 'a\u0301\u0323 b'

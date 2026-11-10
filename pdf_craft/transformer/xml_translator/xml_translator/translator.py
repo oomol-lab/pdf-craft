@@ -32,9 +32,8 @@ from .hill_climbing import HillClimbing
 from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
 from .submitter import SubmitKind, submit
 from ...word_count import count_xml_words
-from ...source_math import SourceMathTranslation
-from ...canonical_projection import MathProjectionError
-from ...xml_math import binding_spans, strip_bindings
+from ...source_view import SourceView
+from ...formula_source import MathProjectionError
 from ...progress import TranslationProgress, active_progress, selected_item, selected_assets
 from pdf_craft.progress import UnitOutcome
 from collections import Counter
@@ -47,7 +46,7 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 SourceTextRenderer = Callable[[list[InlineSegment]], str]
 CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | None]
-CanonicalMathProjector = Callable[[list[InlineSegmentMapping | None], str, Element], list[InlineSegmentMapping | None] | None]
+CandidateProjector = Callable[[list[InlineSegmentMapping | None], str, Element], list[InlineSegmentMapping | None] | None]
 
 
 def _already_in_target_language(text: str, target_language: str) -> bool:
@@ -117,7 +116,7 @@ class XMLTranslator:
             protocol_version="free-translation-v2",
         )
         self._fill_runtime = runtime_for(
-            fill_llm, fill_executor, protocol_version="xml-fill-group-v10",
+            fill_llm, fill_executor, protocol_version="xml-fill-group-v11",
         )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
@@ -483,7 +482,7 @@ class XMLTranslator:
             translation_protocol.context(primary)
             if translation_protocol is not None and translation_protocol.context else '',
             ''.join(self._render_source_text_parts(overlap))) if part)
-        source_math = translation_protocol.source_math(primary) if translation_protocol is not None else None
+        source_view = translation_protocol.source_view(primary) if translation_protocol is not None else None
         result = await self._translate_inline_segment_group_async(
             inline_segments=primary,
             callbacks=callbacks,
@@ -491,16 +490,16 @@ class XMLTranslator:
                 immutable_elements_for_inline_segments(primary)
                 if immutable_elements_for_inline_segments is not None else []
             ),
-            source_text_renderer=((lambda segments, math=source_math: translation_protocol.render(segments, math))
-                                  if source_math is not None and translation_protocol is not None
+            source_text_renderer=((lambda segments, math=source_view: translation_protocol.render(segments, math))
+                                  if source_view is not None and translation_protocol is not None
                                   else source_text_renderer),
             canonical_text_validator=canonical_text_validator,
             source_context=context,
-            canonical_math_projector=(
-                (lambda mappings, canonical, response, math=source_math:
-                 translation_protocol.project_math(mappings, canonical, math, response, primary))
+            candidate_projector=(
+                (lambda mappings, canonical, response:
+                 translation_protocol.materialize_candidate(mappings, canonical, response, primary))
                 if translation_protocol is not None else None),
-            source_math=source_math,
+            source_view=source_view,
             require_nonempty_units=bool(translation_protocol and translation_protocol.require_nonempty_units),
             allow_direct_fill=(translation_protocol is not None
                                and translation_protocol.is_text_unit(translation_protocol.unit(primary[0]))),
@@ -523,8 +522,8 @@ class XMLTranslator:
         source_text_renderer: SourceTextRenderer | None,
         canonical_text_validator: CanonicalTextValidator | None,
         source_context: str = '',
-        canonical_math_projector: CanonicalMathProjector | None = None,
-        source_math: SourceMathTranslation | None = None,
+        candidate_projector: CandidateProjector | None = None,
+        source_view: SourceView | None = None,
         require_nonempty_units: bool = False,
         allow_direct_fill: bool = False,
     ) -> list[InlineSegmentMapping | None]:
@@ -554,8 +553,8 @@ class XMLTranslator:
         )
         targets = segment_locations(primary)
         try:
-            if source_math is not None:
-                context = '\n\n'.join(value for value in (source_context, source_math.context) if value)
+            if source_view is not None:
+                context = '\n\n'.join(value for value in (source_context, source_view.context) if value)
                 translated_text = await self._translate_text_async(source_text, context=context)
             else:
                 translated_text = (await self._translate_text_async(source_text, context=source_context)
@@ -574,8 +573,8 @@ class XMLTranslator:
                     (lambda element, canonical=translated_text: canonical_text_validator(inline_segments, canonical, element))
                     if canonical_text_validator is not None else None
                 ),
-                canonical_math_projector=canonical_math_projector,
-                allow_direct_fill=allow_direct_fill, source_math=source_math,
+                candidate_projector=candidate_projector,
+                allow_direct_fill=allow_direct_fill,
                 require_nonempty_units=require_nonempty_units,
             )
         except Exception as error:
@@ -623,77 +622,64 @@ class XMLTranslator:
         callbacks: Callbacks,
         canonical_text_validator: Callable[[Element, str], str | None] | None = None,
         failure_locations: tuple = (),
-        canonical_math_projector: CanonicalMathProjector | None = None,
+        candidate_projector: CandidateProjector | None = None,
         require_nonempty_units: bool = False,
         allow_direct_fill: bool = False,
-        source_math: SourceMathTranslation | None = None,
     ) -> list[InlineSegmentMapping | None] | None:
-        from ...canonical_math import CanonicalMath
-        canonical_math = CanonicalMath(translated_text) if canonical_text_validator is not None else None
-
+        from ...fill_text import plain_translation
+        original_artist_text = translated_text
+        translated_text = plain_translation(translated_text)
         feedback_template = await self._fill_runtime.template("inline_feedback")
+        repair_template = await self._fill_runtime.template("canonical_repair")
+        translation = Element('translation', {'xml:space': 'preserve'})
+        translation.text = translated_text
 
         def validate_candidate(element):
             projected = None
-            duplication_hint = canonical_math.duplication_hint(element) if canonical_math is not None else ''
-            alignment_hint = ('\n\n'.join(filter(None, (canonical_math.difference_hint(element),
-                                canonical_math.repair_hint(element)))) if canonical_math is not None else '')
-            error = canonical_math.expand(element, require_complete=False) if canonical_math is not None else None
-            if error is None:
-                problems = []
+            error = hill_climbing.validate(element)
+            if error is not None:
+                blocks = hill_climbing.inline_feedback_blocks(element)
+                if blocks:
+                    error += '\n' + feedback_template.render(blocks=blocks)
+                return error, None
+            if canonical_text_validator is not None:
+                error = canonical_text_validator(element, translated_text)
+            if error is None and candidate_projector is not None:
                 try:
-                    binding_spans(element, source_math)
+                    projected = candidate_projector(
+                        hill_climbing.candidate_mappings(element), translated_text, element)
                 except MathProjectionError as failure:
-                    problems.append(str(failure))
-                shape_error = hill_climbing.validate(strip_bindings(element))
-                if shape_error is not None:
-                    problems.append(shape_error)
-                    blocks = hill_climbing.inline_feedback_blocks(strip_bindings(element))
-                    if blocks:
-                        problems.append(feedback_template.render(blocks=blocks))
-                elif canonical_text_validator is not None:
-                    text_error = canonical_text_validator(element, translated_text)
-                    if text_error is not None:
-                        problems.append(text_error)
-                if problems and alignment_hint:
-                    problems.append(alignment_hint)
-                if problems and duplication_hint:
-                    problems.append(duplication_hint)
-                error = '\n\n'.join(problems) or None
-            if error is None and canonical_math_projector is not None:
-                try:
-                    projected = canonical_math_projector(
-                        hill_climbing.candidate_mappings(strip_bindings(element)), translated_text, element)
-                except MathProjectionError as projection_error:
-                    error = str(projection_error)
+                    error = str(failure)
             if error is None:
-                error = hill_climbing.submit(strip_bindings(element))
+                error = hill_climbing.submit(element)
+            elif canonical_text_validator is not None:
+                error += '\n\n' + repair_template.render(translation=encode_friendly(translation))
             return error, projected
 
-        if (allow_direct_fill or translated_text == '') and canonical_text_validator is not None and not getattr(source_math, 'values', {}):
+        if allow_direct_fill and canonical_text_validator is not None:
             for candidate in self._direct_fill_candidates(hill_climbing, translated_text):
                 error, projected = validate_candidate(candidate)
                 if error is None:
                     return projected
 
+        translation = Element('translation', {'xml:space': 'preserve'})
+        translation.text = translated_text
         user_message = (await self._fill_runtime.template('fill_input')).render(
             source_text=source_text, xml_template=encode_friendly(hill_climbing.request_element()),
-            translated_text=canonical_math.encode() if canonical_math is not None else translated_text,
-            math_instructions=canonical_math.instructions() if canonical_math is not None else '',
-            source_formulas=source_math.encode() if source_math is not None else encode_friendly(Element('source-formulas')))
-        canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render(has_source_math=bool(getattr(source_math, 'values', {})), require_nonempty_units=require_nonempty_units)
-                                  if canonical_math is not None else '')
+            translated_text=encode_friendly(translation))
+        canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render(
+            require_nonempty_units=require_nonempty_units) if canonical_text_validator is not None else '')
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render() + "\n\n" + canonical_instructions),
             Message(MessageRole.USER, user_message),
         ]
-        # Budget a complete group XML, including stable IDs and formula annotations.
+        # Budget a complete group XML including stable source IDs.
         # Source grouping remains bounded; retries share this same output allowance.
         encoding = await self._fill_runtime.encoding()
         output_budget = max(4096, len(encoding.encode(encode_friendly(hill_climbing.request_element())))
                             + 2 * len(encoding.encode(translated_text))
-                            + 32 * len(getattr(source_math, 'values', {})) + 512)
+                            + 512)
         async with self._fill_runtime.context(
             cache_seed_content=self._cache_seed_content
         ) as llm_context:
@@ -708,8 +694,7 @@ class XMLTranslator:
                         error, projected = validated, None
                         history = None
                     else:
-                        # Encode the original parsed candidate before validators
-                        # expand references or recover its engineering text.
+                        # Preserve the unmodified parsed answer in repair history.
                         history = encode_friendly(validated)
                         error, projected = validate_candidate(validated)
                     if error is None:
@@ -717,7 +702,7 @@ class XMLTranslator:
                         return ProtocolSuccess(projected, state)
                     last_error = error
                     return ProtocolRetry(error, state, include_response=history is not None,
-                                         response_for_history=history, reset_history=True)
+                                         response_for_history=history, reset_history=False)
 
                 async def empty(self, state, attempt: int, max_attempts: int):
                     nonlocal last_error
@@ -738,44 +723,19 @@ class XMLTranslator:
                 protocol=_XMLProtocol(),
                 state=None,
                 max_attempts=current().retry.attempts(RetryScope.FILL),
+                history_limit=4,
                 failure_log_path=getattr(self._fill_llm, 'failure_log_path', None),
-                failure_log_context={'stage': 'xml_fill', 'model': self._fill_llm.model,
+                failure_log_context={'stage': 'xml_fill', 'model': self._fill_llm.model, 'artist_text': original_artist_text,
                     'targets': [asdict(location) for location in failure_locations]},
             ))
 
     @staticmethod
     def _direct_fill_candidates(hill_climbing: HillClimbing, canonical: str) -> Iterable[Element]:
-        # Preserve existing inline and source-slot ownership when the original
-        # structure already contains the exact canonical text. The caller must
-        # still validate the complete text and formula projection before submit.
         candidate = hill_climbing.request_element()
-        if canonical == '':
-            # An accepted empty translation has one possible allocation even
-            # across multiple styled slots: keep every element/attribute and
-            # clear its text. Validate and submit through the ordinary path;
-            # never ask the engineer to translate the source again.
-            for node in candidate.iter():
-                node.text = node.tail = None
-            yield candidate
-            return
-        yield candidate
-        # One leaf block has exactly one allocation. Insert XML text, never
-        # parse canonical prose as markup or guess boundaries between fields.
-        if len(candidate) == 1 and not len(candidate[0]) and candidate[0].get('id') is not None:
-            candidate = hill_climbing.request_element()
+        if (len(candidate) == 1 and not len(candidate[0])
+                and candidate[0].get('id') is not None
+                and candidate[0].tag not in ('expression', 'formula_context')):
             candidate[0].text = canonical
-            yield candidate
-        elif len(candidate) == 1 and candidate[0].get('id') is not None and all(
-                child.tag == 'expression' and not len(child) for child in candidate[0]):
-            # A single owner with only formula allocation containers has no
-            # remaining prose ownership decision. Keep every required container
-            # empty and insert the complete canonical text in the owner. The
-            # normal validator/projector must still restore each source by its
-            # accepted engineering identity, never by these physical slots.
-            candidate = hill_climbing.request_element()
-            candidate[0].text = canonical
-            for child in candidate[0]:
-                child.text = child.tail = None
             yield candidate
 
     def _extract_xml_element(self, text: str) -> Element | str:

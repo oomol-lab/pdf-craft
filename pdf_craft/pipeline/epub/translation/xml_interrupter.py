@@ -1,4 +1,5 @@
 import re
+from copy import deepcopy
 from collections.abc import Generator, Iterable
 from typing import cast
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -6,13 +7,12 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from bs4 import BeautifulSoup
 from mathml2latex.mathml import process_mathml  # pyright: ignore[reportMissingImports]
 
-from pdf_craft.transformer.xml_translator.segment import TextSegment, combine_text_segments, find_block_depth, search_text_segments, TextPosition
+from pdf_craft.transformer.xml_translator.segment import TextSegment, combine_text_segments, find_block_depth
 from pdf_craft.transformer.xml_translator.utils import ensure_list
 from pdf_craft.transformer.xml_translator.xml import DISPLAY_ATTRIBUTE, clone_element, is_inline_element
-from pdf_craft.transformer.canonical_projection import SourceMath, formula_content
+from pdf_craft.transformer.formula_source import SourceMath
 from pdf_craft.formula import latex_to_plain_text
-from pdf_craft.transformer.canonical_math import CanonicalMath
-from pdf_craft.transformer.xml_math import project_formula
+from pdf_craft.transformer.formula_payload import formula_payload, replace_formulas
 
 _ID_KEY = "__XML_INTERRUPTER_ID"
 _MATH_TAG = "math"
@@ -35,21 +35,7 @@ class XMLInterrupter:
         for node in root.iter():
             node.attrib.pop(_ID_KEY, None)
 
-    def residual_math(self, canonical: str) -> Element:
-        """Readable MathML fallback, retaining exact artist TeX as annotation.
-
-        Residuals have no source MathML to copy. Keep their TeX rather than
-        borrowing a source identity or printing transport delimiters in XHTML.
-        """
-        content, inline = formula_content(canonical)
-        node = Element('math', {'xmlns': 'http://www.w3.org/1998/Math/MathML',
-                               'display': 'inline' if inline else 'block'})
-        semantics = SubElement(node, 'semantics')
-        SubElement(semantics, 'mtext').text = latex_to_plain_text(content)
-        SubElement(semantics, 'annotation', {'encoding': 'application/x-tex'}).text = content
-        return node
-
-    def source_math(self, segments: Iterable[TextSegment]) -> list[SourceMath]:
+    def source_formulas(self, segments: Iterable[TextSegment]) -> list[SourceMath]:
         identities = {node.get(_ID_KEY): node for segment in segments for node in segment.parent_stack
                       if _ID_KEY in node.attrib}
         sources = []
@@ -72,95 +58,59 @@ class XMLInterrupter:
             if merged_text_segment:
                 yield merged_text_segment
 
-    def interrupt_translated_text_segments(
-        self, text_segments: Iterable[TextSegment]
-    ) -> Generator[TextSegment, None, None]:
-        parts = list(text_segments)
-        if parts:
-            root = parts[0].root
-            key = root.get(_ID_KEY)
-            original = self._placeholder2interrupted.get(key or '')
-            if (key is not None and original is not None and root.tag == _EXPRESSION_TAG
-                    and not is_inline_element(root)):
-                filled = next(combine_text_segments(parts))[0]
-                materialized = self._materialize_display(filled, original, self._latex_by_id[key])
-                self._placeholder2interrupted.pop(key, None)
-                projected = list(search_text_segments(materialized, normalize_whitespace=False)) or [
-                    TextSegment('', [materialized], 0, 0, 1, TextPosition.TEXT)]
-                for part in projected:
-                    # This whole accepted slot belongs to one source block.
-                    part.block_depth = 1
-                    yield part
-                return
-        for text_segment in parts:
-            yield from self._expand_translated_text_segment(text_segment)
-
-    def _materialize_display(self, filled: Element, original: Element, latex: str) -> Element:
-        """An accepted display slot may now contain prose and typed mathematics.
-
-        Source display MathML is not a license to discard artist words. Keep
-        an unchanged whole equation as original MathML; mixed content needs an
-        ordinary block containing its exact prose and typed equation nodes.
-        """
-        source = SourceMath(latex, original)
+    def materialize(self, root: Element) -> Element:
         def convert(node):
-            if node.tag == _MATH_TAG:
-                return
-            children = list(node)
-            text = node.text or ''
-            node.text = None
-            node[:] = []
-            def append(value):
-                previous, cursor = node[-1] if len(node) else None, 0
-                for match in CanonicalMath.matches(value):
-                    prefix = value[cursor:match.start()]
-                    if previous is None:
-                        node.text = (node.text or '') + prefix
-                    else:
-                        previous.tail = (previous.tail or '') + prefix
-                    previous = project_formula(source, match.group(), self.residual_math)
-                    node.append(previous)
-                    cursor = match.end()
-                if previous is None:
-                    node.text = (node.text or '') + value[cursor:]
-                else:
-                    previous.tail = (previous.tail or '') + value[cursor:]
-            append(text)
-            for child in children:
-                tail, child.tail = child.tail or '', None
-                convert(child)
-                node.append(child)
-                append(tail)
-        convert(filled)
-        if (len(filled) == 1 and filled[0].tag == _MATH_TAG
-                and not (filled.text or '').strip() and not (filled[0].tail or '').strip()):
-            result = filled[0]
-            result.tail = None
+            value = ''.join(node.itertext())
+            result = Element('math', {'xmlns': 'http://www.w3.org/1998/Math/MathML',
+                                     'display': 'inline' if is_inline_element(node) else 'block'})
+            key = node.get(_ID_KEY)
+            source = self._placeholder2interrupted.get(key or '')
+            if source is not None:
+                result.attrib.update({k: v for k, v in source.attrib.items() if k != _ID_KEY and not k.startswith('__pdf_craft_')})
+            if source is not None and formula_payload(self._latex_by_id[key or '']) == formula_payload(value):
+                # The engineer selected this source node explicitly. Retain its
+                # actual MathML presentation when the whole payload is unchanged.
+                result = deepcopy(source)
+                for child in result.iter():
+                    child.attrib.pop(_ID_KEY, None)
+                    for attribute in list(child.attrib):
+                        if attribute.startswith('__pdf_craft_'):
+                            child.attrib.pop(attribute)
+                semantics = result.find('semantics')
+                if semantics is None:
+                    semantics = Element('semantics')
+                    semantics.text, result.text = result.text, None
+                    semantics[:] = list(result)
+                    result[:] = [semantics]
+                for annotation in list(semantics):
+                    if annotation.tag == 'annotation' and annotation.get('encoding') == 'application/x-tex':
+                        semantics.remove(annotation)
+            else:
+                semantics = SubElement(result, 'semantics')
+                SubElement(semantics, 'mtext').text = latex_to_plain_text(re.sub(r'(?<!\\)%', r'\\%', formula_payload(value)))
+            # Exact engineer payload is represented once; annotation is not a
+            # second visible copy of the presentation children.
+            SubElement(semantics, 'annotation', {'encoding': 'application/x-tex'}).text = value
+            result.tail = node.tail
             return result
-        filled.tag = 'div'
-        # The physical source slot remains a link/CFI anchor even when its
-        # accepted content needs a prose container rather than a MathML root.
-        for attribute in ('id', '{http://www.w3.org/XML/1998/namespace}id'):
-            identity = original.get(attribute)
-            if identity is not None:
-                for child in filled.iter():
-                    if child is not filled and child.get(attribute) == identity:
-                        child.attrib.pop(attribute)
-                filled.set(attribute, identity)
-        filled.attrib.pop(_ID_KEY, None)
-        filled.attrib.pop(DISPLAY_ATTRIBUTE, None)
-        from pdf_craft.transformer.xml_translator.xml_translator.source_store import strip_source
-        strip_source(filled)
-        return filled
+        return replace_formulas(root, convert)
+
+    def visible_text(self, root: Element) -> str:
+        if root.tag == 'math':
+            annotation = next((node for node in root.iter('annotation')
+                               if node.get('encoding') == 'application/x-tex'), None)
+            if annotation is not None:
+                return annotation.text or ''
+        return (root.text or '') + ''.join(self.visible_text(child) + (child.tail or '') for child in root)
+
+    def interrupt_translated_text_segments(self, text_segments: Iterable[TextSegment]) -> Iterable[TextSegment]:
+        # Candidate materialization already ran inside the fill loop.
+        return text_segments
 
     def interrupt_block_element(self, element: Element) -> Element:
-        interrupted_element = self._placeholder2interrupted.get(element.get(_ID_KEY, ""))
-        if interrupted_element is None:
-            element.attrib.pop(_ID_KEY, None)
-            return element
-        else:
-            interrupted_element.attrib.pop(_ID_KEY, None)
-            return interrupted_element
+        # This is source identity lookup, not content restoration. The mapper
+        # rebinds it to the current document AFTER this callback.
+        return self._placeholder2interrupted.get(element.get(_ID_KEY, ''), element)
 
     def _expand_source_text_segment(self, text_segment: TextSegment):
         interrupted_index = self._interrupted_index(text_segment)
@@ -191,7 +141,7 @@ class XMLInterrupter:
 
     def _pop_and_merge_from_buffered(self, interrupted_id: str) -> TextSegment | None:
         merged_text_segment: TextSegment | None = None
-        text_segments = self._raw_text_segments.get(interrupted_id, None)
+        text_segments = self._raw_text_segments.pop(interrupted_id, None)
         if text_segments:
             text_segment = text_segments[0]
             interrupted_index = cast(int, self._interrupted_index(text_segment))
@@ -222,31 +172,6 @@ class XMLInterrupter:
             self._placeholder2interrupted[interrupted_id] = interrupted_element
             self._latex_by_id[interrupted_id] = merged_text_segment.text.strip()
 
-            # TODO: 比较难搞，先关了再说
-            # parent_element: Element | None = None
-            # if interrupted_index > 0:
-            #     parent_element = text_segment.parent_stack[interrupted_index - 1]
-
-            # if (
-            #     not self._is_inline_math(interrupted_element)
-            #     or parent_element is None
-            #     or self._has_no_math_texts(parent_element)
-            # ):
-            #     # 区块级公式不必重复出现，出现时突兀。但行内公式穿插在译文中更有利于读者阅读顺畅。
-            #     self._raw_text_segments.pop(interrupted_id, None)
-            # else:
-            #     for text_segment in text_segments:
-            #         # 原始栈退光，仅留下相对 interrupted 元素的栈，这种格式与 translated 要求一致
-            #         text_segment.left_common_depth = max(0, text_segment.left_common_depth - interrupted_index)
-            #         text_segment.right_common_depth = max(0, text_segment.right_common_depth - interrupted_index)
-            #         text_segment.block_depth = 1
-            #         text_segment.parent_stack = text_segment.parent_stack[interrupted_index:]
-            for text_segment in text_segments:
-                # 原始栈退光，仅留下相对 interrupted 元素的栈，这种格式与 translated 要求一致
-                text_segment.left_common_depth = max(0, text_segment.left_common_depth - interrupted_index)
-                text_segment.right_common_depth = max(0, text_segment.right_common_depth - interrupted_index)
-                text_segment.parent_stack = text_segment.parent_stack[interrupted_index:]
-                text_segment.block_depth = find_block_depth(text_segment.parent_stack)
 
         return merged_text_segment
 

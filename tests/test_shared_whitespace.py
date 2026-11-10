@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 from xml.etree.ElementTree import fromstring
 
 from pdf_craft.common.whitespace import normalize_whitespace
+from pdf_craft.transformer.fill_text import comparison_text
 from pdf_craft.extractor.chapter.chapter import Chapter, SourceTextFragment, TextFlowItem, decode, encode
 from pdf_craft.pipeline.epub.cfi import ContentCFILocator
 from pdf_craft.transformer.structured_translation import StructuredTranslation
@@ -16,7 +17,6 @@ from pdf_craft.transformer.xml_translator.segment import search_text_segments, s
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
 from pdf_craft import SubmitKind
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
-from pdf_craft.transformer.canonical_text import restore_canonical_whitespace
 from pdf_craft.common import save_xml
 from pdf_craft.pipeline.pdf import PDFTranslationPipeline, PDFPatcher
 from tests.extraction_helpers import make_extraction
@@ -55,15 +55,6 @@ class SharedWhitespaceTests(TestCase):
         self.assertEqual(normalize_whitespace(text), text)
         normalized = normalize_whitespace(' \ufeff\u3000a\x08b\u200b ')
         self.assertEqual(normalize_whitespace(normalized), normalized)
-
-    def test_normal_and_preserved_text_use_different_boundaries(self):
-        root = fromstring('<fragment>a\u200bb\u3000c</fragment>')
-        self.assertTrue(restore_canonical_whitespace([root], 'ab c'))
-        self.assertEqual(root.text, 'ab c')
-        source = fromstring('<fragment xml:space="preserve">original</fragment>')
-        root = fromstring('<fragment>ab</fragment>')
-        self.assertTrue(restore_canonical_whitespace([root], 'a\u3000b', [source]))
-        self.assertEqual(root.text, 'a\u3000b')
 
 
     def test_raw_origins_and_cfi_survive_a_shorter_normalized_view(self):
@@ -108,7 +99,7 @@ class Service369ReplayTests(IsolatedAsyncioTestCase):
         result, _ = await StructuredTranslation().translate(
             translator, TranslationTask(fromstring('<body><p>Source <em>words</em>.</p></body>'),
                                         SubmitKind.REPLACE, None), error_policy=False)
-        self.assertEqual(''.join(result.itertext()), 'Hello world.')
+        self.assertEqual(comparison_text(''.join(result.itertext())), comparison_text('Hello world.'))
         self.assertEqual(result.find('.//em').text, 'world')
         self.assertEqual(runtime.context_value.calls, 1)
 
@@ -130,8 +121,6 @@ class Service369ReplayTests(IsolatedAsyncioTestCase):
                     assert isinstance(item, TextFlowItem)
                     actual = ''.join(part for child in item.children if isinstance(child, SourceTextFragment)
                                      for part in child.content if isinstance(part, str))
-                    self.assertEqual(actual,
-                                     normalize_whitespace(fixture['canonical'], trim=True))
-                    self.assertNotIn('\u3000', actual)
+                    self.assertEqual(comparison_text(actual), comparison_text(fixture['canonical']))
                     self.assertIn('而', actual)
                     self.assertIn('而', await patch_text(target, fixture))

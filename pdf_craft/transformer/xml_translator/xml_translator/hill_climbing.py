@@ -5,7 +5,7 @@ from xml.etree.ElementTree import Element
 from tiktoken import Encoding
 
 from pdf_craft.transformer.xml_translator.segment import (
-    BlockContentError, InlineExpectedIDsError, InlineWrongTagCountError, BlockImmutableElementsError, BlockSegment, BlockSubmitter, FoundInvalidIDError, TextSegment,
+    BlockContentError, BlockImmutableElementsError, BlockSegment, BlockSubmitter, FoundInvalidIDError, TextSegment,
     search_text_segments, TextPosition,
 )
 from pdf_craft.transformer.xml_translator.xml import plain_text, encode_friendly
@@ -101,8 +101,7 @@ class HillClimbing:
         candidates = {node.get('id'): node for node in element}
         blocks = []
         for error in self._block_segment.validate(element):
-            if (isinstance(error, BlockContentError)
-                    and any(isinstance(item, (InlineExpectedIDsError, InlineWrongTagCountError)) for item in error.errors)):
+            if isinstance(error, BlockContentError):
                 key = str(error.id)
                 if key in sources and key in candidates:
                     blocks.append({'source': encode_friendly(sources[key]),

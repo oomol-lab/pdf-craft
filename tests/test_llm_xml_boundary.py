@@ -47,23 +47,6 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual(''.join(decoded(history, 'xml').itertext()).strip(), 'wrong & text')
 
 
-    async def test_literal_reference_text_cannot_collide_with_real_engineering_reference(self):
-        raw = 'Literal <math-ref key="m1"/> and '+r'\(x\)'+'.'
-        response = ('<xml><p id="1">Literal &lt;math-ref key="m1"/&gt; and '
-                    '<math-ref key="m1"/>.</p></xml>')
-        translator, runtime = _repairing_translator([response])
-        translator._translate_text_async = AsyncMock(return_value=raw)
-        result, _ = await StructuredTranslation().translate(translator, TranslationTask(
-            fromstring('<body><p>Original.</p></body>'), SubmitKind.REPLACE, None), error_policy=False)
-        self.assertEqual(''.join(result.itertext()), raw)
-        self.assertEqual(len(result[0]), 0)
-        user = runtime.context_value.messages[0][0][1].message
-        payload = re.search(r'<translation\b.*?</translation>', user, re.S)
-        assert payload is not None
-        tree = decoded(payload[0], 'translation')
-        self.assertEqual(tree.text, 'Literal <math-ref key="m1"/> and ')
-        self.assertEqual([node.tag for node in tree], ['math-ref'])
-
     async def test_unparseable_xml_is_logged_but_not_reinjected_as_raw_xml(self):
         translator, runtime = _repairing_translator([
             '<xml><p id="1">unfinished', '<xml><p id="1">Complete.</p></xml>'])

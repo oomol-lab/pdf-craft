@@ -1,6 +1,7 @@
 """Progress is an observer; business publication and cancellation remain authoritative."""
 # pylint: disable=protected-access
 import asyncio
+import logging
 from functools import partial
 from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
@@ -52,8 +53,14 @@ def source(root):
 
 
 async def identity_segments(_self, inline_segments, **_kwargs):
-    return [(segment.parent, list(search_text_segments(segment.assign_attributes(segment.create_element()))))
-            for segment in inline_segments]
+    protocol = _kwargs.get('translation_protocol')
+    mappings = []
+    for segment in inline_segments:
+        root = segment.assign_attributes(segment.create_element())
+        if protocol is not None and protocol.formulas is not None:
+            root = protocol.formulas.materialize(root)
+        mappings.append((segment.parent, list(search_text_segments(root, normalize_whitespace=False))))
+    return mappings
 
 
 async def draw_copy(_self, original, target, replacements, **_kwargs):
@@ -266,7 +273,7 @@ class TranslationIsolationTests(IsolatedAsyncioTestCase):
     async def test_broken_diagnostic_handler_cannot_prevent_delivery(self):
         def fail(_event):
             raise RuntimeError('progress callback')
-        with TemporaryDirectory() as directory, patch('logging.Logger.warning', side_effect=RuntimeError('logger')):
+        with TemporaryDirectory() as directory, patch.object(logging.getLogger('pdf_craft._progress'), 'warning', side_effect=RuntimeError('logger')):
             await self.convert('pcex', Path(directory), fail)
 
     async def test_original_source_features_prescan_matches_executed_units_and_words(self):

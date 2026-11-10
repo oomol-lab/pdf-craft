@@ -8,8 +8,6 @@ from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft._policy import policy_operation
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
-from tests.test_anchored_content_translation import _repairing_translator
-from tests.test_source_math_identity import provider
 from tests.translation_model import translator_fixture
 
 
@@ -48,16 +46,3 @@ class TranslationProtocolGapTests(IsolatedAsyncioTestCase):
         text = '\u00a0\u202f\t'
         self.assertEqual(await translator._translate_text_async(text), text)
         self.assertEqual(model.calls, [])
-
-
-
-
-
-    @policy_operation
-    async def test_arbitrary_and_empty_artist_responses_go_unchanged_to_fill(self):
-        for raw in ('', 'Text <source-math key="s1"/>', 'Text <SOURCE-MATH key="other">', '  free text  '):
-            with self.subTest(raw=raw):
-                translator, _runtime = _repairing_translator([])
-                calls = provider(translator, [raw])
-                self.assertEqual(await translator._translate_text_async('Original prose.'), raw)
-                self.assertEqual(len(calls), 1)

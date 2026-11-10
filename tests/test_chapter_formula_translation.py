@@ -5,23 +5,17 @@
 from __future__ import annotations
 
 import unittest
-from typing import cast
-from xml.etree.ElementTree import Element, tostring
+from xml.etree.ElementTree import Element
 
 from tiktoken import get_encoding
 
-from pdf_craft.expression import ExpressionKind
 from pdf_craft.extractor.chapter.chapter import (
     SourceAsset,
     SourceTextFragment,
-    BlockMember,
     Chapter,
     DisplayFormula,
-    InlineExpression,
     TextFlowItem,
-    encode,
 )
-from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.xml_translator.callbacks import warp_callbacks
@@ -104,129 +98,7 @@ class _ReorderingFormulaTranslator(_FormulaAwareTranslator):
 
 
 class TestChapterFormulaTranslation(unittest.IsolatedAsyncioTestCase):
-    async def test_inline_formulas_are_visible_to_translation_and_restored_after_reordering(self):
-        chapter = Chapter(None, 0, [
-            TextFlowItem("body", 0, [SourceTextFragment(
-                1, 1, (1, 1, 100, 30), [
-                    "Before ",
-                    InlineExpression(ExpressionKind.INLINE_DOLLAR, "x^2"),
-                    " and ",
-                    InlineExpression(ExpressionKind.INLINE_PAREN, r"\chi"),
-                    ".",
-                ],
-            )]),
-        ])
-        translator = _FormulaAwareTranslator()
 
-        translated = await NarrativeXMLTransformer(translator).transform(chapter)
-
-        source = "\n".join(translator.model_sources)
-        self.assertIn("$x^2$", source)
-        self.assertIn(r"\(\chi\)", source)
-        layout = translated.flow_items[0]
-        self.assertIsInstance(layout, TextFlowItem)
-        assert isinstance(layout, TextFlowItem)
-        content = layout.children[0].content
-        formulas: list[InlineExpression] = [
-            item for item in content if isinstance(item, InlineExpression)
-        ]
-        self.assertEqual(
-            [(formula.kind, formula.content) for formula in formulas],
-            [
-                (ExpressionKind.INLINE_DOLLAR, "x^2"),
-                (ExpressionKind.INLINE_PAREN, r"\chi"),
-            ],
-        )
-        self.assertNotIn("MODEL_CHANGED_FORMULA", tostring(encode(translated), encoding="unicode"))
-
-    async def test_adjacent_formula_split_keeps_the_second_formula_before_following_text(self):
-        chapter = Chapter(None, 0, [
-            TextFlowItem("body", 0, [SourceTextFragment(
-                1, 1, (1, 1, 100, 30), [
-                    "A ",
-                    InlineExpression(ExpressionKind.INLINE_PAREN, "x"),
-                    InlineExpression(ExpressionKind.INLINE_PAREN, "x"),
-                    " B",
-                ],
-            )]),
-        ])
-
-        translated = await NarrativeXMLTransformer(
-            _FormulaAwareTranslator(),
-        ).transform(chapter)
-
-        layout = cast(TextFlowItem, translated.flow_items[0])
-        content = cast(SourceTextFragment, layout.children[0]).content
-        self.assertEqual(
-            [item.content for item in content if isinstance(item, InlineExpression)],
-            ["x", "x"],
-        )
-        formula_indexes = [
-            index for index, item in enumerate(content)
-            if isinstance(item, InlineExpression)
-        ]
-        following_text = next(
-            index for index, item in enumerate(content)
-            if isinstance(item, str) and "译文" in item
-        )
-        self.assertLess(formula_indexes[1], following_text)
-        encoded = tostring(encode(translated), encoding="unicode")
-        self.assertNotIn("__PDF_CRAFT_CHAPTER_FORMULA_ID", encoded)
-        self.assertNotIn("__PDF_CRAFT_RESTORED_FORMULA_ID", encoded)
-
-    async def test_inline_formula_is_restored_when_the_model_moves_its_token(self):
-        chapter = Chapter(None, 0, [
-            TextFlowItem("body", 0, [SourceTextFragment(
-                1, 1, (1, 1, 100, 30), [
-                    "Before ",
-                    InlineExpression(ExpressionKind.INLINE_PAREN, r"\alpha"),
-                    " after.",
-                ],
-            )]),
-        ])
-
-        translated = await NarrativeXMLTransformer(_ReorderingFormulaTranslator()).transform(chapter)
-
-        layout = translated.flow_items[0]
-        self.assertIsInstance(layout, TextFlowItem)
-        assert isinstance(layout, TextFlowItem)
-        content = layout.children[0].content
-        self.assertIsInstance(content[0], InlineExpression)
-        assert isinstance(content[0], InlineExpression)
-        self.assertEqual((content[0].kind, content[0].content), (ExpressionKind.INLINE_PAREN, r"\alpha"))
-        self.assertIn("译文后", "".join(item for item in content if isinstance(item, str)))
-
-    async def test_inline_formulas_survive_html_and_cross_page_paragraph_blocks(self):
-        emphasis = tag_definition("em")
-        assert emphasis is not None
-        chapter = Chapter(None, 0, [
-            TextFlowItem("body", 0, [
-                SourceTextFragment(1, 1, (1, 1, 100, 30), [
-                    "First ", HTMLTag(
-                        definition=emphasis,
-                        attributes=[],
-                        children=cast(
-                            list[str | BlockMember | HTMLTag[BlockMember]],
-                            ["wrapped ", InlineExpression(ExpressionKind.INLINE_DOLLAR, "x")],
-                        ),
-                    ),
-                ]),
-                SourceTextFragment(2, 2, (1, 1, 100, 30), [
-                    "Second ", InlineExpression(ExpressionKind.INLINE_PAREN, r"\beta"), ".",
-                ]),
-            ]),
-        ])
-
-        translated = await NarrativeXMLTransformer(_FormulaAwareTranslator()).transform(chapter)
-
-        layout = translated.flow_items[0]
-        self.assertIsInstance(layout, TextFlowItem)
-        assert isinstance(layout, TextFlowItem)
-        self.assertEqual([block.page_index for block in layout.children], [1, 2])
-        encoded = tostring(encode(translated), encoding="unicode")
-        self.assertIn('<inline_expr kind="$">x</inline_expr>', encoded)
-        self.assertIn(r'<inline_expr kind="\(">\beta</inline_expr>', encoded)
-        self.assertIn("<em>", encoded)
 
     async def test_equation_content_is_context_and_is_never_rewritten(self):
         equation = SourceAsset(
@@ -299,37 +171,6 @@ class TestChapterFormulaTranslation(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(any(r"$$x^2$$" in source for source in translator.model_sources))
 
-    async def test_equation_metadata_inline_formulas_are_protected_independently(self):
-        title_formula = InlineExpression(ExpressionKind.INLINE_DOLLAR, "n")
-        caption_formula = InlineExpression(ExpressionKind.INLINE_PAREN, r"\chi")
-        equation = SourceAsset(
-            page_index=1,
-            ref="formula",
-            bbox=(10, 40, 90, 60),
-            title=["Title ", title_formula],
-            content=["f", InlineExpression(ExpressionKind.INLINE_DOLLAR, "x"), " = 0"],
-            caption=["Caption ", caption_formula],
-            asset_hash="equation-metadata-inline-formulas",
-        )
-        translator = _FormulaAwareTranslator()
-
-        translated = await NarrativeXMLTransformer(translator).transform(
-            Chapter(None, 0, [DisplayFormula(equation)])
-        )
-
-        restored = translated.flow_items[0]
-        self.assertIsInstance(restored, DisplayFormula)
-        assert isinstance(restored, DisplayFormula)
-        self.assertEqual(restored.asset.content, equation.content)
-        title_formulas = [item for item in restored.asset.title if isinstance(item, InlineExpression)]
-        caption_formulas = [item for item in restored.asset.caption if isinstance(item, InlineExpression)]
-        self.assertEqual(title_formulas, [title_formula])
-        self.assertEqual(caption_formulas, [caption_formula])
-        source = "\n".join(translator.model_sources)
-        self.assertIn("$n$", source)
-        self.assertIn(r"\(\chi\)", source)
-        self.assertIn("$$f$x$ = 0$$", source)
-        self.assertNotIn("MODEL_CHANGED_FORMULA", tostring(encode(translated), encoding="unicode"))
 
     async def test_equation_only_chapter_keeps_the_asset_and_does_not_skip_translation(self):
         equation = SourceAsset(

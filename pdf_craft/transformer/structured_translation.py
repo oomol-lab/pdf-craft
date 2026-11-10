@@ -1,28 +1,28 @@
-"""Validate complete group XML and project typed formulas through format adapters."""
+"""Validate group content and materialize the final format before adoption."""
 from copy import deepcopy
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol
 from xml.etree.ElementTree import Element
 
 from ..common.whitespace import is_whitespace
-from .canonical_text import restore_canonical_whitespace, canonical_difference
-from .canonical_projection import MathMapping, SourceMath
-from .source_math import SourceMathTranslation
-from .xml_math import project_xml_math
-from .xml_translator.segment import InlineSegment, TextSegment
+from .fill_text import text_difference
+from .formula_source import MathMapping, SourceMath, MathProjectionError
+from .source_view import SourceView
+from .xml_translator.segment import (InlineSegment, TextSegment, TextPosition, combine_text_segments, search_text_segments)
 from .xml_translator.xml.matching import element_id
 
 
 class FormulaProjection(Protocol):
-    """A format adapter for immutable formulas; never owns the fill loop."""
+    """Source structure and final format adapter; never owns the model loop."""
 
     def prepare(self, root: Element) -> None: ...
     def finish(self, root: Element) -> None: ...
     def interrupt_source_text_segments(self, segments: Iterable[TextSegment], /) -> Iterable[TextSegment]: ...
     def interrupt_translated_text_segments(self, segments: Iterable[TextSegment], /) -> Iterable[TextSegment]: ...
     def interrupt_block_element(self, element: Element) -> Element: ...
-    def source_math(self, segments: Iterable[TextSegment]) -> list[SourceMath]: ...
-    def residual_math(self, canonical: str) -> Element: ...
+    def source_formulas(self, segments: Iterable[TextSegment]) -> list[SourceMath]: ...
+    def materialize(self, root: Element) -> Element: ...
+    def visible_text(self, root: Element) -> str: ...
 
 
 class StructuredTranslation:
@@ -50,7 +50,7 @@ class StructuredTranslation:
             return self.identity(owner)
         return owner.get('__pdf_craft_stream_node') or str(id(owner))
 
-    def render(self, segments: list[InlineSegment], math: SourceMathTranslation | None = None) -> str:
+    def render(self, segments: list[InlineSegment], math: SourceView | None = None) -> str:
         parts, previous = [], None
         for segment in segments:
             if getattr(segment, '_translation_context', False):
@@ -85,27 +85,9 @@ class StructuredTranslation:
             child.text = (child.text or '') + (child.tail or '')
             child.tail = None
         source_by_id = {segment.id: segment for segment in segments}
-        filled, sources, separators = [], [], set()
-        previous = None
-        for slot in response:
-            segment = source_by_id.get(element_id(slot))
-            if segment is None:  # Immutable anchors were checked by the structure validator.
-                continue
-            owner = self.unit(segment)
-            if previous is not None and previous is not owner:
-                boundary = Element('boundary')
-                boundary.text = '\n\n'
-                separators.add(boundary)
-                filled.append(boundary)
-                sources.append(deepcopy(boundary))
-            previous = owner
-            filled.append(slot)
-            sources.append(segment.create_element())
-        if restore_canonical_whitespace(filled, canonical, sources=sources,
-                                        join_roots=True, replaced_tags=frozenset({'source-math'}),
-                                        transparent_tags=frozenset({'source-math'}),
-                                        formatting_tags=frozenset({'expression'}),
-                                        virtual_roots=frozenset(separators)):
+        filled = [slot for slot in response if element_id(slot) in source_by_id]
+        error = text_difference(canonical, ''.join(''.join(slot.itertext()) for slot in filled), filled)
+        if error is None:
             if self.require_nonempty_units:
                 by_owner = {}
                 for segment in segments:
@@ -132,31 +114,45 @@ class StructuredTranslation:
                                 'These sections can be physical LINE FRAGMENTS, not independent sentences. Split existing translated sentences or phrases across adjacent sections so every required section receives text. MOVE text out of neighboring full sections; do not COPY or duplicate it. Never add words or retranslate.')
             original_response[:] = list(response)
             return None
-        return canonical_difference(canonical, filled)
+        return error
 
 
     def prepare(self, root: Element) -> None:
         if self.formulas is not None:
             self.formulas.prepare(root)
 
-    def source_math(self, segments: list[InlineSegment]) -> SourceMathTranslation | None:
+    def source_view(self, segments: list[InlineSegment]) -> SourceView | None:
         if self.formulas is None:
             return None
         segments = [segment for segment in segments if not getattr(segment, '_translation_context', False)]
-        sources = self.formulas.source_math(text for segment in segments for text in segment)
+        sources = self.formulas.source_formulas(text for segment in segments for text in segment)
         if not sources:
             return None
-        math = SourceMathTranslation(sources)
-        math.capture(segments)
-        return math
+        return SourceView(sources)
 
-    def project_math(self, mappings: list[MathMapping | None], _canonical: str,
-                     math: SourceMathTranslation | None, response: Element,
-                     segments: list[InlineSegment]) -> list[MathMapping | None] | None:
+    def materialize_candidate(self, mappings: list[MathMapping | None], canonical: str,
+                              response: Element, segments: list[InlineSegment]) -> list[MathMapping | None] | None:
         if self.formulas is None:
             return None
-        projected = project_xml_math(mappings, response, math, self.formulas.residual_math)
-        if projected is not None and self._record_units:
+        projected, visible = [], {}
+        assert self.formulas is not None
+        # Materialize and check the SAME private nodes later sent to submit.
+        for segment, mapping in zip(segments, mappings, strict=True):
+            if mapping is None:
+                raise MathProjectionError('A complete candidate must retain every source block.')
+            block, fields = mapping
+            roots = list(combine_text_segments(part.clone().strip_block_parents() for part in fields))
+            if len(roots) != 1:
+                raise MathProjectionError('A candidate must retain its owning block.')
+            root = self.formulas.materialize(roots[0][0])
+            visible[segment.id] = self.formulas.visible_text(root)
+            output = list(search_text_segments(root, normalize_whitespace=False)) or [
+                TextSegment('', [root], 0, 0, 1, TextPosition.TEXT)]
+            projected.append((block, output))
+        error = text_difference(canonical, ''.join(visible[element_id(slot)] for slot in response if element_id(slot) in visible))
+        if error is not None:
+            raise MathProjectionError(error)
+        if self._record_units:
             self.projected_math_units.update(self.key(self.unit(segment)) for segment in segments)
         return projected
 

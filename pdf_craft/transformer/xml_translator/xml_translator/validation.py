@@ -113,7 +113,7 @@ def generate_error_message(encoding: Encoding, errors_group: ErrorsGroup, omitte
             message: str
             if isinstance(block_error.error, BlockError):
                 message = _format_block_error(block_error.error)
-            elif isinstance(block_error.error, InlineError):
+            elif isinstance(block_error.error, InlineError | FoundInvalidIDError):
                 message = _format_inline_error(encoding, block_error.error, block_group.block_id)
             else:
                 raise RuntimeError()
