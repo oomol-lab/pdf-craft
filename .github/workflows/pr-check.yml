@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code
@@ -29,7 +29,10 @@ jobs:
           poetry config virtualenvs.in-project true
 
       - name: Install PDF and Qt runtime
-        run: sudo apt-get update && sudo apt-get install --yes poppler-utils libpoppler-glib8 ghostscript libegl1
+        timeout-minutes: 5
+        run: |
+          sudo apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install --yes poppler-utils libpoppler-glib8 ghostscript libegl1
 
       - name: Install dependencies
         run: |
