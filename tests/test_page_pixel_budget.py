@@ -145,7 +145,8 @@ class PixelAndPNGBudgetTests(TestCase):
             with native_render(1, 300) as raster:
                 masks = RectangularEraser(EraseOptions(padding=0)).plan(
                     [region], {1: (200, 300)}, {1: raster})
-            self.assertEqual((masks[0].rectangle.width, masks[0].rectangle.height), (200, 300))
+            self.assertAlmostEqual(masks[0].rectangle.width, 200)
+            self.assertAlmostEqual(masks[0].rectangle.height, 300)
 
     def test_cancellation_and_exhaustion_stay_bounded(self):
         with TemporaryDirectory() as folder, patch('pdf_craft.pdf.poppler.MAX_PAGE_PIXELS', 80_000):

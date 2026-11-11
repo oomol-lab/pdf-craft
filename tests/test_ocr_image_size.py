@@ -109,16 +109,25 @@ class PNGBudgetTests(TestCase):
         image.close()
         self.assertEqual(doc.calls, [300])
 
-    def test_five_attempts_and_minimum_resolution_stop(self):
-        with noisy((300, 360)) as sample:
-            limit = png_size(sample) - 1
-        for dpi, expected in ((300, 5), (1, 1)):
+    def test_final_dimensions_handle_a_renderer_that_ignores_resolution(self):
+        for dpi in (300, 1):
             doc = _Document(fixed=True)
-            with self.subTest(dpi=dpi), self.assertRaises(PDFError) as raised:
-                PageRef(cast(Any, doc), 1).render(dpi, limit)
-            self.assertEqual(len(doc.calls), expected)
-            self.assertEqual(raised.exception.page_index, 1)
-            self.assertIn(f"after {expected} generation(s)", str(raised.exception.__cause__))
+            with self.subTest(dpi=dpi):
+                image = PageRef(cast(Any, doc), 1).render(dpi, 70_000)
+                try:
+                    self.assertLessEqual(len(doc.calls), 5)
+                    self.assertLess(image.width, 300)
+                    self.assertLessEqual(png_size(image), 70_000)
+                finally:
+                    image.close()
+
+    def test_impossible_limit_fails_without_unbounded_generation(self):
+        doc = _Document(fixed=True)
+        with self.assertRaises(PDFError) as raised:
+            PageRef(cast(Any, doc), 1).render(300, 1)
+        self.assertLessEqual(len(doc.calls), 5)
+        self.assertEqual(raised.exception.page_index, 1)
+        self.assertIn('cannot hold', str(raised.exception.__cause__))
 
     def test_repeated_feedback_can_succeed_on_fifth_attempt(self):
         calls = []
@@ -225,8 +234,7 @@ class VendorImageBudgetTests(IsolatedAsyncioTestCase):
 
     async def test_exhaustion_uses_render_policy_without_upload(self):
         doc = _Document(fixed=True)
-        with noisy((300, 360)) as image:
-            limit = png_size(image) - 1
+        limit = 1  # No valid PNG can satisfy this; a fixed renderer is now recoverable.
         resolved, failures = [], []
         async def resolve(path):
             resolved.append(path)
@@ -242,7 +250,7 @@ class VendorImageBudgetTests(IsolatedAsyncioTestCase):
                     error_policy=ErrorPolicy(ignore_pdf_render_errors=lambda failure: failures.append(failure) or True),
                 ):
                     pass
-            self.assertEqual(len(doc.calls), 5)
+            self.assertLessEqual(len(doc.calls), 5)
             self.assertEqual(resolved, [])
             self.assertEqual(len(failures), 1)
 
