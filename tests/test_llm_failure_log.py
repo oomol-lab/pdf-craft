@@ -12,6 +12,7 @@ from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
 
 import httpx
+from pydantic import RootModel
 
 from pdf_craft import LLM, ConcurrentExecutor, FixedCapacity, RetryPolicy
 from pdf_craft._policy import error_details
@@ -19,6 +20,7 @@ from pdf_craft.llm import runtime_for, Message, MessageRole
 from pdf_craft.llm.loop import RepairLoopOptions, ProtocolRetry, ProtocolSuccess, run_repair_loop
 from pdf_craft.llm.failure_log import FailureLog
 from pdf_craft.llm.runtime import LLMTransportError
+from pdf_craft.llm.guaranteed import GuaranteedOptions, GuaranteedBusinessError, request_guaranteed_json
 from pdf_craft.concurrency import RateLimitedError
 from pdf_craft.rate_limit import RateLimitScope
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
@@ -120,6 +122,27 @@ class FailureLogTests(IsolatedAsyncioTestCase):
         _, ordinary, _ = self.runtime(['ordinary result'])
         self.assertEqual(await ordinary.request('outside a repair loop', use_cache=False), 'ordinary result')
         self.assertEqual(list(self.root.iterdir()), [])
+
+    async def test_json_rebuild_archives_rejected_answers_without_echoing_them_in_requests(self):
+        _, runtime, seen = self.runtime(['{"value":-1}', '{"value":-2}'])
+
+        def reject(_data, _index, _maximum):
+            raise ValueError('Fixture structure conflict')
+
+        with self.assertRaises(GuaranteedBusinessError) as caught:
+            async with runtime.context() as context:
+                await request_guaranteed_json(GuaranteedOptions(
+                    messages=[Message(MessageRole.USER, 'source evidence')],
+                    request=lambda messages, index, maximum: context.request(
+                        messages, retry_index=index, retry_max=maximum, use_cache=False),
+                    schema=RootModel[dict[str, int]], parse=reject,
+                    retry_policy=RetryPolicy(analysis=1), include_response=False,
+                ))
+        _, records = self.read(caught.exception.failure_log_id)
+        self.assertEqual([row['response'] for row in records], ['{"value":-1}', '{"value":-2}'])
+        self.assertEqual([row['messages'] for row in records], [row['messages'] for row in seen])
+        self.assertEqual([len(row['messages']) for row in records], [1, 2])
+        self.assertTrue(all(message['role'] == 'user' for message in records[-1]['messages']))
 
     async def test_success_and_repair_success_remove_evidence(self):
         for responses in (['RIGHT'], ['WRONG', 'RIGHT']):

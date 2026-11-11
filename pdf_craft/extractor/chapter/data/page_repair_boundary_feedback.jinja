@@ -1,6 +1,15 @@
 [SOURCE_RANGE] Boundary must identify exactly one original position: layouts[{{ layout_id }}].source_range.{{ edge }} has {{ matches|length }} matching positions.
+{% if entry is not none %}The failing occurrence is layouts[{{ entry }}] in your submitted array (zero-based index); other entries may name the same source.{% endif %}
+{% if submission is not none %}Failing submitted entry: {{ submission|tojson }}
+Repair source_range.{{ edge }} on THIS entry. Changing that field on another entry with the same layout_id does not repair this failure.{% endif %}
 Submitted left={{ left }}
 Submitted right={{ right }}
+Source length={{ total }}. The left quote ends at offsets {{ left_positions }}; the right quote begins at offsets {{ right_positions }} (up to five occurrences shown per side, using the same whitespace-tolerant location view).
+{% if reversed_quotes %}The left quote is AFTER the right quote in the original source. This is a backwards/wrapping cut, not an ambiguous adjacent position. A source cannot wrap from its ending back to an earlier passage. Do not copy this invalid boundary to another range.{% endif %}
 {% if matches %}Matching offsets: {{ matches[:5] }}. Expand the quotes to distinguish occurrences.{% else %}The submitted left/right do not identify an adjacent boundary. Finding both quotes separately is not enough.{% endif %}
+These are separate literal source positions, NOT a suggested semantic partition:
+{% for position, cut in literal_cuts %}- At offset {{ position }}, a boundary can be written as {{ cut }}.
+{% endfor %}Select one actual position for a cut; do not combine quotations from two different positions. At source_end there are no following words and no nonempty range can start there. A range ending at that location uses "source_end" literally.
 {% for position, excerpt in nearby %}Source context near offset {{ position }}: {{ excerpt }}
-{% endfor %}Copy consecutive text immediately around the intended cut from the original layout.text, including any intervening words; do not splice nonadjacent quotations. Correct the corresponding start/end together. Keep separate real notes and their definitions/references instead of deleting a note to avoid this error.
+{% endfor %}Original source text (bounded to its first/last 3000 characters for long sources): {{ source_excerpt }}
+Rebuild ALL ranges for this source from the original text, rather than only editing this quote. First partition it in original source order, from source_start to source_end, with no overlap or extra copy; then arrange the resulting parts in your final reading order. An end-of-source boundary should use source_end, not an invented pair of ending/earlier quotes. If existing ranges already cover the whole source, do not add another range for text covered in a prefix. Remove a redundant RANGE entry only when its content is accounted for by other ranges; do not delete distinct content or a real note definition. Reconsider your assessment if it assumed prose resumes after the source ends. Copy genuinely adjacent left/right text and update both sides of each shared cut. Return the whole consistent candidate, including ignored duplicate ranges and the correct note members/references.

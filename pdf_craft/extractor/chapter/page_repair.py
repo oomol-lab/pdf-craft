@@ -309,9 +309,11 @@ async def repair_page_with_llm(
                 raise ValueError("[FOOTNOTES_DISABLED] Page refinement cannot create citations or references")
         return _compile_repaired_page(sources, cast(RepairedPage, data))
 
+    # A rejected whole-page plan is not a patch base. Rebuild from the immutable
+    # input and concrete diagnostics; the loop still records rejected answers.
     return await request_guaranteed_json(GuaranteedOptions(
         messages=messages, request=request, schema=RepairedPage,
-        parse=compile_candidate,
+        parse=compile_candidate, include_response=False,
     ))
 
 
@@ -550,7 +552,10 @@ def _compile_repaired_page(
     for layout_id, original in source_layouts.items():
         proposed = response_layouts[layout_id]
         if proposed.preserve_as_image and (original.source_order is None or proposed.ownership == 'ignored'):
-            issues.append(f'[GRAPHIC_SOURCE] {layout_id}: only retained OCR text can be preserved as artwork')
+            issues.append(review_text(
+                'page_repair_graphic_feedback', layout_id=layout_id, ownership=proposed.ownership,
+                source_type=getattr(original.source, 'ref', 'text'),
+            ))
         if proposed.ownership != "ignored" and original.source_order is not None:
             if proposed.paragraph_role is None or proposed.paragraph_level is None:
                 issues.append(f"[PARAGRAPH_METADATA] {layout_id} requires role and level.")

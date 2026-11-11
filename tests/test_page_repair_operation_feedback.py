@@ -13,6 +13,19 @@ from tests.test_source_range_repair import page, box, proposal, compiled
 
 
 class OperationFeedbackTests(TestCase):
+    def test_existing_image_flag_feedback_preserves_the_asset_operation(self):
+        source = scene(('image', (0, 0, 100, 30), ''))
+        data = candidate(source)
+        data['layouts'][0]['preserve_as_image'] = True
+        with self.assertRaises(ValueError) as caught:
+            compile_page(source, data)
+        feedback = str(caught.exception)
+        for value in ('[GRAPHIC_SOURCE]', 'source_type=image', 'preserve_as_image=false',
+                      'ALREADY an asset'):
+            self.assertIn(value, feedback)
+        data['layouts'][0]['preserve_as_image'] = False
+        self.assertEqual(len(assets(roundtrip(compile_page(source, data)))), 1)
+
     def test_boundary_reports_the_failed_edge_and_nonadjacent_source_quotes(self):
         text = 'First note. Intervening words. 8 Second note.'
         cut = SourceBoundary(left='First note.', right=' 8 Second note.')
@@ -28,6 +41,37 @@ class OperationFeedbackTests(TestCase):
         repeated = SourceBoundary(left='x', right='y')
         with self.assertRaisesRegex(ValueError, '2 matching positions'):
             _boundary('xy xy', repeated, layout_id='repeat', edge='start')
+
+    def test_backwards_cut_reports_quote_order_and_the_repeated_source_occurrence(self):
+        text = 'Main prose resumes here. Note tail ends here.'
+        cut = SourceBoundary(left='ends here.', right='Main prose')
+        with self.assertRaises(ValueError) as caught:
+            _boundary(text, cut, layout_id='mixed', edge='start', entry=3)
+        feedback = str(caught.exception)
+        for value in ('layouts[3]', f'left quote ends at offsets [{len(text)}]',
+                      'right quote begins at offsets [0]', 'backwards/wrapping cut',
+                      'Rebuild ALL ranges', '"source_end"', '"source_start"', repr(text)):
+            self.assertIn(value, feedback)
+        # The better diagnostic does not reinterpret a backwards cut as a match.
+        self.assertEqual(cut.left, 'ends here.')
+
+    def test_compiler_identifies_the_actual_repeated_range_entry(self):
+        source = page(box('Body. Middle. Ending.'))
+        data = proposal(source)
+        first = data['layouts'][0]
+        cut = dict(left='Body.', right=' Middle.')
+        first['source_range'] = dict(start='source_start', end=cut)
+        second = dict(first, ownership='ignored', paragraph_role=None, paragraph_level=None,
+                      continues_from_previous=False, continues_to_next=False,
+                      source_range=dict(start=cut, end=dict(left='Ending.', right='Body.')))
+        data['layouts'].append(second)
+        with self.assertRaises(ValueError) as caught:
+            compiled(source, data)
+        feedback = str(caught.exception)
+        for value in ('layouts[1]', 'zero-based index', 'source_range.end',
+                      'Failing submitted entry:', '"ownership": "ignored"',
+                      'Repair source_range.end on THIS entry'):
+            self.assertIn(value, feedback)
 
     def test_unassigned_duplicate_can_be_explicitly_ignored_not_forced_into_a_note(self):
         source = page(box('Body. 8 Note text.'), box('8 Note text.'))
@@ -116,6 +160,8 @@ class OperationLoopTests(IsolatedAsyncioTestCase):
             attempts.append(index)
             data = deepcopy(initial)
             if index:
+                self.assertEqual(len(messages), 3)
+                self.assertTrue(all(message.role.name != 'ASSISTANT' for message in messages))
                 feedback = messages[-1].message
                 for value in ('[GAP_MISMATCH]', 'Note: explanation.', 'continues the body.',
                               'asset_attachment', 'independent_stream', 'First reconsider their destinations'):

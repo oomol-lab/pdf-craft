@@ -43,6 +43,34 @@ class TestGuaranteedJson(unittest.IsolatedAsyncioTestCase):
                 retry_policy=RetryPolicy(analysis=1),
             ))
 
+    async def test_complete_rebuild_uses_initial_evidence_and_feedback_without_rejected_json(self):
+        calls = []
+        responses = iter(('  ', 'not JSON', '{"value":"wrong-type"}', '{"value":-1}', '{"value":3}'))
+
+        async def request(messages, _index, _maximum):
+            calls.append(messages)
+            return next(responses)
+
+        def parse(data, _index, _maximum):
+            value = data.root['value']
+            if value < 0:
+                raise ValueError('Negative fixture value')
+            return value
+
+        initial = [Message(MessageRole.USER, 'immutable evidence')]
+        result = await request_guaranteed_json(GuaranteedOptions(
+            messages=initial, request=request, schema=_Payload, parse=parse,
+            retry_policy=RetryPolicy(analysis=4), include_response=False,
+        ))
+        self.assertEqual(result, 3)
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(calls[0], initial)
+        for messages in calls[1:]:
+            self.assertEqual(messages[0], initial[0])
+            self.assertEqual(len(messages), 2)
+            self.assertTrue(all(item.role is MessageRole.USER for item in messages))
+        self.assertIn('Negative fixture value', calls[-1][-1].message)
+
 
 if __name__ == "__main__":
     unittest.main()
