@@ -45,10 +45,13 @@ def capture_sources(pages: list[Page]) -> dict[tuple[int, int], tuple[int, TextS
                             start = max(start, index + 1)
                         elif item.det[1] >= note.det[3]:
                             end = min(end, index)
+            # A narrow number/label is still a column member when a later,
+            # wider field overlaps it. Measuring only against the new field's
+            # width lets that field overtake its earlier narrow neighbour.
             candidates = [(index, item) for index, item in enumerate(ordered)
                           if start <= index < end and
                           max(0, min(item.det[2], note.det[2]) -
-                              max(item.det[0], note.det[0])) >= width * .5]
+                              max(item.det[0], note.det[0])) >= min(width, max(1, item.det[2] - item.det[0])) * .5]
             following = next((index for index, item in candidates if item.det[1] > note.det[1]), None)
             # A column's tail is immediately after its last member, not at
             # the end of the page/band. Equal-height members remain stable.

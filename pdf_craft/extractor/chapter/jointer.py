@@ -58,6 +58,14 @@ class Jointer:
 
     def append(self, page_index: int, page_layouts: list[PageLayout]):
         """Join one available page without reading or waiting for another."""
+        # Use the same page-wide reading positions as the page projection,
+        # before deciding paragraphs and their incoming/outgoing connections.
+        # In particular, geometrically inserted note candidates need not have
+        # the same order as the OCR's separate footnote array.
+        def position(layout):
+            record = self._sources.get((page_index, id(layout)))
+            return record[1].reading_order if record is not None else layout.order
+        page_layouts = sorted(page_layouts, key=position)
         for page_index, raw_layouts in self._iter_layout_serials(((page_index, page_layouts),), with_progress=True):
             self._last_page_index = page_index
             if raw_layouts is None:
