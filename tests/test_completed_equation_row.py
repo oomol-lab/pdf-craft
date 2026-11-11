@@ -27,6 +27,13 @@ class CompletedEquationRowTests(unittest.TestCase):
             self.assertFalse(target.continues_from_previous)
         self.assertEqual(raw, before)
 
+    def test_damaged_prefix_does_not_hide_the_last_completed_formula(self):
+        layouts = row_layouts()
+        layouts[1].text = r'\[broken \[v = w.\]'
+        self.assertEqual(completed_equation_rows(layouts), {layouts[2].det: 480})
+        layouts[1].text = r'\[broken \[v = w,\]'
+        self.assertFalse(completed_equation_rows(layouts))
+
     def test_missing_end_punctuation_or_non_connective_cannot_prove_completion(self):
         layouts = row_layouts()
         layouts[1].text = r'\[u = v;\] \[v = w,\]'

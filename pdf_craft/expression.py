@@ -207,14 +207,31 @@ def _find_latex_end(
 ) -> tuple[int, str] | None:
     n = len(text)
     i = start
-    delimiter_len = len(end_delimiter)
+    group_depth = 0
+    asymmetric = end_delimiter in ("\\)", "\\]")
 
     while i < n:
         if not allow_newline and text[i] == "\n":
             return None
-        if i + delimiter_len <= n and text[i : i + delimiter_len] == end_delimiter:
-            if not _is_escaped(text, i):
-                latex_content = text[start:i]
-                return (i + delimiter_len, latex_content)
+        if group_depth == 0:
+            if text.startswith(end_delimiter, i):
+                return i + len(end_delimiter), text[start:i]
+            # A new math opener cannot nest at the outer math level. Leave the
+            # broken prefix as text and let the caller recognize this new span.
+            # Dollars are symmetric: their next occurrence closes, rather than
+            # restarts, a span (including adjacent $a$$b$ expressions).
+            if asymmetric and text[i:i + 2] in ("\\(", "\\[", "\\)", "\\]"):
+                return None
+        # Consume escaped characters together, so escaped braces/delimiters do
+        # not change grouping. TeX text groups may contain their own math spans.
+        if text[i] == "\\" and i + 1 < n:
+            if not allow_newline and text[i + 1] == "\n":
+                return None
+            i += 2
+            continue
+        if text[i] == "{":
+            group_depth += 1
+        elif text[i] == "}" and group_depth:
+            group_depth -= 1
         i += 1
     return None
