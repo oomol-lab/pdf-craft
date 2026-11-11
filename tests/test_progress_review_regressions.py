@@ -187,7 +187,7 @@ class AdmissionTests(IsolatedAsyncioTestCase):
 
 
 class EmptyTaskTests(IsolatedAsyncioTestCase):
-    async def test_consumed_empty_tasks_settle_without_changing_results(self):
+    async def test_consumed_empty_tasks_deliver_sources_with_or_without_progress(self):
         from xml.etree.ElementTree import tostring
         samples = {
             'empty': ('<body/>',),
@@ -214,7 +214,9 @@ class EmptyTaskTests(IsolatedAsyncioTestCase):
                             result = await translator().translate_elements(supplied, **kwargs)
                         results.append([(tostring(element), payload) for element, payload in result])
                     self.assertEqual(results[0], results[1])
-                    self.assertEqual([payload for _, payload in results[1]], [] if name == 'empty' else [1, 3])
+                    self.assertEqual([payload for _, payload in results[1]], list(range(len(xmls))))
+                    self.assertEqual([xml for xml, _ in results[1]],
+                                     [tostring(fromstring(xml)) for xml in xmls])
                     assert_lifecycle(self, events)
                     self.assertEqual(events[0].unit_counts[UnitKind.CONTENT], len(xmls))
                     skipped = [event for event in unit_events(events, Kind.COMPLETED) if event.outcome == UnitOutcome.SKIPPED]
@@ -227,7 +229,9 @@ class EmptyTaskTests(IsolatedAsyncioTestCase):
             result = await translator().translate_elements([
                 TranslationTask(fromstring('<body><p>Source words</p></body>'), SubmitKind.REPLACE, 0)],
                 interrupt_source_text_segments=lambda _segments: (), on_translation_event=events.append)
-        self.assertEqual(result, [])
+        from xml.etree.ElementTree import tostring
+        self.assertEqual([(tostring(root), payload) for root, payload in result],
+                         [(b'<body><p>Source words</p></body>', 0)])
         assert_lifecycle(self, events)
         self.assertEqual(events[0].total_words, 2)
         completed = unit_events(events, Kind.COMPLETED)
