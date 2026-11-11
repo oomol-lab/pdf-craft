@@ -38,7 +38,7 @@ from ...source_view import SourceView
 from ...formula_source import MathProjectionError
 from ...progress import TranslationProgress, active_progress, selected_item, selected_assets
 from pdf_craft.progress import UnitOutcome
-from collections import Counter
+from collections import Counter, deque
 import asyncio
 from pdf_craft._progress import DiskUnits, progress_directory
 
@@ -313,10 +313,16 @@ class XMLTranslator:
                 await save_unit(identity, await progress.unit(kind, words=(
                     task.word_count if task.word_count is not None else count_xml_words(task.element))))
 
+        delivery_order: deque[int] = deque()
+        empty_ready: set[int] = set()
+        delivery_lock = asyncio.Lock()
+
         def generate_elements():
             for task in task_list:
                 tag_locations(task.element, task_locations(task))
                 element2task[id(task.element)] = task
+                if ordered_roots:
+                    delivery_order.append(id(task.element))
                 yield task.element
 
         async def generate_async_elements():
@@ -329,6 +335,8 @@ class XMLTranslator:
                     tag_locations(task.element, task_locations(task))
                     tag_source(task.element, identity)
                     await IO_DOMAIN.run(_task_store.save, identity, task)
+                    if ordered_roots:
+                        delivery_order.append(identity)
                     yield task.element
             finally:
                 close = getattr(async_tasks, "aclose", None)
@@ -401,13 +409,19 @@ class XMLTranslator:
                 canonical_text_validator=canonical_text_validator, translation_protocol=translation_protocol,
                 on_round=report_round)
 
-        async def empty_task(element):
-            from .source_store import source_identity, strip_source
-            identity = source_identity(element) if _task_store is not None else id(element)
+        async def deliver_result(element, task):
+            from .source_store import strip_source
+            strip_source(element)
+            await invoke_callback(on_task_result, (element, task))
+            result = (element, task.payload)
+            await invoke_callback(on_result, result)
+            if collect_results:
+                results.append(result)
+
+        async def deliver_empty(identity):
             task = (await IO_DOMAIN.run(_task_store.pop, identity) if _task_store is not None
                     else element2task.pop(identity))
-            # The mapper has consumed the actual projection and proved there
-            # is no model work. Settle raw task units here, not at pre-scan.
+            # No model work is a normal skipped task, not a missing result.
             async def settle_empty():
                 if progress is not None and scope_item is None and asset_units is None:
                     kind = task.item_kind or UnitKind.CONTENT
@@ -417,8 +431,25 @@ class XMLTranslator:
                         await unit.finish(UnitOutcome.SKIPPED)
             if progress is not None:
                 await progress.attempt(settle_empty)
-            strip_source(element)
-            await invoke_callback(on_task_result, (element, task))
+            await deliver_result(task.element, task)
+
+        async def drain_empty():
+            # Keep only scalar identities here. Async source trees stay in the
+            # existing disk task store until their ordered delivery is due.
+            while delivery_order and delivery_order[0] in empty_ready:
+                identity = delivery_order.popleft()
+                empty_ready.remove(identity)
+                await deliver_empty(identity)
+
+        async def empty_task(element):
+            from .source_store import source_identity
+            identity = source_identity(element) if _task_store is not None else id(element)
+            async with delivery_lock:
+                if ordered_roots:
+                    empty_ready.add(identity)
+                    await drain_empty()
+                else:
+                    await deliver_empty(identity)
 
         diagnostics = FillDiagnostics()
         mapping_stream = stream_mapper.map_stream_async(
@@ -455,12 +486,13 @@ class XMLTranslator:
                                 unit.outcome = UnitOutcome.FALLBACK
                             if scope_item is None and progress is not None and unit not in progress.headers.values():
                                 await unit.finish()
-                        strip_source(translated_element)
-                        await invoke_callback(on_task_result, (translated_element, task))
-                        result = (translated_element, task.payload)
-                        await invoke_callback(on_result, result)
-                        if collect_results:
-                            results.append(result)
+                        async with delivery_lock:
+                            if ordered_roots:
+                                assert delivery_order[0] == identity
+                                delivery_order.popleft()
+                            await deliver_result(translated_element, task)
+                            if ordered_roots:
+                                await drain_empty()
         finally:
             await diagnostics.close()
 
