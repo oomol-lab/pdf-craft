@@ -46,6 +46,14 @@ _AnalysedContent: TypeAlias = tuple[_AnalysedContentPart, ...]
 
 
 @dataclass(frozen=True)
+class AssetAttachment:
+    """Submitted local asset identity and display slot, independent of geometry."""
+
+    asset_id: str
+    slot: Literal['title', 'content', 'caption']
+
+
+@dataclass(frozen=True)
 class AssetTextTarget:
     """A local, provisional attachment; source identity remains independent."""
 
@@ -167,6 +175,8 @@ class LayoutAnnotations:
     references: list[ReferenceLocation] = field(default_factory=list)
     preserve_as_image: bool = False
     keep_asset_attachment: bool = False
+    asset_attachment: AssetAttachment | None = None
+    independent_stream: str | None = None
 
 
 @dataclass(frozen=True)

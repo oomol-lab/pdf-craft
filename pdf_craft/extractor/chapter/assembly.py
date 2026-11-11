@@ -172,6 +172,7 @@ class PageAssembly:
                 ref = Reference(page.page_index, citation.index, _restore_mark(citation.mark), [])
                 self._run('INSERT INTO refs(page,number,value) VALUES (?,?,?)', (*ref.id, pickle.dumps(ref)))
                 self.notes[citation.citation_id] = ref, self._note_paragraphs(ref)
+        independent = {}
         for layout in sorted(page.layouts, key=lambda item: item.document_order):
             if layout.ownership == 'ignored':
                 continue
@@ -179,6 +180,10 @@ class PageAssembly:
                 if layout is starts.get(layout.citation_id):
                     layout = replace(layout, annotations=replace(layout.annotations, continues_from_previous=False))
                 self.unresolved[layout.citation_id].append(layout)
+            elif layout.annotations.independent_stream is not None:
+                stream = independent.setdefault(layout.annotations.independent_stream,
+                                                 _Paragraphs(self._body, self._references))
+                stream.append(layout)
             elif layout.ownership == 'paragraph':
                 self.body.append(layout)
             else:
@@ -190,6 +195,9 @@ class PageAssembly:
                         self._close_note(self.active_note)
                     self.active_note = layout.citation_id
                 state[1].append(layout)
+
+        for stream in independent.values():
+            stream.finish()
 
     def _finish(self):
         self.body.finish()
@@ -244,7 +252,8 @@ class PageAssembly:
         unresolved = {citation.citation_id for citation in page.citations if citation.state == 'unresolved'}
         for layout in page.layouts:
             linked = {ref.citation_page_index for ref in layout.references}
-            if layout.ownership == 'paragraph' or layout.citation_id in unresolved:
+            if ((layout.ownership == 'paragraph' and layout.annotations.independent_stream is None
+                 and layout.annotations.asset_attachment is None) or layout.citation_id in unresolved):
                 key = layout.citation_id if layout.citation_id in unresolved else None
                 pending_pages = pending_streams.setdefault(key, set())
                 if layout.source_order is None:

@@ -55,11 +55,21 @@ OCR 流内下标和独立阅读位置。正文沿用原 source_order；新提取
 `analysis_types.py` 定义来源完整的页记录，`analysis_content.py` 负责结构文本和引用位置的
 可逆投影；`page_analysis.py` 负责页顺序、结构校验与流恢复，不重新判断表题/表注归属。
 
-表题/表注的独立 OCR 来源由 `asset_text.py` 保留原始身份和几何，候选关联
-投影为可单独审核、精修的文本来源。`page_review` 同时暴露资产内生 title/content/caption；
-`page_repair` 仅在存在候选时提供解除关联选项。`materialize_asset_text` 在单页采用后的输出
-边界合并仍有效的同流成员，`PageAssembly` 保存的采用页保持来源完整。该运行时关联不是
-PCEX 字段，不得在持久化编解码器中增加旧字段 fallback。细节见[上游动态修复](../docs/design/upstream-dynamic-repair.md)。
+图表标题、说明的独立 OCR 来源由 `asset_text.py` 保留原始身份和几何，初级关联只作输入建议。
+`asset_editing.editable_asset_sources` 在精修输入边界将资产内生的实际展示字段暴露为独立可编辑来源：
+图片为 title/caption，表格还包括保留富结构的 content；图片非展示 content 不暴露、不自动变成说明。
+内生来源 ID 为资产稳定来源 ID 加字段名，使用原资产 bbox，不虚构文字子框；原始 OCR 不修改。
+
+页精修的 `asset_attachment={asset_id, slot}` 是最终本页关联声明，支持新建、解除、改目标和改槽位，
+不要求初级算法先建立候选。`null` 表示不关联。文字可按既有 source_range 切分后分别归属，多个来源
+按最终提交顺序组成同一槽位。资产及关联文字须处于同一已提交正文/脚注流；目标使用稳定来源 ID，
+不能以相同坐标认作同一资产。内生展示文字也可以取出恢复为正文或脚注，表格富结构不因此被打平。
+不确定目标的独立说明使用 `independent_stream` 本页句柄，保留为独立自然段，不能接续其他页。
+
+验收先按最终归属划分阅读流，再解释各流内自然段连接；图表文字不会占用主正文的接续游标。
+`materialize_asset_text` 在单页采用后的输出边界落实槽位，`PageAssembly` 分开处理主正文和本页独立说明，
+保存的采用页仍保留完整来源。最终复用既有 SourceAsset/文本自然段与 PCEX v7 字段，运行时操作句柄
+不写入 PCEX；格式字段和语义未变，不增加持久化兼容分支。细节见[上游动态修复](../docs/design/upstream-dynamic-repair.md)。
 
 无精修时由 `extractor/chapter/stream.py` 传统增量解析。精修生产链路使用
 `chapter/primary.py` 从固定三页初级证据建立请求局部投影，`extractor/refinement.py` 按邻页就绪调度有界页任务，

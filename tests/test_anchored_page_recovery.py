@@ -56,7 +56,7 @@ class AnchoredPageTests(IsolatedAsyncioTestCase):
         self.assertEqual([c.bbox for c in paragraph.children],
                          [(10, 150, 190, 195), (20, 10, 180, 70), (10, 90, 190, 130)])
         self.assertEqual([c.source_order for c in paragraph.children if isinstance(c, SourceTextFragment)], [0, 1])
-        self.assertEqual(repaired, analysed)
+        self.assertEqual(chapters, list(_generate_chapters(Path('/unused'), TocInfo([], []), analysed)))
 
     async def test_failed_refinement_uses_valid_original_without_recompiling(self):
         pages = source_pages()
