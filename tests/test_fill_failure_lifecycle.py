@@ -158,13 +158,16 @@ class FillFailureLifecycleTests(IsolatedAsyncioTestCase):
             except ValueError as error:
                 return error
             return None
-        good, bad = await asyncio.gather(operation('success', False), operation('failure', True))
+        success_text = 'completed-operation-private-marker'
+        failure_text = 'failed-operation-private-marker'
+        good, bad = await asyncio.gather(operation(success_text, False), operation(failure_text, True))
         self.assertIsNone(good)
         assert bad is not None
         summary, rows = self.archived(bad)
         self.assertEqual(len(list(self.root.iterdir())), 1)
-        self.assertEqual(summary['artist_text'], 'failure')
-        self.assertNotIn('success', json.dumps(rows))
+        self.assertEqual(summary['artist_text'], failure_text)
+        self.assertIn(failure_text, json.dumps(rows))
+        self.assertNotIn(success_text, json.dumps(rows))
 
     async def test_later_operation_failure_does_not_retain_committed_loops(self):
         await self.translate()

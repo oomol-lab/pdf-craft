@@ -1,21 +1,18 @@
 TARGETED STRUCTURE DIAGNOSTIC
-The following blocks show source identities and YOUR current XML side by side. Match each required tag to its exact source identity; never reuse an ID for another tag or occurrence:
+Compare the required source structure with your current XML:
 {% for item in blocks %}
 Source block:
 {{ item.source }}
 Your current block:
 {{ item.candidate }}
 {% endfor %}
-Every source formatting ID and every required non-ID tag still needs its node.
-An empty required formatting tag, including code or br, can retain the structural
-slot without inventing a copy of the original source words. Do not insert a
-source heading or source sentence merely to carry a missing formatting tag. If the required words are already in another inline node, do not duplicate those words to satisfy the missing ID. Reconsider the existing node's assignment using the source template. You may move the existing text into the correct required node and retain the other required formatting node empty, or place its own corresponding translated words there. Preserve the exact artist text and every original formatting identity. Return the entire corrected XML.
-
-Do not invent a new span to hold text after the final inline element. That text
-belongs directly after its closing tag (XML tail text). For example, use
-<code id="7">value</code> remaining words, not
-<code id="7">value</code><span id="8"> remaining words</span> when that span
-is absent from the source. For an EXTRA formatting wrapper, unwrap it while
-keeping its text and children in place. Merely removing its ID leaves the same
-extra wrapper and does not fix the problem. Never invent or reuse another ID
-for an extra wrapper. Required source nodes retain their original IDs.
+Restore every required node with its own identity and legal nesting. Do not
+invent nodes or IDs. For an EXTRA formatting wrapper, unwrap it while keeping
+its content in place; removing only its ID does not remove the extra structure.
+Preserve the authoritative translation and its final reading order throughout
+this structural repair. Return the whole corrected XML.
+Text after a closing inline tag belongs in that tag's tail, not a new wrapper.
+For example, use <code id="7">value</code> remaining words, not
+<code id="7">value</code><span id="8"> remaining words</span> if that span is
+absent from the source. Keep required formatting slots, but never pad them with
+source words that are absent from the translation.

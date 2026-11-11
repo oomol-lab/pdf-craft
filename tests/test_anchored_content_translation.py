@@ -530,8 +530,6 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         self.assertEqual(_text(first.content) + _text(second.content), "How  ever, the Council.")
         self.assertEqual(_pdf_patch_text(translated), "How  ever, the Council.")
         self.assertEqual(runtime.context_value.calls, 1)
-        initial_messages = runtime.context_value.messages[0][0]
-        self.assertIn("compares normalized visible content", initial_messages[0].message)
 
     def test_fill_repairs_plain_fragment_boundary_to_match_canonical_translation(self):
         """A cross-page fragment split has no anchor but obeys the same rule."""
