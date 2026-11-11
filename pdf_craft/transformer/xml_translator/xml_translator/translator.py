@@ -537,6 +537,10 @@ class XMLTranslator:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
         if not primary:
             return [None] * len(inline_segments)
+        block_segment = BlockSegment(
+            root_tag="xml", inline_segments=inline_segments,
+            immutable_elements=immutable_elements,
+        )
         if not any(normalize_whitespace(text.text, trim=True) for segment in primary for text in segment):
             # Unicode whitespace needs no translation. Clone rather than strip
             # it so special spaces, inline nodes and empty block anchors survive;
@@ -547,11 +551,7 @@ class XMLTranslator:
         hill_climbing = HillClimbing(
             encoding=await self._fill_runtime.encoding(),
             max_fill_displaying_errors=self._max_fill_displaying_errors,
-            block_segment=BlockSegment(
-                root_tag="xml",
-                inline_segments=inline_segments,
-                immutable_elements=immutable_elements,
-            ),
+            block_segment=block_segment,
         )
         source_text = (
             source_text_renderer(inline_segments)

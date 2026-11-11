@@ -18,7 +18,7 @@ from pdf_craft.extractor.chapter.chapter import (
     search_references_in_chapter,
 )
 from pdf_craft.markdown.paragraph import flatten
-from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, InlineSegment
+from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, InlineSegment, SourceAnchorError
 from pdf_craft.transformer.xml_translator.xml import clone_element
 from pdf_craft.progress import ProgressEvent, UnitKind
 from .word_count import count_xml_words
@@ -312,8 +312,7 @@ class NarrativeXMLTransformer:
         ) -> list[ImmutableBlockElement]:
             if not inline_segments:
                 return []
-            return [token for root in dict.fromkeys(id(segment.head.root) for segment in inline_segments)
-                    for token in anchors_by_root[root].immutable_elements_for_inline_segments(inline_segments)]
+            return _group_anchors(inline_segments, anchors_by_root)
 
         async_translator = cast(AsyncXMLBatchTranslator, self._translator)
         translated = await protocol.translate_many(
@@ -368,8 +367,7 @@ class NarrativeXMLTransformer:
         def immutable(segments):
             if not segments:
                 return []
-            return [token for root in dict.fromkeys(id(segment.head.root) for segment in segments)
-                    for token in anchors_by_root[root].immutable_elements_for_inline_segments(segments)]
+            return _group_anchors(segments, anchors_by_root)
 
         async def result(value):
             element, task = value
@@ -561,6 +559,14 @@ class _NarrativeAnchorProjection:
         flow.  This keeps it opaque while letting the standard repair loop
         reject a missing, renamed, duplicated, or reordered token.
         """
+        # This is a source-program invariant, not feedback for the fill model.
+        # A lost/duplicated source token must not silently disappear from the
+        # contract merely because its owner has no text in this group.
+        expected = [(key, parent) for key, _, parent in self._assets]
+        found = [(child.get(_ANCHOR_KEY), parent) for parent in self._root.iter()
+                 for child in parent if child.tag == _ANCHOR_TAG]
+        if found != expected:
+            raise SourceAnchorError('Narrative source anchor mapping is missing, duplicated or misplaced')
         result: list[ImmutableBlockElement] = []
         for key, anchor, parent in self._assets:
             assert anchor.tag == "asset"  # the stored clone is the source asset
@@ -572,7 +578,7 @@ class _NarrativeAnchorProjection:
                 None,
             )
             if source_anchor is None:
-                continue
+                raise SourceAnchorError(f'Narrative source anchor is missing: {key!r}')
             source_anchor_index = list(parent).index(source_anchor)
             segment_children: list[tuple[int, int]] = []
             for segment_index, segment in enumerate(inline_segments):
@@ -584,10 +590,30 @@ class _NarrativeAnchorProjection:
             before = next(
                 (segment_index for segment_index, child_index in segment_children
                  if child_index > source_anchor_index),
-                len(inline_segments),
+                # The owning flow can end before another flow/chapter in the
+                # same request. Its trailing asset belongs immediately after
+                # its last selected block, never at the end of the whole group.
+                segment_children[-1][0] + 1,
             )
             result.append(ImmutableBlockElement(source_anchor, before))
         return result
+
+
+def _group_anchors(segments, anchors_by_root) -> list[ImmutableBlockElement]:
+    """Allocate request-local identities without mutating chapter asset keys.
+
+    Both anchor_key and stream node numbers are chapter-local. Only these
+    template copies cross that boundary; the original tokens still restore
+    assets in their own chapter after the translated text is submitted.
+    """
+    roots = list(dict.fromkeys(id(segment.head.root) for segment in segments))
+    result = []
+    for owner, root in enumerate(roots):
+        for item in anchors_by_root[root].immutable_elements_for_inline_segments(segments):
+            anchor = clone_element(item.element)
+            anchor.set(_ANCHOR_KEY, f'{owner}:{anchor.get(_ANCHOR_KEY)}')
+            result.append(ImmutableBlockElement(anchor, item.before_block_index))
+    return result
 
 
 def _direct_child_of(parent: Element, stack: list[Element]) -> Element | None:
