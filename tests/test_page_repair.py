@@ -37,7 +37,7 @@ def _response_from_message(message):
     layout_fields = {
         "layout_id", "ownership", "continues_from_previous",
         "continues_to_next", "paragraph_role", "paragraph_level",
-        "citation_id", "citation_index",
+        "citation_id", "citation_index", "asset_attachment", "independent_stream",
     }
     return {
         "page_index": target["page_index"],

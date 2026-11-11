@@ -22,6 +22,7 @@ from ...llm import Message, MessageRole
 from ...llm.guaranteed import GuaranteedOptions, request_guaranteed_json
 from ...pdf import Page
 from .analysis_types import (
+    AssetAttachment,
     AnalysedCitation,
     AnalysedLayout,
     LayoutAnnotations,
@@ -38,12 +39,13 @@ from .page_analysis import (
     continuation_sequences,
 )
 from .asset_text import (
-    asset_text_packet, compile_asset_attachment, detach_invalid_asset_text,
+    asset_text_packet,
 )
 from .review_templates import review_text
 from .source_ranges import SourceRange, RepairSources, compile_source_ranges, repair_sources
 from .page_validation import validate_page
 from .text_locator import locate_text
+from .asset_editing import editable_asset_sources
 from .page_review import (
     text_scale_estimate,
     JEV_REVIEW_THRESHOLD,
@@ -76,6 +78,11 @@ class RepairedReference(_StrictModel):
     extract_from_expression: bool = False
 
 
+class RepairedAssetAttachment(_StrictModel):
+    asset_id: str = Field(min_length=1)
+    slot: Literal["title", "content", "caption"]
+
+
 class RepairedLayout(_StrictModel):
     layout_id: str
     source_range: SourceRange | None = None
@@ -89,7 +96,8 @@ class RepairedLayout(_StrictModel):
     citation_id: str | None
     citation_index: int | None = Field(default=None, ge=1)
     preserve_as_image: bool = False
-    keep_asset_attachment: bool | None = None
+    asset_attachment: RepairedAssetAttachment | None = None
+    independent_stream: str | None = Field(default=None, min_length=1)
 
 
 class RepairedCitation(_StrictModel):
@@ -319,13 +327,7 @@ def build_page_repair_messages(
 ) -> list[Message]:
     del previous_pass_probability, next_pass_probability, target_pass_probability
     target = _repair_packet(target_page)
-    has_asset_text = any(layout.asset_text_target is not None
-                         for layout in target_page.layouts)
-    if has_asset_text:
-        target['asset_text_note'] = review_text('evidence', kind='asset_text')
     output_contract = RepairedPage.model_json_schema()
-    if not has_asset_text:
-        output_contract['$defs']['RepairedLayout']['properties'].pop('keep_asset_attachment')
     payload = {
         "previous_page": _context_packet(previous_page),
         "target_page": target,
@@ -354,9 +356,10 @@ def _context_packet(
 
 def _repair_packet(page):
     """Keep fallible decisions visibly separate from the source observations."""
-    packet = _page_packet(page)
+    packet = _page_packet(editable_asset_sources(page))
     fields = ('ownership', 'continues_from_previous', 'continues_to_next',
-              'paragraph_role', 'paragraph_level', 'citation_id', 'citation_index')
+              'paragraph_role', 'paragraph_level', 'citation_id', 'citation_index',
+              'asset_attachment', 'independent_stream')
     for layout in packet['layouts']:
         layout['initial_proposal'] = {key: layout.pop(key) for key in fields}
     text = [layout for layout in packet['layouts'] if layout['source_type'] == 'text']
@@ -464,6 +467,10 @@ def _layout_packet(
         "paragraph_level": layout.paragraph_level,
         "citation_id": layout.citation_id,
         "citation_index": layout.citation_index,
+        "asset_attachment": (dict(asset_id=layout.annotations.asset_attachment.asset_id,
+                                  slot=layout.annotations.asset_attachment.slot)
+                             if layout.annotations.asset_attachment else None),
+        "independent_stream": layout.annotations.independent_stream,
     }
 
     association = asset_text_packet(layout)
@@ -481,8 +488,10 @@ def _printed_lines_packet(layout):
 
 
 def _initial_stream_key(layout: AnalysedLayout) -> tuple[str, str | None] | None:
-    if layout.annotations.keep_asset_attachment:
+    if layout.annotations.keep_asset_attachment or layout.annotations.asset_attachment is not None:
         return None
+    if layout.annotations.independent_stream is not None:
+        return ("independent", layout.annotations.independent_stream)
     if layout.ownership == "paragraph":
         return ("paragraph", None)
     if layout.ownership == "citation":
@@ -540,12 +549,6 @@ def _compile_repaired_page(
     repaired_layouts: dict[str, AnalysedLayout] = {}
     for layout_id, original in source_layouts.items():
         proposed = response_layouts[layout_id]
-        try:
-            keep_attachment = compile_asset_attachment(
-                original, proposed.ownership, proposed.preserve_as_image, proposed.keep_asset_attachment)
-        except ValueError as error:
-            issues.append(f'[ASSET_TEXT] {layout_id}: {error}')
-            keep_attachment = False
         if proposed.preserve_as_image and (original.source_order is None or proposed.ownership == 'ignored'):
             issues.append(f'[GRAPHIC_SOURCE] {layout_id}: only retained OCR text can be preserved as artwork')
         if proposed.ownership != "ignored" and original.source_order is not None:
@@ -598,10 +601,11 @@ def _compile_repaired_page(
                 citation_index=proposed.citation_index,
                 references=[],
                 preserve_as_image=proposed.preserve_as_image,
-                keep_asset_attachment=keep_attachment,
+                asset_attachment=(AssetAttachment(proposed.asset_attachment.asset_id, proposed.asset_attachment.slot)
+                                  if proposed.asset_attachment is not None else None),
+                independent_stream=proposed.independent_stream,
             ),
         )
-    detach_invalid_asset_text(repaired_layouts.values())
     for ownership, citation_id in [("paragraph", None), *[("citation", ident) for ident in citations_by_id]]:
         sequence = sorted([layout for layout in repaired_layouts.values()
                            if layout.ownership == ownership and

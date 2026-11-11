@@ -3,7 +3,7 @@ from typing import Mapping
 from collections import defaultdict
 
 from .analysis_types import AnalysedLayout, AnalysedCitation, PageStructureError
-from .asset_text import active_asset_text
+from .asset_editing import reading_sequences, validate_asset_operations
 
 
 def validate_page(page):
@@ -23,6 +23,7 @@ def validate_page(page):
     if len(identities) != len(set(identities)):
         issues.append('[IMMUTABLE_LAYOUTS] Duplicate current fragment identity')
     _validate_ranges(page, issues)
+    validate_asset_operations(page, issues)
     orders = [item.stream_order for item in page.citations]
     if len(orders) != len(set(orders)):
         issues.append('[CITATION_ORDER] Note stream positions must be unique within the current page')
@@ -62,56 +63,56 @@ def _validate_layout_sequences(
             ),
             key=lambda item: item[1].document_order,
         )
-        attached = active_asset_text(layout for _, layout in sequence)
-        previous: tuple[str, AnalysedLayout] | None = None
         for layout_id, layout in sequence:
-            if id(layout) in attached:
-                if layout.continues_from_previous or layout.continues_to_next:
-                    issues.append(f'[GAP_ASSET_TEXT] {layout_id}: detach before joining an asset label into prose')
-                continue
             if layout.citation_id is not None:
                 owned_citation_ids.add(layout.citation_id)
-            if layout.source_order is None and (
-                layout.continues_from_previous or layout.continues_to_next
-            ):
-                issues.append(
-                    f"[GAP_ASSET] layouts[{layout_id}] is an asset and cannot "
-                    "carry continuation flags."
-                )
-            if layout.source_order is None:
-                if getattr(layout.source, "ref", None) == "formula":
-                    if previous is not None:
-                        _, preceding = previous
-                        if preceding.continues_to_next:
-                            issues.append("[GAP_FORMULA] Text cannot continue across a display formula.")
-                    previous = None
-                continue
-            if previous is not None:
-                previous_id, previous_layout = previous
-                if (
-                    previous_layout.continues_to_next
-                    != layout.continues_from_previous
+        for group in reading_sequences(layout for _, layout in sequence):
+            previous = None
+            for layout in group:
+                layout_id = _layout_id(layout)
+                if layout.citation_id is not None:
+                    owned_citation_ids.add(layout.citation_id)
+                if layout.source_order is None and (
+                    layout.continues_from_previous or layout.continues_to_next
                 ):
                     issues.append(
-                        "[GAP_MISMATCH] Adjacent layouts in the same "
-                        f"{ownership} stream"
-                        f"{'' if citation_id is None else f' {citation_id!r}'} "
-                        f"disagree: layouts[{previous_id}]."
-                        f"continues_to_next={previous_layout.continues_to_next}, "
-                        f"but layouts[{layout_id}].continues_from_previous="
-                        f"{layout.continues_from_previous}. Make these two "
-                        "fields equal."
+                        f"[GAP_ASSET] layouts[{layout_id}] is an asset and cannot "
+                        "carry continuation flags."
                     )
-                if layout.continues_from_previous and (
-                    layout.paragraph_role != previous_layout.paragraph_role
-                    or layout.paragraph_level != previous_layout.paragraph_level
-                ):
-                    issues.append(
-                        "[GAP_PARAGRAPH_METADATA] Continued layouts "
-                        f"{previous_id} and {layout_id} must use the same "
-                        "paragraph_role and paragraph_level."
-                    )
-            previous = (layout_id, layout)
+                if layout.source_order is None:
+                    if getattr(layout.source, "ref", None) == "formula":
+                        if previous is not None:
+                            _, preceding = previous
+                            if preceding.continues_to_next:
+                                issues.append("[GAP_FORMULA] Text cannot continue across a display formula.")
+                        previous = None
+                    continue
+                if previous is not None:
+                    previous_id, previous_layout = previous
+                    if (
+                        previous_layout.continues_to_next
+                        != layout.continues_from_previous
+                    ):
+                        issues.append(
+                            "[GAP_MISMATCH] Adjacent layouts in the same "
+                            f"{ownership} stream"
+                            f"{'' if citation_id is None else f' {citation_id!r}'} "
+                            f"disagree: layouts[{previous_id}]."
+                            f"continues_to_next={previous_layout.continues_to_next}, "
+                            f"but layouts[{layout_id}].continues_from_previous="
+                            f"{layout.continues_from_previous}. Make these two "
+                            "fields equal."
+                        )
+                    if layout.continues_from_previous and (
+                        layout.paragraph_role != previous_layout.paragraph_role
+                        or layout.paragraph_level != previous_layout.paragraph_level
+                    ):
+                        issues.append(
+                            "[GAP_PARAGRAPH_METADATA] Continued layouts "
+                            f"{previous_id} and {layout_id} must use the same "
+                            "paragraph_role and paragraph_level."
+                        )
+                previous = (layout_id, layout)
     for citation_id in sorted(set(citations) - owned_citation_ids):
         issues.append(
             f"[CITATION_WITHOUT_LAYOUT] citations[{citation_id!r}] has no "

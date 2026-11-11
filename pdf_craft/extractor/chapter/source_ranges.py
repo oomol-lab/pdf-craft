@@ -15,6 +15,7 @@ from .analysis_types import (
 )
 from .analysis_content import layout_reference_text, _visible_content_text, _materialize_reference_text
 from .text_locator import locate_text
+from .asset_editing import editable_asset_sources
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,9 @@ def repair_sources(page: PageAnalysis | RepairSources) -> RepairSources:
     placeholders become their literal text; citation origins and ownership are
     discarded. The validator never receives this catalog.
     """
+    if isinstance(page, RepairSources):
+        return page
+    page = editable_asset_sources(page)
     layouts = []
     for layout in page.layouts:
         source = layout.source
@@ -120,8 +124,6 @@ def compile_source_ranges(source, response, layout_id, resolve_anchor):
             sliced = bounds is not None and (start, end) != (0, len(text))
             if sliced and proposal.preserve_as_image:
                 raise ValueError('[SOURCE_RANGE] A partial text range cannot become a whole-source artwork')
-            if sliced and original.asset_text_target is not None and proposal.keep_asset_attachment is not False:
-                raise ValueError('[SOURCE_RANGE] Detach an asset text association explicitly before slicing it')
             unique = f'{ident}@{start}:{end}' if sliced else ident
             record = replace(original.source, content=slice_content(original.source.content, start, end),
                              source_start=original.source.source_start + start,

@@ -52,7 +52,6 @@ from .analysis_content import (
     analyse_text_source,
 )
 from .asset_text import (
-    active_asset_text,
     analyse_asset_source,
     expand_asset_sources,
 )
@@ -532,19 +531,17 @@ def _restore_layouts(
 
 def continuation_sequences(layouts: Iterable[AnalysedLayout]) -> Iterable[list[AnalysedLayout]]:
     """Text predecessors skip image/table anchors; display formulas stop them."""
-    items = list(layouts)
-    attached = active_asset_text(items)
-    sequence: list[AnalysedLayout] = []
-    for layout in items:
-        if id(layout) in attached:
-            continue
-        if isinstance(layout.source, _AnalysedAssetSource):
-            if layout.source.ref == "formula":
-                yield sequence
-                sequence = []
-        else:
-            sequence.append(layout)
-    yield sequence
+    from .asset_editing import reading_sequences
+    for group in reading_sequences(layouts):
+        sequence: list[AnalysedLayout] = []
+        for layout in group:
+            if isinstance(layout.source, _AnalysedAssetSource):
+                if layout.source.ref == "formula":
+                    yield sequence
+                    sequence = []
+            else:
+                sequence.append(layout)
+        yield sequence
 
 
 def _restore_fragment(

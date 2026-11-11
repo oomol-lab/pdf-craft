@@ -401,8 +401,18 @@ def active_asset_text(layouts: Iterable[AnalysedLayout]) -> dict[int, AnalysedLa
     items = list(layouts)
     assets = {(item.page_index, item.source.ref, item.bbox): item for item in items
               if isinstance(item.source, _AnalysedAssetSource) and item.ownership != 'ignored'}
+    by_identity = {item.source_id or f'layout-{item.document_order}': item for item in items
+                   if isinstance(item.source, _AnalysedAssetSource) and item.ownership != 'ignored'}
     active = {}
     for item in items:
+        submitted = item.annotations.asset_attachment
+        if submitted is not None:
+            asset = by_identity.get(submitted.asset_id)
+            if (asset is not None and item.ownership != 'ignored'
+                    and not item.annotations.preserve_as_image
+                    and (asset.ownership, asset.citation_id) == (item.ownership, item.citation_id)):
+                active[id(item)] = asset
+            continue
         target = item.asset_text_target
         if (target is None or not item.annotations.keep_asset_attachment
                 or item.ownership == 'ignored' or item.annotations.preserve_as_image):
@@ -433,21 +443,24 @@ def materialize_asset_text(page: PageAnalysis) -> PageAnalysis:
             continue
         source = item.source
         assert isinstance(source, _AnalysedAssetSource)
-        title, caption = list(source.title), list(source.caption)
-        prefixes = []
+        fields = {slot: list(getattr(source, slot)) for slot in ('title', 'content', 'caption')}
+        title_prefixes = []
         for member in sorted(attached, key=lambda value: value.document_order):
             assert isinstance(member.source, _AnalysedTextSource)
-            target = member.source.asset_text_target
+            target = member.annotations.asset_attachment or member.asset_text_target
             assert target is not None
-            if target.slot == 'title':
-                prefixes.append(member.source.content)
-            else:
-                if caption:
-                    caption.append('\n')
-                caption.extend(member.source.content)
-        for prefix in reversed(prefixes):
-            title = [*prefix, *(['\n'] if title else []), *title]
-        # Keep the canonical adjacent string shape, preserving structured parts.
+            # Unrefined table-title candidates precede intrinsic title content.
+            # Refined fields are all independent sources in submitted order.
+            if member.annotations.asset_attachment is None and target.slot == 'title':
+                title_prefixes.append(member.source.content)
+                continue
+            parts = fields[target.slot]
+            if parts:
+                separator = ('\n' if member.annotations.asset_attachment is None else '\n\n')
+                parts.append(' ' if member.continues_from_previous else separator)
+            parts.extend(member.source.content)
+        for prefix in reversed(title_prefixes):
+            fields['title'] = [*prefix, *(['\n'] if fields['title'] else []), *fields['title']]
         def compact(parts):
             result = []
             for part in parts:
@@ -456,7 +469,8 @@ def materialize_asset_text(page: PageAnalysis) -> PageAnalysis:
                 else:
                     result.append(part)
             return tuple(result)
-        projected = replace(source, title=compact(title), caption=compact(caption), associated_sources=())
+        projected = replace(source, **{slot: compact(parts) for slot, parts in fields.items()},
+                            associated_sources=())
         references = []
         for field_index, field_content in enumerate((projected.title, projected.content, projected.caption)):
             _collect_reference_locations(field_content, references, (field_index,))
@@ -497,25 +511,6 @@ def asset_text_packet(layout: AnalysedLayout, *, include_page: bool = False) -> 
     packet.update(asset_ref=target.ref, asset_bbox=list(target.bbox),
                   slot=target.slot, retained=layout.annotations.keep_asset_attachment)
     return packet
-
-
-def compile_asset_attachment(original: AnalysedLayout, ownership: LayoutOwnership,
-                             preserve_as_image: bool, requested: bool | None) -> bool:
-    """Compile a local retention request; cross-layout agreement is checked later."""
-    if requested and original.asset_text_target is None:
-        raise ValueError('cannot attach a source with no original local asset target')
-    if ownership == 'ignored' or preserve_as_image:
-        return False
-    return original.annotations.keep_asset_attachment if requested is None else requested
-
-
-def detach_invalid_asset_text(layouts: Iterable[AnalysedLayout]) -> None:
-    """Ownership edits implicitly detach obsolete links without a model retry."""
-    items = list(layouts)
-    attached = active_asset_text(items)
-    for layout in items:
-        if layout.annotations.keep_asset_attachment and id(layout) not in attached:
-            layout.annotations.keep_asset_attachment = False
 
 
 def translatable_asset(asset: SourceAsset) -> SourceAsset:
