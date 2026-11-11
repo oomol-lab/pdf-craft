@@ -9,10 +9,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-import shutil
 import pickle
 import sqlite3
-from contextlib import closing
+from contextlib import closing, nullcontext
 from xml.etree.ElementTree import ParseError
 
 from ..common import read_xml, save_xml, AssetHub
@@ -25,7 +24,6 @@ from .._policy import recover
 from ..runtime import IO_DOMAIN, worker_iter
 from ..common.stream import DiskStream
 from .chapter.chapter import Chapter, StandaloneAsset, SourceAsset, TextFlowItem, SourceTextFragment, encode
-from .chapter.generation import _generate_chapters
 from .chapter.analysis_types import PageAnalysis
 
 
@@ -173,8 +171,8 @@ class RecoveredChapters:
 async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, analyses=(), adopted_database=None, aborted):
     """Prepare replacement chapters; disk/publication errors are outside this boundary.
 
-    Each source run is tried at most once. Unknown failures conservatively
-    discard that run, never repeatedly repair the same graph.
+    Each page is attempted once per rebuild. A located failure seals its
+    healthy prefix and isolates that page; the suffix starts with fresh cursors.
     """
     if not recoverable_structure(error):
         raise error
@@ -256,47 +254,70 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
             run.append(index)
     if run:
         runs.append(run)
-    for run in runs:
+    # A failed append rolls back that page, not its already valid prefix.
+    # Subsequent pages are consumed once with fresh output cursors, so a gap
+    # cannot connect unrelated text or require re-reading refined neighbours.
+    while runs:
+        run = runs.pop(0)
         check_cancelled()
         path = directory / str(run[0])
         path.mkdir()
-        for index in run:
-            await IO_DOMAIN.run(shutil.copyfile, draft.pages_path / f'page_{index}.xml', path / f'page_{index}.xml')
         records = DiskStream(path / 'records')
+
         def collect(path=path, records=records, run=run):
-            if adopted_database is not None and adopted_database.exists():
-                from .chapter.assembly import PageAssembly
-                from .chapter.primary import PrimaryPages
-                from .chapter.stream import chapters_from_disk
-                from ..pdf import decode
-                from copy import deepcopy
-                spool = path / 'adopted.sqlite'
-                assembly = PageAssembly(spool)
-                primary = PrimaryPages(includes_footnotes)
-                with closing(sqlite3.connect(adopted_database)) as db:
-                    for index in run:
-                        raw = decode(read_xml(path / f'page_{index}.xml'))
-                        initial = primary.append(raw)
-                        row = db.execute('SELECT value FROM adopted WHERE page=?', (index,)).fetchone()
-                        page = pickle.loads(row[0]) if row else deepcopy(initial)
+            from .chapter.assembly import PageAssembly
+            from .chapter.primary import PrimaryPages
+            from .chapter.stream import chapters_from_disk
+            from .chapter.analysis_types import PageStructureError
+            from ..pdf import decode
+            spool = path / 'adopted.sqlite'
+            assembly = PageAssembly(spool)
+            primary = PrimaryPages(includes_footnotes)
+            failed = None
+            connection = (closing(sqlite3.connect(adopted_database))
+                          if adopted_database is not None and adopted_database.exists() else nullcontext(None))
+            with connection as db:
+                for position, index in enumerate(run):
+                    check_cancelled()
+                    try:
+                        row = db.execute('SELECT value FROM adopted WHERE page=?', (index,)).fetchone() if db else None
+                        if row:
+                            # Accepted candidates are authoritative. Do not run
+                            # raw analysis as a prerequisite to restoring them.
+                            page = pickle.loads(row[0])
+                            primary = PrimaryPages(includes_footnotes)
+                        else:
+                            page = primary.append(decode(read_xml(draft.pages_path / f'page_{index}.xml')))
                         assembly.append(page)
-                assembly.finish()
-                chapters = chapters_from_disk(spool, TocInfo([], []), chunk_size=128)
-            else:
-                chapters = _generate_chapters(path, TocInfo([], draft.toc.page_indexes), chunk_size=128,
-                                              includes_footnotes=includes_footnotes)
-            for chapter in chapters:
+                    except Exception as cause:
+                        if not recoverable_structure(cause):
+                            raise
+                        # This operation has a precise current-page boundary.
+                        # Never reinterpret a foreign-page error as permission
+                        # to withdraw that page or the whole surviving run.
+                        if failure_pages(cause) - {index}:
+                            raise
+                        if not failure_pages(cause):
+                            located = PageStructureError(str(cause), index)
+                            located.__cause__ = cause
+                            cause = located
+                        failed = (position, index, cause)
+                        break
+            assembly.finish()
+            for chapter in chapters_from_disk(spool, TocInfo([], []), chunk_size=128):
                 records.append(chapter)
             records.close()
-        try:
-            await IO_DOMAIN.run(collect)
-        except Exception as next_error:
-            if not recoverable_structure(next_error):
-                raise
-            await degrade(set(run), next_error)
-        else:
-            # Final chapter identities are assigned after all runs are adopted.
+            return failed
+
+        failure = await IO_DOMAIN.run(collect)
+        # Final identities are assigned after all fragments have been adopted.
+        if failure is None or failure[0] > 0:
             fragments[run[0]] = records
+        if failure is not None:
+            position, index, cause = failure
+            await degrade({index}, cause)
+            if position + 1 < len(run):
+                runs.insert(0, run[position + 1:])
     sequence = 0
     for index in indexes:
         records = fragments.get(index)
