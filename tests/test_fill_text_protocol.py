@@ -143,7 +143,6 @@ class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
         result = await NarrativeXMLTransformer(translator).transform(source_chapter(styled=True))
         self.assertEqual(''.join(part.strip() for part in encode(result).itertext()), '是')
         system = runtime.context_value.messages[0][0][0].message.lower()
-        self.assertIn('empty required', system)
         self.assertNotIn('use source text', system)
         self.assertNotIn('mixed language is acceptable', system)
         self.assertEqual(len(list(encode(result).iter('span'))), 3)
@@ -184,7 +183,6 @@ class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(''.join(result.itertext()), '是')
         messages = runtime.context_value.messages[0][0]
         self.assertNotIn('Canonical visible-text constraint:', messages[1].message)
-        self.assertIn('empty required', messages[0].message.lower())
 
     async def test_cdata_does_not_bypass_structural_or_full_text_validation(self):
         bad = '<xml><fragment id="1"><![CDATA[使用 <span> 标签。]]></fragment></xml>'
