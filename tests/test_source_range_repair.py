@@ -18,7 +18,7 @@ from pdf_craft.extractor.chapter.page_repair import (
     build_page_repair_messages, repair_page_with_llm,
 )
 from pdf_craft.extractor.chapter.source_ranges import slice_content
-from pdf_craft.extractor.chapter.analysis_types import _AnalysedHTMLTag, _AnalysedInlineExpression
+from pdf_craft.extractor.chapter.analysis_types import _AnalysedHTMLTag, _AnalysedInlineExpression, _AnalysedTextSource
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.transformer.translation_coverage import paragraph_identity
 from pdf_craft.transformer.narrative_xml import _source_unit_identity
@@ -65,6 +65,32 @@ def compiled(source, data):
 
 
 class SourceRangeRepairTests(IsolatedAsyncioTestCase):
+    async def test_whitespace_cut_variants_preserve_complete_original_ranges(self):
+        from pdf_craft.extractor.chapter.analysis_content import layout_reference_text
+        source = page(box('Opening. \t\u3000 7 Note text.'))
+        raw = layout_reference_text(source.layouts[0])
+        data = proposal(source)
+        original = data['layouts'][0]
+        end = dict(left='Opening.', right='7 Note text.')
+        start = dict(left='Opening. ', right=' 7 Note text.')
+        data['layouts'] = [
+            dict(original, source_range=dict(start='source_start', end=end),
+                 ownership='paragraph', citation_id=None, citation_index=None,
+                 continues_from_previous=False, continues_to_next=False),
+            dict(original, source_range=dict(start=start, end='source_end'),
+                 ownership='citation', citation_id='new-1-1', citation_index=1,
+                 continues_from_previous=False, continues_to_next=False),
+        ]
+        data['citations'] = [dict(citation_id='new-1-1', index=1, mark='7', stream_order=0)]
+        result = compiled(source, data)
+        first, second = (item.source for item in result.layouts)
+        assert isinstance(first, _AnalysedTextSource) and isinstance(second, _AnalysedTextSource)
+        self.assertEqual(first.source_start, 0)
+        self.assertEqual(first.source_end, second.source_start)
+        self.assertEqual(second.source_end, len(raw))
+        self.assertEqual(raw[:first.source_end], raw[:raw.index('7')])
+        self.assertEqual(layout_reference_text(source.layouts[0]), raw)
+
     async def test_final_order_is_used_by_validation_and_assembly(self):
         source = page(box('Stromversor-') + box('Ankündigung. Independent.') + box('gung berücksichtigt.'))
         data = proposal(source)

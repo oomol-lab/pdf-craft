@@ -17,6 +17,7 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ...common.whitespace import is_whitespace
 from ...llm import Message, MessageRole
 from ...llm.guaranteed import GuaranteedOptions, request_guaranteed_json
 from ...pdf import Page
@@ -42,6 +43,7 @@ from .asset_text import (
 from .review_templates import review_text
 from .source_ranges import SourceRange, RepairSources, compile_source_ranges, repair_sources
 from .page_validation import validate_page
+from .text_locator import locate_text
 from .page_review import (
     text_scale_estimate,
     JEV_REVIEW_THRESHOLD,
@@ -755,25 +757,23 @@ def _resolve_anchor(
     path: str,
     layout_id: str,
 ) -> tuple[tuple[int, int] | None, str | None]:
-    if anchor.mark == "" and anchor.before == "" and anchor.after == "":
+    if not any(not is_whitespace(char) for char in anchor.before + anchor.mark + anchor.after):
         return None, (
-            f"[REF_ANCHOR_EMPTY] {path} for {layout_id} cannot use three empty "
-            "strings. Copy adjacent layout text into before and/or after."
+            f"[REF_ANCHOR_EMPTY] {path} for {layout_id} has no non-whitespace "
+            "identifying context or marker."
         )
-    positions = _mark_positions(text, anchor.mark)
-    exact = [
-        position for position in positions
-        if text[:position].endswith(anchor.before)
-        and text[position + len(anchor.mark):].startswith(anchor.after)
-    ]
-    if len(exact) == 1:
-        start = exact[0]
-        return (start, start + len(anchor.mark)), None
-    if len(exact) > 1:
+    matches = locate_text(text, anchor.before, anchor.mark, anchor.after)
+    if len(matches) == 1:
+        return matches[0], None
+    if len(matches) > 1:
         return None, _anchor_error(
-            "REF_ANCHOR_AMBIGUOUS", path, layout_id, anchor, text, exact,
-            "Expand before and/or after with more exact adjacent text.",
+            "REF_ANCHOR_AMBIGUOUS", path, layout_id, anchor, text,
+            [start for start, _ in matches],
+            "Expand before and/or after to distinguish separate source occurrences.",
+            span_ends=[end for _, end in matches],
         )
+
+    positions = _mark_positions(text, anchor.mark)
 
     ranked = sorted(
         ((_anchor_score(text, position, anchor), position) for position in positions),
@@ -855,10 +855,11 @@ def _anchor_error(
     positions: list[int],
     action: str,
     scores: list[float] | None = None,
+    span_ends: list[int] | None = None,
 ) -> str:
     candidates: list[str] = []
     for index, position in enumerate(positions[:3]):
-        end = position + len(anchor.mark)
+        end = span_ends[index] if span_ends is not None else position + len(anchor.mark)
         excerpt = (
             text[max(0, position - 24):position]
             + "⟦" + text[position:end] + "⟧"
