@@ -100,6 +100,33 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
         chapter = Chapter(None, -1, [cast(TextFlowItem, x) for x in restored.paragraphs],
                           restored.citations)
         self.assertEqual(decode(fromstring(tostring(encode(chapter)))), chapter)
+        expected_bodies = [r'A report \(20 million about its project. ',
+                           r'Costs increased by 25\% with foreign participation. ',
+                           'The assumptions about fuel.']
+        def note_bodies(value):
+            return [''.join(part if isinstance(part, str) else cast(InlineExpression, part).content
+                            for flow in note_item.flow_items if isinstance(flow, TextFlowItem)
+                            for fragment in flow.children if isinstance(fragment, SourceTextFragment)
+                            for part in fragment.content) for note_item in value.definitions]
+        self.assertEqual(note_bodies(chapter), expected_bodies)
+        # The first archived answer places cuts AFTER the next printed mark.
+        # Preserve that submitted range; parsing is not a semantic correction
+        # of the model's ownership. Compilability alone is not a content oracle.
+        misplaced = deepcopy(data)
+        wrong_cuts = [dict(left='about its project. 24', right=' Costs'),
+                      dict(left='with foreign participation. 25', right=' The assumptions')]
+        for item, start, end in zip(misplaced['layouts'][-3:],
+                                    ['source_start', *wrong_cuts], [*wrong_cuts, 'source_end']):
+            item['source_range'] = dict(start=start, end=end)
+        wrong_streams = restore_streams([compiled(source, misplaced)])
+        wrong_chapter = Chapter(None, -1, [cast(TextFlowItem, x) for x in wrong_streams.paragraphs],
+                                wrong_streams.citations)
+        reopened_wrong = decode(fromstring(tostring(encode(wrong_chapter))))
+        self.assertEqual([x.mark for x in reopened_wrong.definitions], ['23', '24', '25'])
+        self.assertEqual(note_bodies(reopened_wrong),
+                         [expected_bodies[0] + '24 ', expected_bodies[1] + '25 ', expected_bodies[2]])
+        self.assertNotEqual(note_bodies(reopened_wrong), expected_bodies)
+        self.assertEqual(source, before)
         formulas = [part for note_item in restored.citations
                     for flow in note_item.flow_items if isinstance(flow, TextFlowItem)
                     for fragment in flow.children if isinstance(fragment, SourceTextFragment)
