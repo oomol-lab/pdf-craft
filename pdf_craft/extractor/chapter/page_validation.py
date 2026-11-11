@@ -4,6 +4,8 @@ from collections import defaultdict
 
 from .analysis_types import AnalysedLayout, AnalysedCitation, PageStructureError
 from .asset_editing import reading_sequences, validate_asset_operations
+from .analysis_content import layout_reference_text
+from .review_templates import review_text
 
 
 def validate_page(page):
@@ -93,16 +95,13 @@ def _validate_layout_sequences(
                         previous_layout.continues_to_next
                         != layout.continues_from_previous
                     ):
-                        issues.append(
-                            "[GAP_MISMATCH] Adjacent layouts in the same "
-                            f"{ownership} stream"
-                            f"{'' if citation_id is None else f' {citation_id!r}'} "
-                            f"disagree: layouts[{previous_id}]."
-                            f"continues_to_next={previous_layout.continues_to_next}, "
-                            f"but layouts[{layout_id}].continues_from_previous="
-                            f"{layout.continues_from_previous}. Make these two "
-                            "fields equal."
-                        )
+                        issues.append(review_text(
+                            'page_repair_gap_feedback', ownership=ownership, citation_id=citation_id,
+                            previous_id=previous_id, current_id=layout_id,
+                            previous=previous_layout, current=layout,
+                            ending=repr(layout_reference_text(previous_layout)[-160:]),
+                            opening=repr(layout_reference_text(layout)[:160]),
+                        ))
                     if layout.continues_from_previous and (
                         layout.paragraph_role != previous_layout.paragraph_role
                         or layout.paragraph_level != previous_layout.paragraph_level

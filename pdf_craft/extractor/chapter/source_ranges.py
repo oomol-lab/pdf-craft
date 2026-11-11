@@ -16,6 +16,7 @@ from .analysis_types import (
 from .analysis_content import layout_reference_text, _visible_content_text, _materialize_reference_text
 from .text_locator import locate_text
 from .asset_editing import editable_asset_sources
+from .review_templates import review_text
 
 
 @dataclass(frozen=True)
@@ -62,15 +63,33 @@ class SourceRange(BaseModel):
     end: Literal['source_end'] | SourceBoundary
 
 
-def _boundary(text, value):
+def _boundary(text, value, *, layout_id=None, edge=None):
     if value == 'source_start':
         return 0
     if value == 'source_end':
         return len(text)
     matches = locate_text(text, value.left, '', value.right)
     if len(matches) != 1:
-        raise ValueError('[SOURCE_RANGE] Boundary must identify exactly one original position')
+        positions = [start for start, _ in matches]
+        if not positions:
+            positions = [start for quote in (value.left, value.right) if quote
+                         for start, _ in locate_text(text, quote, '', '')]
+        nearby = [(position, repr(text[max(0, position-100):position+100]))
+                  for position in sorted(set(positions))[:5]]
+        raise ValueError(review_text(
+            'page_repair_boundary_feedback', layout_id=layout_id, edge=edge,
+            matches=matches, left=repr(value.left), right=repr(value.right), nearby=nearby,
+        ))
     return matches[0][0]
+
+
+def _coverage_error(ident, text, total, intervals, start, end, kind):
+    """Describe codec accounting only; do not infer why a range was excluded."""
+    return ValueError(review_text(
+        'page_repair_coverage_feedback', layout_id=ident, total=total,
+        intervals=intervals, start=start, end=end, kind=kind,
+        excerpt=repr(text[start:min(end, start + 240)]) if start < end else '',
+    ))
 
 
 def slice_content(content, start, end):
@@ -117,7 +136,9 @@ def compile_source_ranges(source, response, layout_id, resolve_anchor):
         if isinstance(original.source, _AnalysedTextSource):
             text = layout_reference_text(original)
             bounds = proposal.source_range
-            start, end = (0, len(text)) if bounds is None else (_boundary(text, bounds.start), _boundary(text, bounds.end))
+            start, end = (0, len(text)) if bounds is None else (
+                _boundary(text, bounds.start, layout_id=ident, edge='start'),
+                _boundary(text, bounds.end, layout_id=ident, edge='end'))
             if not (0 <= start <= end <= len(text)) or start == end and text:
                 raise ValueError(f'[SOURCE_RANGE] Invalid range in {ident}')
             consumed[ident].append((start, end))
@@ -144,14 +165,17 @@ def compile_source_ranges(source, response, layout_id, resolve_anchor):
         raise ValueError('[IMMUTABLE_LAYOUTS] Return every source, including ignored content')
     for ident, intervals in consumed.items():
         original = originals[ident]
-        end = len(layout_reference_text(original)) if isinstance(original.source, _AnalysedTextSource) else 1
+        text = layout_reference_text(original) if isinstance(original.source, _AnalysedTextSource) else ''
+        end = len(text) if isinstance(original.source, _AnalysedTextSource) else 1
         cursor = 0
         for left, right in sorted(intervals):
             if left != cursor:
-                raise ValueError(f'[SOURCE_RANGE] Overlap or missing content in {ident} at {cursor}')
+                raise _coverage_error(ident, text, end, intervals, min(left, cursor), max(left, cursor),
+                                      'gap' if left > cursor else 'overlap')
             cursor = right
         if cursor != end or len(intervals) != len(set(intervals)):
-            raise ValueError(f'[SOURCE_RANGE] Incomplete or duplicate ownership in {ident}')
+            raise _coverage_error(ident, text, end, intervals, cursor, end,
+                                  'incomplete' if cursor != end else 'duplicate')
     references = []
     for ref in response.references:
         original = originals.get(ref.layout_id)

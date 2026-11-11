@@ -582,11 +582,11 @@ def _compile_repaired_page(
                     f"citation_id={proposed.citation_id!r}."
                 )
             elif citation.index != proposed.citation_index:
-                issues.append(
-                    f"[LAYOUT_CITATION] layouts[{layout_id}].citation_index "
-                    f"must equal citations[{citation.citation_id}].index "
-                    f"({citation.index!r})."
-                )
+                issues.append(review_text(
+                    'page_repair_citation_feedback', layout_id=layout_id,
+                    actual=proposed.citation_index, citation=citation,
+                    mark=repr(_mark_text(citation.mark)),
+                ))
         repaired_layouts[layout_id] = replace(
             project_definition_mark(original, None),
             annotations=LayoutAnnotations(
@@ -664,7 +664,12 @@ def _compile_repaired_page(
             printed = (_mark_text(citation.mark) or '').strip()
             selected = text[start:end]
             if not printed or selected != '^{' + printed + '}':
-                issues.append(f'[REF_EXPRESSION] {prefix}: extracted superscript must match the printed note marker')
+                issues.append(review_text(
+                    'page_repair_expression_feedback', reference=prefix,
+                    layout_id=reference.layout_id, selected=repr(selected),
+                    index=reference.citation_index, citation=citation,
+                    mark=repr(printed), expected=repr('^{' + printed + '}'),
+                ))
                 continue
         spans_by_layout.setdefault(reference.layout_id, []).append(
             ReferenceSpan(

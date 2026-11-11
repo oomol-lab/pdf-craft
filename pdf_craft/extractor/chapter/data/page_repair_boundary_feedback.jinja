@@ -1,0 +1,6 @@
+[SOURCE_RANGE] Boundary must identify exactly one original position: layouts[{{ layout_id }}].source_range.{{ edge }} has {{ matches|length }} matching positions.
+Submitted left={{ left }}
+Submitted right={{ right }}
+{% if matches %}Matching offsets: {{ matches[:5] }}. Expand the quotes to distinguish occurrences.{% else %}The submitted left/right do not identify an adjacent boundary. Finding both quotes separately is not enough.{% endif %}
+{% for position, excerpt in nearby %}Source context near offset {{ position }}: {{ excerpt }}
+{% endfor %}Copy consecutive text immediately around the intended cut from the original layout.text, including any intervening words; do not splice nonadjacent quotations. Correct the corresponding start/end together. Keep separate real notes and their definitions/references instead of deleting a note to avoid this error.
