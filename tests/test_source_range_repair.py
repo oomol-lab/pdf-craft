@@ -65,6 +65,53 @@ def compiled(source, data):
 
 
 class SourceRangeRepairTests(IsolatedAsyncioTestCase):
+    async def test_damaged_ocr_formula_allows_three_notes_without_splitting_real_math(self):
+        # Reduced service #373/page161: an unmatched opener precedes the next
+        # note, whose real percentage expression must remain an atomic node.
+        from pdf_craft.extractor.chapter.analysis_content import layout_reference_text
+        evidence = (r'23 A report \(20 million about its project. '
+                    r'24 Costs increased by \(25\%\) with foreign participation. '
+                    r'25 The assumptions about fuel.')
+        source = page(box('Body.'), box(evidence))
+        before = deepcopy(source)
+        data = proposal(source)
+        note = data['layouts'].pop()
+        cuts = [dict(left='about its project.', right=' 24 Costs'),
+                dict(left='with foreign participation.', right=' 25 The assumptions')]
+        for index, (start, end) in enumerate(zip(
+                ['source_start', *cuts], [*cuts, 'source_end']), 1):
+            data['layouts'].append(dict(
+                note, source_range=dict(start=start, end=end), ownership='citation',
+                citation_id=f'new-1-{index}', citation_index=index,
+                continues_from_previous=False, continues_to_next=False,
+                paragraph_role='body', paragraph_level=-1))
+        data['citations'] = [dict(citation_id=f'new-1-{i}', index=i, mark=str(i+22),
+                                  stream_order=i-1) for i in (1, 2, 3)]
+        candidate = compiled(source, data)
+        pieces = [x for x in candidate.layouts if x.ownership == 'citation']
+        self.assertEqual(len(pieces), 3)
+        self.assertEqual(''.join(layout_reference_text(x) for x in pieces),
+                         layout_reference_text(source.layouts[-1]))
+        self.assertTrue(all(x.bbox == source.layouts[-1].bbox for x in pieces))
+        self.assertEqual(len({x.source_id for x in pieces}), 3)
+        self.assertEqual(source, before)
+        restored = restore_streams([candidate])
+        self.assertEqual([x.mark for x in restored.citations], ['23', '24', '25'])
+        chapter = Chapter(None, -1, [cast(TextFlowItem, x) for x in restored.paragraphs],
+                          restored.citations)
+        self.assertEqual(decode(fromstring(tostring(encode(chapter)))), chapter)
+        formulas = [part for note_item in restored.citations
+                    for flow in note_item.flow_items if isinstance(flow, TextFlowItem)
+                    for fragment in flow.children if isinstance(fragment, SourceTextFragment)
+                    for part in fragment.content if isinstance(part, InlineExpression)]
+        self.assertEqual([part.content for part in formulas], [r'25\%'])
+        original = source.layouts[-1].source
+        assert isinstance(original, _AnalysedTextSource)
+        text = layout_reference_text(source.layouts[-1])
+        cut_inside_math = text.index('25') + 1
+        with self.assertRaisesRegex(ValueError, 'atomic expression'):
+            slice_content(original.content, 0, cut_inside_math)
+
     async def test_whitespace_cut_variants_preserve_complete_original_ranges(self):
         from pdf_craft.extractor.chapter.analysis_content import layout_reference_text
         source = page(box('Opening. \t\u3000 7 Note text.'))
