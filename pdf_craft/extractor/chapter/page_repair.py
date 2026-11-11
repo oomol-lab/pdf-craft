@@ -638,10 +638,10 @@ def _compile_repaired_page(
             )
             continue
         if layout.ownership != "paragraph":
-            issues.append(
-                f"[REF_LAYOUT_OWNERSHIP] {prefix} points to {reference.layout_id}, "
-                "which is not a paragraph layout."
-            )
+            issues.append(review_text(
+                'page_repair_reference_feedback', reference=prefix,
+                layout_id=reference.layout_id, ownership=layout.ownership,
+            ))
             continue
         citation = indexed_citations.get(reference.citation_index)
         if citation is None:
