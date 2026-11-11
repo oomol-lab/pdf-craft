@@ -56,6 +56,8 @@ class GuaranteedOptions(Generic[TData, TResult]):
     scope: RetryScope = RetryScope.ANALYSIS
     retry_policy: RetryPolicy | None = None
     extractor: Callable[[str], str] | None = None
+    # Prompt history only; the loop's diagnostic log still keeps every answer.
+    include_response: bool = True
 
 
 class _JsonProtocol(Generic[TData, TResult]):
@@ -72,20 +74,23 @@ class _JsonProtocol(Generic[TData, TResult]):
             if _looks_like_refusal(response) and attempt >= min(1, (options.retry_policy or current().retry).attempts(options.scope) - 1):
                 return ProtocolFailure(GuaranteedProtocolError("LLM returned natural language instead of JSON", attempts=attempt + 1, response=response, cause=error), state)
             self.last_error = GuaranteedExhaustedError("JSON syntax remained invalid after retries", attempts=attempt + 1, response=response, cause=error)
-            return ProtocolRetry("Return complete valid JSON only; do not explain or use markdown fences.", state)
+            return ProtocolRetry("Return complete valid JSON only; do not explain or use markdown fences.", state,
+                                 include_response=options.include_response)
         try:
             validated = options.schema.model_validate(data)
         except ValidationError as error:
             self.last_error = GuaranteedSchemaError("JSON schema validation failed after retries", attempts=attempt + 1, response=response, cause=error)
-            return ProtocolRetry(_schema_feedback(error), state)
+            return ProtocolRetry(_schema_feedback(error), state, include_response=options.include_response)
         try:
             return ProtocolSuccess(options.parse(cast(TData, validated), attempt, max_attempts), state)
         except Exception as error:
             self.last_error = GuaranteedBusinessError("JSON business validation failed after retries", attempts=attempt + 1, response=response, cause=error)
-            return ProtocolRetry(f"Fix the business validation error and return complete JSON:\n{error}", state)
+            return ProtocolRetry(f"Fix the business validation error and return complete JSON:\n{error}", state,
+                                 include_response=options.include_response)
 
     async def empty(self, state: None, attempt: int, max_attempts: int):
-        return ProtocolRetry("Return a non-empty complete JSON response.", state)
+        return ProtocolRetry("Return a non-empty complete JSON response.", state,
+                             include_response=self.options.include_response)
 
     async def exhausted(self, state: None, attempts: int, response: str | None) -> TResult:
         if self.last_error is not None:
