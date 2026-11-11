@@ -12,7 +12,7 @@ from zipfile import ZipFile
 from pdf_craft import AllFallbackError, AsyncPDFCraft, ErrorCallbackError, FailureCategory, PageGeometry, XMLTranslator
 from pdf_craft._failure_sources import segment_locations
 from pdf_craft._policy import recover
-from pdf_craft.common import save_xml
+from pdf_craft.common import read_xml, save_xml
 from pdf_craft.extractor.chapter.chapter import Chapter, encode
 from pdf_craft.transformer.furniture import FurnitureSection
 from pdf_craft.transformer.furniture_xml import FurnitureXMLTransformer
@@ -188,7 +188,7 @@ class FurnitureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(seen[0].targets[0].page)
 
     async def test_invalid_folio_results_obey_policy_and_preserve_template_impact(self):
-        for invalid in ("Lost marker", "", "  ", "__PDF_CRAFT_FOLIO__",
+        for invalid in ("Lost marker", "", "  ",
                         "Page __PDF_CRAFT_FOLIO____PDF_CRAFT_FOLIO__"):
             for allow in (True, False):
                 with self.subTest(invalid=invalid, allow=allow), tempfile.TemporaryDirectory() as folder:
@@ -218,6 +218,23 @@ class FurnitureRecoveryTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(seen[0].targets[0].page_indexes, (7, 8))
                     self.assertEqual([part.page_indexes for part in seen[0].affected], [(7,), (8,)])
                     self.assertTrue(all(part.page is not None and part.bbox is not None for part in seen[0].affected))
+
+    async def test_folio_marker_without_decoration_is_adopted(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = furniture_source(root / "source", template=True)
+            adapter = Mock()
+            adapter.transform_position = AsyncMock(return_value="__PDF_CRAFT_FOLIO__")
+            result = await FurnitureExtractionTransformer(adapter).transform(
+                source, root / "output.pcex", error_policy=False)
+            with result._materialize() as paths:
+                position = read_xml(paths.furnitures).find('patterns/pattern/position')
+                assert position is not None
+                self.assertIsNone(position.get('folio_prefix'))
+                self.assertEqual(position.get('folio_style'), 'D')
+                entry = read_xml(paths.translation).find('furnitures/position')
+                assert entry is not None
+                self.assertEqual(entry.get('state'), 'translated')
 
     async def test_strict_folio_failure_and_legal_none_or_prior_recovery(self):
         for result in ("Lost marker", None):
@@ -261,8 +278,8 @@ class FurnitureRecoveryTests(unittest.IsolatedAsyncioTestCase):
                     source, root / "output.pcex", error_policy=reject,
                 )
 
-    async def test_invalid_section_counts_and_empty_text_obey_policy(self):
-        for invalid in ([], ["Only one"], ["", "Valid"]):
+    async def test_invalid_section_counts_and_types_obey_policy(self):
+        for invalid in ([], ["Only one"], [42, "Valid"]):
             for allow in (False, True):
                 with self.subTest(invalid=invalid, allow=allow), tempfile.TemporaryDirectory() as folder:
                     root = Path(folder)
@@ -283,7 +300,7 @@ class FurnitureRecoveryTests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(all(t.page_indexes == (7,) and t.bbox is not None for t in seen[0].targets))
 
     async def test_xml_furniture_validation_failures_are_decided_once(self):
-        for invalid in ("count", "identity", "empty", "position"):
+        for invalid in ("count", "identity", "position"):
             for allow in (False, True):
                 with self.subTest(invalid=invalid, allow=allow), tempfile.TemporaryDirectory() as folder:
                     root = Path(folder)
@@ -294,8 +311,6 @@ class FurnitureRecoveryTests(unittest.IsolatedAsyncioTestCase):
                             task.element.remove(task.element[0])
                         elif invalid == "identity":
                             task.element[0].set("id", "wrong")
-                        elif invalid == "empty":
-                            task.element[0].text = None
                         else:
                             task.element.text = None
                         return task.element, task.payload
@@ -309,7 +324,7 @@ class FurnitureRecoveryTests(unittest.IsolatedAsyncioTestCase):
                     if allow:
                         await pending
                     else:
-                        with self.assertRaisesRegex(ValueError, "empty" if invalid in {"empty", "position"} else "identities"):
+                        with self.assertRaisesRegex(ValueError, "folio" if invalid == "position" else "identities"):
                             await pending
                     self.assertEqual(len(seen), 1)
-                    self.assertEqual(len(seen[0].targets), 1 if invalid in {"empty", "position"} else 2)
+                    self.assertEqual(len(seen[0].targets), 1 if invalid == "position" else 2)

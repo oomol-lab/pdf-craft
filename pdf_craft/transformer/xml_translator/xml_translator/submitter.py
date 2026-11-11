@@ -80,7 +80,10 @@ class _Submitter:
     def _submit_by_block(self, node: _Node) -> Element | None:
         parent = self._parents.get(id(node.raw_element), None)
         if parent is None:
-            return node.raw_element
+            # The mapped block is the current document root. Apply its fields
+            # in place too; returning the source silently discards accepted
+            # empty (and nonempty) leaf-root translations.
+            return self._submit_by_text(node)
 
         preserved_elements: list[Element] = []
         if self._action == SubmitKind.REPLACE:

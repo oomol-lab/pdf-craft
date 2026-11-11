@@ -164,9 +164,7 @@ async def _translate_position_async(
             return "preserved"
         if (
             not isinstance(result, str)
-            or not result.strip()
             or result.count(_FOLIO_MARKER) != 1
-            or not result.replace(_FOLIO_MARKER, "").strip()
         ):
             await recover(ValueError("invalid translated folio decoration"),
                           FailureCategory.FILL, 'furniture', 'omit_translation',
@@ -317,7 +315,7 @@ def _integer_attribute(element: Element, name: str) -> int | None:
 
 
 def _usable_target(value: object) -> bool:
-    return isinstance(value, str) and bool(value.strip())
+    return isinstance(value, str)
 
 
 def _text_by_reference(chapters_path: Path) -> dict[tuple[int, int], str]:

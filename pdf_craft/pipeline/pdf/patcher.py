@@ -594,8 +594,6 @@ class PDFPatcher:
             page_image.close()
 
     def validate(self, replacement: PDFReplacement, pages_count: int | None = None) -> None:
-        if not replacement.text.strip():
-            raise ValueError("replacement text must not be empty")
         regions = replacement.source_regions()
         if replacement.regions and len(regions) == 1:
             self._validate_single_region_matches_replacement(replacement, regions[0])

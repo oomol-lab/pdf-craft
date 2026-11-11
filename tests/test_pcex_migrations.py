@@ -134,6 +134,65 @@ class PCEXLayerMigrationTests(IsolatedAsyncioTestCase):
             self.assertIn('图注 之前', (root/'bilingual.md').read_text())
             self.assertEqual((root/'v5.pcex').read_bytes(), original)
 
+    async def test_v6_keeps_source_and_layer_provenance_without_reinterpreting_fields(self):
+        from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem
+        from pdf_craft.transformer.package import append_translation_layer_to_workspace
+        from pdf_craft.transformer.translation_coverage import (
+            NarrativeCoverage, FurnitureSectionCoverage, write_narrative_coverage, write_furniture_coverage,
+        )
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = make_extraction(root / 'source')
+            fragment = SourceTextFragment(1, 7, (0, 0, 90, 20), ['Body'], fragment_id=42,
+                                          source_start=2, source_end=6, source_text='__Body__')
+            save_xml(encode(Chapter(None, -1, [TextFlowItem('body', 0, [fragment])])),
+                     root / 'source/chapters/chapter_head.xml')
+            furniture = ET.fromstring('<furnitures><patterns/><pages><page index="1">'
+                                      '<section id="9" det="0,30,90,50">Cell</section>'
+                                      '</page></pages></furnitures>')
+            save_xml(furniture, root / 'source/furnitures.xml')
+            write_narrative_coverage(root / 'source/translation.xml', [NarrativeCoverage('head', 1, 42, 'translated')])
+            write_furniture_coverage(root / 'source/translation.xml', [], [FurnitureSectionCoverage(1, '0,30,90,50', 'translated', '9')])
+            layered = append_translation_layer_to_workspace(source, source, root / 'layered',
+                translation_id='existing', target_language='en', include_furniture=True)
+            await layered._export_async(root / 'current.pcex')
+            preserved = {}
+            with ZipFile(root / 'current.pcex') as before, ZipFile(root / 'v6.pcex', 'w') as after:
+                for item in before.infolist():
+                    data = before.read(item.filename)
+                    if item.filename == 'manifest.json':
+                        manifest = json.loads(data)
+                        manifest['format_version'] = 6
+                        data = json.dumps(manifest).encode()
+                    elif not item.is_dir():
+                        preserved[item.filename] = data
+                    after.writestr(item, data)
+            original = (root / 'v6.pcex').read_bytes()
+            opened = await AsyncPDFCraft().open_extraction(root / 'v6.pcex')
+            with opened._materialize() as paths:
+                self.assertEqual(json.loads(paths.manifest.read_text())['format_version'], FORMAT_VERSION)
+                for name, data in preserved.items():
+                    self.assertEqual((paths.root / name).read_bytes(), data)
+                for name in ['chapters/chapter_head.xml', 'translations/existing/chapters/chapter_head.xml']:
+                    node = required(read_xml(paths.root / name), './flow/text/fragment')
+                    self.assertEqual((node.get('fragment_id'), node.get('source_start'), node.get('source_end')),
+                                     ('42', '2', '6'))
+                snapshot = {p.relative_to(paths.root): p.read_bytes() for p in paths.root.rglob('*') if p.is_file()}
+                migrate_workspace(paths.root)
+                self.assertEqual(snapshot, {p.relative_to(paths.root): p.read_bytes() for p in paths.root.rglob('*') if p.is_file()})
+            self.assertEqual((root / 'v6.pcex').read_bytes(), original)
+            # v7's empty-text extension must not legalize malformed v6 input.
+            with ZipFile(root / 'v6.pcex') as before, ZipFile(root / 'invalid-v6.pcex', 'w') as after:
+                for item in before.infolist():
+                    data = before.read(item.filename)
+                    if item.filename == 'furnitures.xml':
+                        value = ET.fromstring(data)
+                        required(value, './pages/page/section').text = None
+                        data = ET.tostring(value)
+                    after.writestr(item, data)
+            with self.assertRaisesRegex(ValueError, 'missing content'):
+                await AsyncPDFCraft().open_extraction(root / 'invalid-v6.pcex')
+
     async def test_current_opaque_content_is_not_translated_or_rendered(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)
@@ -166,7 +225,7 @@ class PCEXLayerMigrationTests(IsolatedAsyncioTestCase):
             opened = await craft.open_extraction(root / 'legacy.pcex')
             with opened._materialize() as paths:
                 manifest = json.loads(paths.manifest.read_text(encoding='utf-8'))
-                self.assertEqual(manifest['format_version'], 6)
+                self.assertEqual(manifest['format_version'], FORMAT_VERSION)
                 for chapters, expected in ((paths.chapters, 'Figure before '),
                                            (paths.translations / 'caption-layer/chapters', '图注 之前 ')):
                     image = required(read_xml(chapters / 'chapter_head.xml'), './/asset')

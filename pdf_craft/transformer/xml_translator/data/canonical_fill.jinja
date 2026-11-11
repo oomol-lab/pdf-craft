@@ -35,16 +35,3 @@ ALSO CORRECT: <p id="1"><expression id="2">$u=</expression><expression id="3">v+
 WRONG: <p id="1"><expression id="2">$u=$</expression><expression id="3">$v+w$</expression></p>
 The last version inserts two dollar signs. A source container is not a separate
 mathematical boundary: never add delimiters to complete each container's formula.
-{% if require_nonempty_units %}
-Every nonempty source section must receive translated content. Distribute the
-existing translation across these fixed output containers without adding or
-copying characters. Splitting a word across containers does not add punctuation.
-
-Nonempty repair example, with translation "bright sunlight":
-WRONG: <xml><section id="1">bright </section><section id="2">sunlight</section><section id="3"/></xml>
-CORRECT: <xml><section id="1">bright </section><section id="2">sun</section><section id="3">light</section></xml>
-MOVE "light" out of section 2 into section 3. Do not copy "sunlight" into section
-3; that duplicates text. Do not append a hyphen to "sun"; that adds a character.
-A container need not contain a complete word. Any literal string, including
-unfamiliar character sequences, may be split without inserting a separator.
-{% endif %}

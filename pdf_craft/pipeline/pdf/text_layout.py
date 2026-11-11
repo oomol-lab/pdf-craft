@@ -547,11 +547,12 @@ class QTextParagraphFiller:
         # intentional text-level substitution.
         text = replacement.text
         font_text = self._materialize_formula_fallbacks(replacement)
-        if not text:
-            raise ValueError("replacement text must not be empty")
         style = self.options.style_for(replacement.layout_ref, replacement.layout_level)
-        style = self._resolve_font(style, font_text)
         self._validate_style(style)
+        if not text.strip():
+            # An adopted empty translation still erases every source region.
+            return FittedParagraph(text, style.min_font_size, ())
+        style = self._resolve_font(style, font_text)
 
         effective_minimum = max(style.min_font_size, minimum_font_size or style.min_font_size)
         configured_maximum = style.max_font_size

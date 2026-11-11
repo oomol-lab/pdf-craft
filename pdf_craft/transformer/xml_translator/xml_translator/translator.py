@@ -539,7 +539,6 @@ class XMLTranslator:
                  translation_protocol.materialize_candidate(mappings, canonical, response, primary))
                 if translation_protocol is not None else None),
             source_view=source_view,
-            require_nonempty_units=bool(translation_protocol and translation_protocol.require_nonempty_units),
             allow_direct_fill=(translation_protocol is not None
                                and translation_protocol.is_text_unit(translation_protocol.unit(primary[0]))),
         )
@@ -563,7 +562,6 @@ class XMLTranslator:
         source_context: str = '',
         candidate_projector: CandidateProjector | None = None,
         source_view: SourceView | None = None,
-        require_nonempty_units: bool = False,
         allow_direct_fill: bool = False,
     ) -> list[InlineSegmentMapping | None]:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
@@ -614,7 +612,6 @@ class XMLTranslator:
                 ),
                 candidate_projector=candidate_projector,
                 allow_direct_fill=allow_direct_fill,
-                require_nonempty_units=require_nonempty_units,
             )
         except Exception as error:
             await recover(error, FailureCategory.FILL, 'xml_fill', 'omit_translation',
@@ -662,7 +659,6 @@ class XMLTranslator:
         canonical_text_validator: Callable[[Element, str], str | None] | None = None,
         failure_locations: tuple = (),
         candidate_projector: CandidateProjector | None = None,
-        require_nonempty_units: bool = False,
         allow_direct_fill: bool = False,
     ) -> list[InlineSegmentMapping | None] | None:
         from ...fill_text import plain_translation
@@ -712,8 +708,8 @@ class XMLTranslator:
         user_message = (await self._fill_runtime.template('fill_input')).render(
             source_xml=encode_friendly(source_xml), xml_template=encode_friendly(skeleton),
             translated_text=encode_friendly(translation))
-        canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render(
-            require_nonempty_units=require_nonempty_units) if canonical_text_validator is not None else '')
+        canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render()
+                                  if canonical_text_validator is not None else '')
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render() + "\n\n" + canonical_instructions),

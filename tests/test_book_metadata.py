@@ -14,6 +14,7 @@ from pdf_craft.llm import LLM
 from pdf_craft.llm.runtime import LLMRuntime
 
 from pdf_craft.common import save_xml
+from pdf_craft.document.package import FORMAT_VERSION
 from pdf_craft.document import DocumentAuthor, DocumentMetadata, PDFCraftExtraction
 from pdf_craft.document.package import write_manifest, write_pages
 from pdf_craft.extractor.metadata import (
@@ -411,7 +412,7 @@ class TestBookMetadata(unittest.IsolatedAsyncioTestCase):
 
             with ZipFile(archive_path) as archive:
                 manifest = json.loads(archive.read("manifest.json"))
-            self.assertEqual(manifest["format_version"], 6)
+            self.assertEqual(manifest["format_version"], FORMAT_VERSION)
             self.assertEqual(manifest["document"]["authors"][0]["original_name"], "Original Name")
 
             manifest["format_version"] = 1

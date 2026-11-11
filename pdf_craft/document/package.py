@@ -411,7 +411,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             toc_pages[item.id] = item.page_index
             stack.extend(item.children)
     if paths.furnitures.exists():
-        _validate_furnitures(paths.furnitures, page_sizes, toc_ids)
+        _validate_furnitures(paths.furnitures, page_sizes, toc_ids, allow_empty=manifest['format_version'] >= 7)
     if paths.cover.exists() and not paths.cover.is_file():
         raise ValueError("PDFCraftExtraction cover.png is not a file")
     _validate_workspace_members(paths)
@@ -539,7 +539,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict) or set(payload) - _MANIFEST_FIELDS:
         raise ValueError("manifest.json contains unsupported fields")
     format_version = payload.get("format_version")
-    if format_version not in {1, 2, 3, 4, 5, FORMAT_VERSION}:
+    if format_version not in {1, 2, 3, 4, 5, 6, FORMAT_VERSION}:
         raise ValueError("unsupported PDFCraftExtraction format version")
     producer = payload.get("producer")
     if not isinstance(producer, dict) or set(producer) != {"name", "version"} or not all(
@@ -672,15 +672,16 @@ def _validate_furnitures(
     path: Path,
     page_sizes: dict[int, tuple[int, int]],
     toc_ids: set[int],
+    *, allow_empty: bool = False,
 ) -> None:
     from .validation import FurnitureValidationError
     try:
-        _check_furnitures(path, page_sizes, toc_ids)
+        _check_furnitures(path, page_sizes, toc_ids, allow_empty=allow_empty)
     except (ValueError, ElementTree.ParseError) as error:
         raise FurnitureValidationError(str(error)) from error
 
 
-def _check_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]], toc_ids: set[int]) -> None:
+def _check_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]], toc_ids: set[int], *, allow_empty: bool = False) -> None:
     root = ElementTree.parse(path).getroot()
     if root.tag != "furnitures":
         raise ValueError("furnitures.xml root must be <furnitures>")
@@ -721,7 +722,7 @@ def _check_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]], toc_id
                     name in position.attrib
                     for name in {"folio_prefix", "folio_suffix"}
                 ))
-                or (not has_folio and not (position.text or "").strip())
+                or (not has_folio and not allow_empty and not (position.text or "").strip())
                 or (has_folio and (position.text or "").strip())
                 or not _valid_toc_id(toc_id, toc_ids)
                 or position_identity in positions
@@ -755,7 +756,7 @@ def _check_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]], toc_id
                 toc_id = section.get("toc_id")
                 if not _valid_toc_id(toc_id, toc_ids):
                     raise ValueError("furnitures.xml has invalid section toc_id")
-                if not len(section) and not (section.text or "").strip():
+                if not allow_empty and not len(section) and not (section.text or "").strip():
                     raise ValueError("furnitures.xml fragment is missing content")
                 for association in section:
                     if association.tag != "association" or set(association.attrib) != {"kind", "pattern_id", "position_id"} or association.get("kind") not in {"universal", "same_side"} or (association.get("pattern_id", ""), association.get("position_id", "")) not in positions:
@@ -926,7 +927,7 @@ def _validate_translation_layer(
     if furniture.exists():
         if not paths.furnitures.is_file():
             raise ValueError(f"translation {translation.id} furniture has no source")
-        _validate_furnitures(furniture, page_sizes, toc_ids)
+        _validate_furnitures(furniture, page_sizes, toc_ids, allow_empty=format_version >= 7)
         if _xml_structure(_require_xml_root(furniture, "furnitures")) != _xml_structure(
             _require_xml_root(paths.furnitures, "furnitures")
         ):
