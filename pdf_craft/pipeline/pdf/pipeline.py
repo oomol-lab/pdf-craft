@@ -159,7 +159,7 @@ class PDFTranslationPipeline:
                     region = _region_for_box(page_index, _parse_det(det), pages, render_dpi, 0, error_policy)
                     if region is None:
                         continue
-                    if state == "translated" and content is not None and content.strip():
+                    if state == "translated" and content is not None:
                         translated_furniture.append((content.strip(), (region,), (page_index, section_identity(section))))
                     else:
                         obstacles.append(region)
@@ -174,8 +174,6 @@ class PDFTranslationPipeline:
                 iter_continuous_content(layout)
             )
             patch_text = prefixes.get(id(layout), "") + patch_text.strip()
-            if not patch_text:
-                continue
             first = regions[0]
             replacements.append(PDFReplacement(
                 first.page_index, first.bbox, patch_text, first.page_pixel_size, first.dpi,
@@ -272,9 +270,8 @@ def _translated_association_content(
             positions.get((association.get("pattern_id", ""), association.get("position_id", ""))),
             page_index,
         ),)
-        if content is not None and content.strip()
+        if content is not None
     }
-    contents.discard("")
     return contents.pop() if len(contents) == 1 else None
 
 

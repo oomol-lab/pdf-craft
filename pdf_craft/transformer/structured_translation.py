@@ -31,14 +31,13 @@ class StructuredTranslation:
     def __init__(self, *, owner: Callable[[InlineSegment], Element] | None = None,
                  is_text_unit: Callable[[Element], bool] = lambda _owner: True,
                  formulas: FormulaProjection | None = None, identity: Callable[[Element], str] | None = None, context: Callable[[list[InlineSegment]], str] | None = None,
-                 record_units: bool = False, require_nonempty_units: bool = False):
+                 record_units: bool = False):
         self.owner = owner
         self.identity = identity
         self.is_text_unit = is_text_unit
         self.formulas = formulas
         self.context = context
         self._record_units = record_units
-        self.require_nonempty_units = require_nonempty_units
         self.validated_text_units: set[str] = set()
         self.projected_math_units: set[str] = set()
 
@@ -88,30 +87,6 @@ class StructuredTranslation:
         filled = [slots_by_id[segment.id] for segment in segments if segment.id in slots_by_id]
         error = text_difference(canonical, ''.join(''.join(slot.itertext()) for slot in filled), filled)
         if error is None:
-            if self.require_nonempty_units:
-                by_owner = {}
-                for segment in segments:
-                    owner = self.unit(segment)
-                    entry = by_owner.setdefault(id(owner), [owner, [], []])
-                    entry[1].append(segment)
-                    entry[2].append(next(node for node in response if element_id(node) == segment.id))
-                for owner, parts, slots in by_owner.values():
-                    # Only judge complete source units in this group; a partial
-                    # long owner may legitimately be empty in one of its rounds.
-                    source = ''.join(part.text for segment in parts for part in segment)
-                    from ..common.whitespace import normalize_whitespace
-                    if (normalize_whitespace(source, trim=True)
-                            and normalize_whitespace(source, trim=True) == normalize_whitespace(''.join(owner.itertext()), trim=True)
-                            and not normalize_whitespace(''.join(''.join(slot.itertext()) for slot in slots), trim=True)):
-                        empty_index = list(response).index(slots[0])
-                        neighbors = [node for node in list(response)[max(0, empty_index-1):empty_index+2]
-                                     if node not in slots and normalize_whitespace(''.join(node.itertext()), trim=True)]
-                        nearby = '; '.join(f'block id={node.get("id")}: {"".join(node.itertext())[:260]!r}' for node in neighbors)
-                        return (f'Nonempty source <{owner.tag}> must receive its own translated content. '
-                                f'Neighboring current allocations: {nearby}. '
-
-                                f'Empty XML block ids={[slot.get("id") for slot in slots]}, source text={source[:260]!r}. '
-                                'These sections can be physical LINE FRAGMENTS, not independent sentences. Split existing translated sentences or phrases across adjacent sections so every required section receives text. MOVE text out of neighboring full sections; do not COPY or duplicate it. Never add words or retranslate.')
             original_response[:] = list(response)
             return None
         return error

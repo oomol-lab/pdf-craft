@@ -17,7 +17,7 @@ from .progress import task_word_count
 from .structured_translation import StructuredTranslation
 from .furniture import FurniturePosition, FurnitureSection
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
-from .._failure_sources import furniture_section_locations, task_locations
+from .._failure_sources import task_locations
 from .._policy import recover
 from ..policies import FailureCategory
 
@@ -58,14 +58,10 @@ class FurnitureXMLTransformer:
                 item_id=f"pattern-{position.pattern_id}-position-{position.position_id}",
                 word_count=task_word_count(element),
             )
-        translated, _ = await StructuredTranslation(require_nonempty_units=True).translate(self._translator, task)
+        translated, _ = await StructuredTranslation().translate(self._translator, task)
         if task.outcomes and not all(task.outcomes.values()):
             return None
-        if position.content.strip() and not (translated.text or "").strip():
-            await recover(ValueError("translated furniture text is empty"),
-                          FailureCategory.FILL, 'furniture', 'omit_translation', targets=task_locations(task))
-            return None
-        return translated.text
+        return translated.text or ""
 
     @policy_operation
     @adopted_result(lambda values: any(value is not None for value in values))
@@ -88,7 +84,7 @@ class FurnitureXMLTransformer:
                 item_id=f"furniture-page-{page_index}",
                 word_count=task_word_count(element),
             )
-        translated, _ = await StructuredTranslation(require_nonempty_units=True).translate(self._translator, task)
+        translated, _ = await StructuredTranslation().translate(self._translator, task)
         if task.outcomes and not all(task.outcomes.values()):
             return (None,) * len(sections)
         children = translated.findall("section")
@@ -99,13 +95,4 @@ class FurnitureXMLTransformer:
                           FailureCategory.FILL, 'furniture_sections', 'omit_translation',
                           targets=task_locations(task))
             return (None,) * len(sections)
-        values: list[str | None] = []
-        for child, section in zip(children, sections, strict=True):
-            if section.content.strip() and not (child.text or "").strip():
-                await recover(ValueError("translated furniture section text is empty"),
-                              FailureCategory.FILL, 'furniture_sections', 'omit_translation',
-                              targets=furniture_section_locations((section,)))
-                values.append(None)
-            else:
-                values.append(child.text)
-        return values
+        return [child.text or "" for child in children]

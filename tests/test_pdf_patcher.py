@@ -58,6 +58,54 @@ class TestPDFPatcher(unittest.TestCase):
     def patcher(self, *args, **kwargs) -> PDFPatcher:
         return PDFPatcher(*args, visual_base_compiler=self._compiler, **kwargs)
 
+    def test_empty_replacement_erases_source_without_text_or_page_fallback(self):
+        from pdf_craft.pipeline.pdf.feed import ReplacementFeed, write_record
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source.pdf'
+            document = canvas.Canvas(str(source), pagesize=(240, 100))
+            document.setFont('Helvetica', 12)
+            for x, text in [(10, 'LEFT'), (85, '0'), (125, '1'), (175, 'RIGHT')]:
+                document.drawString(x, 40, text)
+            document.showPage()
+            document.save()
+            replacements = [PDFReplacement(1, box, '', (240, 100), dpi=72, layout_ref='furniture')
+                            for box in [(80, 40, 105, 70), (120, 40, 145, 70)]]
+            for streamed in (False, True):
+                with self.subTest(streamed=streamed):
+                    patcher = PDFPatcher(dpi=72)
+                    target = root / f'empty-{streamed}.pdf'
+                    values: Any = replacements
+                    if streamed:
+                        feed_root = root / 'feed'
+                        feed_root.mkdir()
+                        for index, value in enumerate(replacements):
+                            write_record(feed_root / str(index), value)
+                        values = ReplacementFeed(feed_root, 2, spans=((0, 1, 1), (1, 1, 1)))
+                    with patch.object(patcher._filler, '_resolve_font', side_effect=AssertionError('empty text has no glyphs')):
+                        asyncio.run(patcher.patch(source, target, values, error_policy=False))
+                    text = pypdf.PdfReader(str(target)).pages[0].extract_text()
+                    self.assertIn('LEFT', text)
+                    self.assertIn('RIGHT', text)
+                    self.assertNotIn('0', text)
+                    self.assertNotIn('1', text)
+                    self.assertEqual(patcher.failed_page_indexes, ())
+                    before, after = DefaultPDFHandler().open(source), DefaultPDFHandler().open(target)
+                    try:
+                        original, result = before.render_page(1, 72), after.render_page(1, 72)
+                        try:
+                            self.assertIsNone(ImageChops.difference(original.crop((0, 0, 65, 100)),
+                                                                  result.crop((0, 0, 65, 100))).getbbox())
+                            for value in replacements:
+                                self.assertLess(min(original.crop(value.bbox).convert('L').tobytes()), 100)
+                                self.assertGreaterEqual(min(result.crop(value.bbox).convert('L').tobytes()), 250)
+                        finally:
+                            original.close()
+                            result.close()
+                    finally:
+                        before.close()
+                        after.close()
+
     def test_shared_source_notes_draw_once_and_export_distinct_real_lines(self):
         from pdf_craft.document.access import PageGeometry
         from pdf_craft.document.paragraph import ParagraphContent, SourceRegion

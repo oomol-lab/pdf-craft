@@ -39,7 +39,8 @@ class FurnitureTransformer(Protocol):
     """Translate furniture at its natural template and page scopes.
 
     ``None`` means the individual item was not translated and must be
-    preserved.  ``transform_sections`` receives all ordinary fragments of one
+    preserved. An empty string is an adopted empty translation, not failure.
+    ``transform_sections`` receives all ordinary fragments of one
     page, so an implementation can use page-local context without receiving
     NarrativeFlow text.
     """

@@ -253,7 +253,7 @@ Variable folios are represented structurally rather than as the text of a reusab
 
 ```json
 {
-  "format_version": 6,
+  "format_version": 7,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -725,7 +725,7 @@ It cannot prove that the input PDF and extraction came from the same source file
 
 ## Version compatibility
 
-The current format version is `6`. Input migrations normalize v1–v5 archives, including source chapters and existing translation layers, before any business operation. Exports always use v6; original archives are never rewritten.
+The current format version is `7`. Input migrations normalize v1–v6 archives, including source chapters and existing translation layers, before any business operation. Exports always use v7; original archives are never rewritten.
 
 Applications that only need downstream rendering or translation should open the archive through a Craft façade so version and integrity checks run. A ZIP that can merely be extracted is not necessarily a usable PDFCraftExtraction.
 
@@ -773,3 +773,8 @@ excluded content preserve the original region. Shared regions involving
 multi-region paragraphs or formulas currently preserve the original too; they
 are never independently drawn over each other. Unfilled previews contain no
 rendered lines and do not assert successful PDF replacement.
+
+
+### Adopted empty furniture (v7)
+
+Ordinary furniture positions and sections without associations may have empty text while retaining their identities and geometry. A `translated` coverage entry means this empty value was adopted; PDF replacement erases its source regions without adding text. `preserved` or absent coverage still retains source content. v6→v7 preserves all source and existing translation-layer values, identities and coverage, updating only the format declaration after validating the historical input.

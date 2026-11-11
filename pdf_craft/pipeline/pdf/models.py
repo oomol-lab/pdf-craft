@@ -32,6 +32,7 @@ class PDFReplacementRegion:
 class PDFReplacement:
     """Translated paragraph and the ordered source rectangles it replaces.
 
+    Empty text is an intentional erase-only replacement, not a failure.
     The top-level geometry remains the first region for compatibility with
     callers that construct a one-rectangle replacement directly.  New callers
     should populate ``regions`` for every source rectangle in the paragraph.

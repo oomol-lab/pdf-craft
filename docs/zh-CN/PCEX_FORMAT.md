@@ -238,7 +238,7 @@ fragment 的 `(page_index, fragment_id)`、自然段首 fragment identity、chap
 
 ```json
 {
-  "format_version": 6,
+  "format_version": 7,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -709,7 +709,7 @@ craft.patch_pdf_with_extraction(
 
 ## 版本兼容
 
-当前格式版本为 `6`。旧 v1–v5 在输入物化副本上校验并迁移，源章节与已有译文层同步转换；之后翻译、渲染和导出只处理当前格式，原始归档不修改。未知版本拒绝。
+当前格式版本为 `7`。旧 v1–v6 在输入物化副本上校验并迁移，源章节与已有译文层同步转换；之后翻译、渲染和导出只处理当前格式，原始归档不修改。未知版本拒绝。
 
 应用程序若只需要后续渲染或翻译，也应通过 Craft 门面打开归档并执行版本和完整性检查，不要仅凭 ZIP 可解压就认定包可用。
 
@@ -717,7 +717,7 @@ craft.patch_pdf_with_extraction(
 
 图片 title/caption 是展示和独立翻译字段；image.content 是不展示、不翻译的源数据，缺少 title/caption 时也不回退。新提取直接写 caption。表格与公式 content 语义不变。
 
-旧 v1–v5 归档在输入边界迁移到 v5：没有显式 title/caption 的旧图片 content 移到 caption，源章节与对应译文层同步移动；已有显式字段时不合并 content。迁移保留身份、coverage、公式与混合内容，不修改原始文件，导出始终写 v5。历史判断只存在于 migration；业务不探测版本或猜测字段，也不分类图片像素。
+旧归档在输入边界按版本依次迁移，其中 v4→v5：没有显式 title/caption 的旧图片 content 移到 caption，源章节与对应译文层同步移动；已有显式字段时不合并 content。迁移保留身份、coverage、公式与混合内容，不修改原始文件，导出始终写当前格式。历史判断只存在于 migration；业务不探测版本或猜测字段，也不分类图片像素。
 
 ### 来源切片与逻辑身份（v6）
 
@@ -738,3 +738,8 @@ PDF 回填集中协调共享物理来源的成员，只擦除一次，并分别�
 来源归属不完整、部分失败或被排除的内容保留原区域。目前共享框涉及多区域自然段或
 公式时同样保留原图，不独立覆盖同框的其他内容；未回填的预览没有排版行，不能视为
 PDF 回填成功。
+
+
+### 已采用的空 furniture（v7）
+
+普通 position 和无 association 的 section 允许文本为空，身份和几何仍保留。coverage 为 `translated` 时，空值表示已采用的空译文，PDF 写回仅擦除来源区域，不增加文字；`preserved` 或缺失 coverage 仍表示保留原文。v6→v7 在历史校验后只升级格式声明，源和全部既有译文层的值、身份及 coverage 不变。

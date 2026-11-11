@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
+from pdf_craft.document.package import FORMAT_VERSION
 from pdf_craft.document import ExtractionPaths, PDFCraftExtraction
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.common import save_xml
@@ -397,7 +398,7 @@ class TestSmokeMatrix(unittest.TestCase):
             with zipfile.ZipFile(root / "translated.pcex") as archive:
                 manifest = json.loads(archive.read("manifest.json"))
                 index = json.loads(archive.read("translations/index.json"))
-            self.assertEqual(manifest["format_version"], 6)
+            self.assertEqual(manifest["format_version"], FORMAT_VERSION)
             self.assertEqual(len(index["translations"]), 1)
             translated = craft.open_extraction(root / "translated.pcex")
             translations = craft.list_translations(translated)

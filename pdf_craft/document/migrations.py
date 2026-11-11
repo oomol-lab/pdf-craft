@@ -12,11 +12,11 @@ from xml.etree import ElementTree
 
 from ..common import save_xml
 
-CURRENT_VERSION = 6
+CURRENT_VERSION = 7
 
 
 def migrate_workspace(root: Path) -> None:
-    """Validate historical data, then upgrade its private materialization to v5."""
+    """Validate historical data, then upgrade its private materialization to the current format."""
     # Local import keeps the storage schema validator independent of adapters.
     from .package import ExtractionPaths, _read_manifest, _validate_workspace
     paths = ExtractionPaths.at(root)
@@ -32,7 +32,11 @@ def migrate_workspace(root: Path) -> None:
         manifest = _v3_manifest(manifest)
     if version < 5:
         _migrate_image_fields(paths.chapters, paths.translations)
-    _migrate_fragment_identity(paths.chapters, paths.translations)
+    if version < 6:
+        _migrate_fragment_identity(paths.chapters, paths.translations)
+    # v7 permits adopted empty furniture in translation layers. Existing v6
+    # fields, source identities and coverage already have their final meaning;
+    # preserve every source/layer value rather than guessing missing text.
     manifest['format_version'] = CURRENT_VERSION
     paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     _validate_workspace(paths)
