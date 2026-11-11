@@ -8,6 +8,7 @@ from .block_segment import (
     BlockUnexpectedIDError,
     BlockWrongTagError,
     ImmutableBlockElement,
+    SourceAnchorError,
 )
 from .common import FoundInvalidIDError
 from .inline_segment import (

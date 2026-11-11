@@ -60,6 +60,10 @@ class BlockImmutableElementsError:
     found: list["ImmutableFingerprint"]
 
 
+class SourceAnchorError(ValueError):
+    """The program supplied inconsistent anchors; model repair cannot help."""
+
+
 BlockError = (
     BlockWrongTagError | BlockUnexpectedIDError | BlockExpectedIDsError |
     BlockContentError | BlockImmutableElementsError
@@ -82,6 +86,26 @@ class BlockSegment:
         self._inline_segments: list[InlineSegment] = inline_segments
         self._id2inline_segment: dict[int, InlineSegment] = dict((cast(int, s.id), s) for s in self._inline_segments)
         self._immutable_elements = immutable_elements or []
+        self._validate_source_anchors()
+
+    def _validate_source_anchors(self) -> None:
+        """Reject impossible source contracts before any model request."""
+        if not self._immutable_elements:
+            return
+        keys: set[str] = set()
+        previous = 0
+        for item in self._immutable_elements:
+            anchor = item.element
+            key = anchor.get('anchor_key')
+            if (anchor.tag != 'anchor' or not key or key in keys
+                    or anchor.get('id') is not None or len(anchor) or (anchor.text or '').strip()):
+                raise SourceAnchorError(f'Invalid or duplicate source anchor identity: {key!r}')
+            keys.add(key)
+            if not previous <= item.before_block_index <= len(self._inline_segments):
+                raise SourceAnchorError(f'Invalid source anchor boundary: {key!r} at {item.before_block_index}')
+            previous = item.before_block_index
+        if not self._immutable_positions_are_valid(self.create_element()):
+            raise SourceAnchorError('Source anchor template cannot satisfy its own boundary contract')
 
     def __iter__(self) -> Generator[InlineSegment, None, None]:
         yield from self._inline_segments
