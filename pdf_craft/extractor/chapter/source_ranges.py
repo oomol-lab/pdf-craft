@@ -14,6 +14,7 @@ from .analysis_types import (
     PageAnalysis, AnalysedLayout, LayoutAnnotations, _AnalysedTextSource, _AnalysedAssetSource, _AnalysedHTMLTag,
 )
 from .analysis_content import layout_reference_text, _visible_content_text, _materialize_reference_text
+from .text_locator import locate_text
 
 
 @dataclass(frozen=True)
@@ -62,16 +63,10 @@ def _boundary(text, value):
         return 0
     if value == 'source_end':
         return len(text)
-    needle = value.left + value.right
-    matches, cursor = [], 0
-    while needle and (found := text.find(needle, cursor)) >= 0:
-        matches.append(found + len(value.left))
-        if len(matches) > 1:
-            break
-        cursor = found + 1
-    if not needle or len(matches) != 1:
+    matches = locate_text(text, value.left, '', value.right)
+    if len(matches) != 1:
         raise ValueError('[SOURCE_RANGE] Boundary must identify exactly one original position')
-    return matches[0]
+    return matches[0][0]
 
 
 def slice_content(content, start, end):
