@@ -27,53 +27,85 @@ def chapter(index):
 
 
 class FillAnchorScopeTests(unittest.IsolatedAsyncioTestCase):
+    async def _assert_shared_translation(self, source, streaming, boundaries):
+        translator, runtime = _repairing_translator(())
+        translator._translate_text_async = AsyncMock(
+            side_effect=lambda text, **_kwargs: text.replace('Before', 'Avant').replace('After', 'Après'))
+        seen = []
+
+        async def request(*args, **kwargs):
+            messages = args[0] if args else kwargs['input']
+            match = re.search(r'```XML\n(.*?)```', messages[1].message, re.S)
+            assert match is not None
+            root = next(decode_friendly(match[1], tags='xml'))
+            block_count = 0
+            anchors = []
+            for node in root:
+                if node.tag == 'anchor':
+                    anchors.append((node.get('anchor_key'), block_count))
+                else:
+                    block_count += 1
+            seen.append(anchors)
+            for node in root.iter():
+                if node.text:
+                    node.text = node.text.replace('Before', 'Avant').replace('After', 'Après')
+            return encode_friendly(root)
+
+        runtime.context_value.request = request
+        transformer = NarrativeXMLTransformer(translator)
+        if streaming:
+            async def chapters():
+                for index, value in enumerate(source):
+                    yield value, index
+            results = []
+            async def result(value, _identity):
+                results.append(value)
+            await transformer._transform_stream(chapters(), result)
+        else:
+            results = await transformer.transform_many((value, index) for index, value in enumerate(source))
+        self.assertEqual(seen, [boundaries])
+        self.assertEqual(translator._translate_text_async.await_count, 1)
+        self.assertEqual(len(results), len(source))
+        for original, value in zip(source, results, strict=True):
+            expected = deepcopy(original)
+            for flow in expected.flow_items:
+                assert isinstance(flow, TextFlowItem)
+                for fragment in flow.children:
+                    if isinstance(fragment, SourceTextFragment):
+                        fragment.content = [part.replace('Before', 'Avant').replace('After', 'Après')
+                                            if isinstance(part, str) else part for part in fragment.content]
+            # Compare the entire chapter: text, asset identity and exact position.
+            self.assertEqual(encode_friendly(encode(value)), encode_friendly(encode(expected)))
+
     async def test_cross_chapter_sync_and_stream_preserve_assets_and_share_one_fill(self):
         for streaming in (False, True):
             with self.subTest(streaming=streaming):
-                translator, runtime = _repairing_translator(())
-                translator._translate_text_async = AsyncMock(
-                    side_effect=lambda text, **_kwargs: text.replace('Before', 'Avant').replace('After', 'Après'))
-                seen = []
+                await self._assert_shared_translation([chapter(1), chapter(2)], streaming,
+                                                      [('0:0', 1), ('1:0', 3)])
 
-                async def request(*args, **kwargs):
-                    messages = args[0] if args else kwargs['input']
-                    source = re.search(r'```XML\n(.*?)```', messages[1].message, re.S)
-                    assert source is not None
-                    root = next(decode_friendly(source[1], tags='xml'))
-                    seen.append([node.get('anchor_key') for node in root if node.tag == 'anchor'])
-                    for node in root.iter():
-                        if node.text:
-                            node.text = node.text.replace('Before', 'Avant').replace('After', 'Après')
-                    return encode_friendly(root)
+    async def test_trailing_chapter_anchor_stays_before_the_next_chapter(self):
+        for streaming in (False, True):
+            with self.subTest(streaming=streaming):
+                first, second = chapter(1), chapter(2)
+                flow = first.flow_items[0]
+                assert isinstance(flow, TextFlowItem)
+                flow.children.pop()
+                await self._assert_shared_translation([first], streaming, [('0:0', 1)])
+                await self._assert_shared_translation([second], streaming, [('0:0', 1)])
+                await self._assert_shared_translation([first, second], streaming,
+                                                      [('0:0', 1), ('1:0', 2)])
 
-                runtime.context_value.request = request
-                source = [chapter(1), chapter(2)]
-                transformer = NarrativeXMLTransformer(translator)
-                if streaming:
-                    async def chapters():
-                        for index, value in enumerate(source):
-                            yield value, index
-                    results = []
-                    async def result(value, _identity):
-                        results.append(value)
-                    await transformer._transform_stream(chapters(), result)
-                else:
-                    results = await transformer.transform_many((value, index) for index, value in enumerate(source))
-                self.assertEqual(seen, [['0:0', '1:0']])
-                self.assertEqual(translator._translate_text_async.await_count, 1)
-                self.assertEqual(len(results), 2)
-                for index, value in enumerate(results, 1):
-                    flow = value.flow_items[0]
-                    assert isinstance(flow, TextFlowItem)
-                    children = flow.children
-                    assert isinstance(children[0], SourceTextFragment)
-                    assert isinstance(children[2], SourceTextFragment)
-                    source_flow = source[index-1].flow_items[0]
-                    assert isinstance(source_flow, TextFlowItem)
-                    self.assertEqual(children[0].content, [f'Avant {index}.'])
-                    self.assertEqual(children[2].content, [f'Après {index}.'])
-                    self.assertEqual(children[1], source_flow.children[1])
-                    self.assertNotIn('anchor', encode_friendly(encode(value)))
+    async def test_trailing_flow_anchor_stays_before_the_next_flow(self):
+        for streaming in (False, True):
+            with self.subTest(streaming=streaming):
+                first = chapter(1)
+                flow = first.flow_items[0]
+                assert isinstance(flow, TextFlowItem)
+                flow.children.pop()
+                second = chapter(2)
+                first.flow_items.extend(second.flow_items)
+                await self._assert_shared_translation([first], streaming,
+                                                      [('0:0', 1), ('0:1', 2)])
 
     async def test_invalid_source_contract_never_calls_either_model(self):
         for malformed in ('duplicate', 'missing-key', 'dangling-boundary', 'unordered-boundary', 'text'):

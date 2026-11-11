@@ -590,7 +590,10 @@ class _NarrativeAnchorProjection:
             before = next(
                 (segment_index for segment_index, child_index in segment_children
                  if child_index > source_anchor_index),
-                len(inline_segments),
+                # The owning flow can end before another flow/chapter in the
+                # same request. Its trailing asset belongs immediately after
+                # its last selected block, never at the end of the whole group.
+                segment_children[-1][0] + 1,
             )
             result.append(ImmutableBlockElement(source_anchor, before))
         return result
