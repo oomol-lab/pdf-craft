@@ -38,6 +38,15 @@ jobs:
             apt_options+=(-o "Acquire::http::Proxy=$runner_proxy" -o "Acquire::https::Proxy=$runner_proxy")
           else
             echo "No runner proxy is configured."
+            if ! timeout 15 getent ahostsv4 archive.ubuntu.com; then
+              echo "Repairing DNS on this disposable runner before installing dependencies."
+              runtime_interface="$(ip -o route show default | awk 'NR == 1 {print $5}')"
+              test -n "$runtime_interface"
+              sudo resolvectl dns "$runtime_interface" 1.1.1.1 8.8.8.8
+              sudo resolvectl domain "$runtime_interface" '~.'
+              sudo resolvectl flush-caches
+              timeout 20 getent ahostsv4 archive.ubuntu.com
+            fi
           fi
           sudo apt-get "${apt_options[@]}" update
           sudo apt-get "${apt_options[@]}" install --yes poppler-utils libpoppler-glib8 ghostscript libegl1
