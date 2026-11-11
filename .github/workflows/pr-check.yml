@@ -31,8 +31,16 @@ jobs:
       - name: Install PDF and Qt runtime
         timeout-minutes: 5
         run: |
-          sudo apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
-          sudo apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install --yes poppler-utils libpoppler-glib8 ghostscript libegl1
+          apt_options=(-o Acquire::ForceIPv4=true -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+          runner_proxy="${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}"
+          if [ -n "$runner_proxy" ]; then
+            echo "Using the configured runner proxy for APT."
+            apt_options+=(-o "Acquire::http::Proxy=$runner_proxy" -o "Acquire::https::Proxy=$runner_proxy")
+          else
+            echo "No runner proxy is configured."
+          fi
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install --yes poppler-utils libpoppler-glib8 ghostscript libegl1
 
       - name: Install dependencies
         run: |
