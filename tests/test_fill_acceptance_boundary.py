@@ -135,6 +135,17 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertIn('raw character offset 2', error)
         self.assertEqual(tostring(block), before)
 
+    def test_extra_range_quotes_actual_candidate_and_local_offsets_without_editing(self):
+        block = fromstring('<p id="9">a\u200bbc</p>')
+        before = tostring(block)
+        error = text_difference('a', 'a\u200bbc', [block])
+        assert error is not None
+        self.assertIn('Extra range in p#9.text', error)
+        self.assertIn('VIEW [1:3)', error)
+        self.assertIn('raw character range [2:4)', error)
+        self.assertEqual(next(decode_friendly(error, tags='extra_excerpt')).text, 'bc')
+        self.assertEqual(tostring(block), before)
+
     def test_end_gap_feedback_points_to_existing_field_without_changing_it(self):
         block = fromstring('<p id="9"><i>.</i></p>')
         before = tostring(block)

@@ -1,0 +1,8 @@
+Extra range in {{ path }}: NORMALIZED COMPARISON VIEW [{{ left }}:{{ right }}).
+{% if raw_left is not none %}
+This corresponds to raw character range [{{ raw_left }}:{{ raw_right }}) in that
+field's current string (zero-based, end exclusive).
+{% endif %}
+Remove only that extra range, retaining the field's correct prefix/suffix and
+every required element. A partial-field extra range does not authorize emptying
+the entire field, deleting an XML node or restoring source wording.

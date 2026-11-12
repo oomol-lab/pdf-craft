@@ -42,8 +42,23 @@ def comparison_text(text: str) -> str:
     return _document_text(normalize_latex(text))
 
 
+def _raw_excerpt(original: str, view: str, start: int, end: int, tag: str):
+    # Only NFC plus whitespace deletion supplies a reliable inverse index map.
+    # Never manufacture a model field from a mathematical comparison view.
+    if (start == end or unicodedata.normalize('NFC', original) != original
+            or _document_text(original) != view):
+        return None
+    from xml.etree.ElementTree import Element
+    from .xml_translator.xml import encode_friendly
+    positions = [index for index, char in enumerate(original) if not is_whitespace(char)]
+    raw = original[positions[start]:positions[end-1]+1]
+    excerpt = Element(tag, {'xml:space': 'preserve'})
+    excerpt.text = raw[:6000]
+    return encode_friendly(excerpt), len(raw) > 6000
+
+
 def text_difference(expected: str, actual: str, blocks=()) -> str | None:
-    original = expected
+    original, original_actual = expected, actual
     # Optional mathematical interpretation cannot invalidate existing text equivalence.
     if _document_text(expected) == _document_text(actual):
         return None
@@ -71,21 +86,19 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                         f'expected context={expected[max(0,a-50):min(len(expected),b+50)]!r}; '
                         f'candidate context={actual[max(0,c-50):min(len(actual),d+50)]!r}'
                         for kind, a, b, c, d in edits[:10])
-    # Quote actual artist data, never a field manufactured from the comparison
-    # view. Only whitespace removal on already-NFC text has a direct index map;
-    # mathematical rewrites or Unicode composition cannot safely supply one.
-    if unicodedata.normalize('NFC', original) == original and _document_text(original) == expected:
-        from xml.etree.ElementTree import Element
-        from .xml_translator.xml import encode_friendly
-        positions = [index for index, char in enumerate(original) if not is_whitespace(char)]
-        for kind, start, end, _, _ in edits[:10]:
-            if kind not in ('delete', 'replace') or start == end:
-                continue
-            raw = original[positions[start]:positions[end-1]+1]
-            excerpt = Element('excerpt', {'xml:space': 'preserve'})
-            excerpt.text = raw[:6000]
-            details += '\n' + _FEEDBACK.get_template('original_missing_excerpt.jinja').render(
-                start=start, end=end, excerpt=encode_friendly(excerpt), truncated=len(raw) > 6000).strip()
+    for kind, a, b, c, d in edits[:10]:
+        if kind in ('delete', 'replace'):
+            excerpt = _raw_excerpt(original, expected, a, b, 'excerpt')
+            if excerpt is not None:
+                value, truncated = excerpt
+                details += '\n' + _FEEDBACK.get_template('original_missing_excerpt.jinja').render(
+                    start=a, end=b, excerpt=value, truncated=truncated).strip()
+        if kind in ('insert', 'replace'):
+            excerpt = _raw_excerpt(original_actual, actual, c, d, 'extra_excerpt')
+            if excerpt is not None:
+                value, truncated = excerpt
+                details += '\n' + _FEEDBACK.get_template('original_extra_excerpt.jinja').render(
+                    start=c, end=d, excerpt=value, truncated=truncated).strip()
     if any(expected[a:b] and expected[a:b] in actual
            for kind, a, b, _, _ in edits if kind in ('delete', 'replace')):
         details += '\n' + _FEEDBACK.get_template('repeated_missing.jinja').render().strip()
@@ -129,6 +142,15 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
             if end <= start:
                 continue
             for index, (kind, a, b, c, d) in enumerate(edits):
+                if kind in ('insert', 'replace') and c < end and start < d:
+                    left, right = max(start, c) - start, min(end, d) - start
+                    raw_left = raw_right = None
+                    if unicodedata.normalize('NFC', value) == value and _document_text(value) == normalized:
+                        positions = [i for i, char in enumerate(value) if not is_whitespace(char)]
+                        raw_left = positions[left]
+                        raw_right = positions[right] if right < len(positions) else len(value)
+                    field_locations.append(_FEEDBACK.get_template('extra_field_location.jinja').render(
+                        path=path, left=left, right=right, raw_left=raw_left, raw_right=raw_right).strip())
                 if kind == 'delete' and c == d and start <= c <= end and index not in located_missing:
                     boundary = 'BEGINNING' if c == start else 'END' if c == end else None
                     if boundary is not None:
