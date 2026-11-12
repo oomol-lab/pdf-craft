@@ -1,7 +1,3 @@
-Complete authoritative translation for the ENTIRE group:
-{{ translated_text }}
-
-
 {% if source_xml is not none %}
 {% if candidate_xml %}
 Required source structure for this repair (editable words intentionally blank):
@@ -27,6 +23,8 @@ Working candidate XML — an actual document you submitted in this loop, to edit
 No parseable working XML is available. Reconstruct one complete XML using the
 required structure and the complete translation below.
 {% endif %}
+Complete authoritative translation for the ENTIRE group:
+{{ translated_text }}
 
 Validation feedback:
 {{ feedback }}
