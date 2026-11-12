@@ -289,7 +289,8 @@ def _layout_packet(
             if source_order < len(raw_layouts)
             else _content_text(source.content)
         )
-        analysed_text = _content_text(source.content)
+        from .text_operations import apply_text_removals
+        analysed_text = _content_text(apply_text_removals(source.content, annotations.text_removals))
         source_type = "text"
     else:
         assert isinstance(source, _AnalysedAssetSource)

@@ -48,6 +48,12 @@ def generate_chapter_files(
         chapter_file.unlink()
 
     from .stream import chapters_from_disk
+    adopted = analysed_pages is not None
+    if resolved_database is not None:
+        import sqlite3
+        from contextlib import closing
+        with closing(sqlite3.connect(resolved_database)) as db:
+            adopted = bool(db.execute("SELECT 1 FROM sqlite_master WHERE name='adopted'").fetchone())
     chapters = chapters_from_disk(resolved_database, toc, chunk_size=chunk_size) if resolved_database is not None else _generate_chapters(
         pages_path=pages_path,
         toc=toc,
@@ -62,9 +68,10 @@ def generate_chapter_files(
         else:
             tail = f"{chapter.id}"
 
-        chapter = normalize_punctuation_in_chapter(chapter)
-        if chunk_size is None:
-            chapter = analyse_chapter_internal_levels(chapter)
+        if not adopted:
+            chapter = normalize_punctuation_in_chapter(chapter)
+            if chunk_size is None:
+                chapter = analyse_chapter_internal_levels(chapter)
         chapter_file = chapters_path / f"chapter_{tail}.xml"
         chapter_element = encode(chapter)
         save_xml(chapter_element, chapter_file)

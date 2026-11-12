@@ -229,7 +229,11 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
         restored = restore_streams(analyse_pages([1, 2], paragraphs, citations))
         paragraph = restored.paragraphs[0]
         assert isinstance(paragraph, TextFlowItem)
-        self.assertEqual([child.content for child in paragraph.children], [['A translation'], []])
+        self.assertEqual([child.content for child in paragraph.children], [['A trans'], ['lation']])
+        self.assertEqual(''.join(part for child in paragraph.children
+                                 if isinstance(child, SourceTextFragment)
+                                 for part in child.content if isinstance(part, str)),
+                         'A translation')
         self.assertEqual([child.source.text for child in paragraph.children
                           if isinstance(child, SourceTextFragment) and child.source is not None],
                          ['A trans‐', 'lation'])

@@ -165,9 +165,25 @@ def compile_source_ranges(source, response, layout_id, resolve_anchor):
                              source_end=original.source.source_start + end if bounds is not None else original.source.source_end,
                              source_text=(original.source.source_text if bounds is None else original.source.source_text or text),
                              citation_prefix=0, citation_prefix_parts=0)
-            item = replace(original, source=record, document_order=base_order + number, source_id=unique)
+            removals = []
+            for anchor in proposal.text_removals:
+                span, error = resolve_anchor(text, anchor, 'text_removals', ident)
+                if error:
+                    raise ValueError(error)
+                left, right = span
+                if not (start <= left < right <= end):
+                    from .text_operations import removal_error
+                    raise removal_error('owner')
+                removals.append((left-start, right-start))
+            from .text_operations import apply_text_removals
+            apply_text_removals(record.content, tuple(removals))
+            item = replace(original, source=record, document_order=base_order + number, source_id=unique,
+                           annotations=replace(original.annotations, text_removals=tuple(removals)))
             source_members[ident].append((start, end, unique, item))
         else:
+            if proposal.text_removals:
+                from .text_operations import removal_error
+                raise removal_error('asset')
             if proposal.source_range is not None:
                 raise ValueError('[SOURCE_RANGE] Assets cannot be sliced')
             consumed[ident].append((0, 1))

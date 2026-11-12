@@ -449,16 +449,18 @@ def materialize_asset_text(page: PageAnalysis) -> PageAnalysis:
             assert isinstance(member.source, _AnalysedTextSource)
             target = member.annotations.asset_attachment or member.asset_text_target
             assert target is not None
+            from .text_operations import apply_text_removals
+            content = apply_text_removals(member.source.content, member.annotations.text_removals)
             # Unrefined table-title candidates precede intrinsic title content.
             # Refined fields are all independent sources in submitted order.
             if member.annotations.asset_attachment is None and target.slot == 'title':
-                title_prefixes.append(member.source.content)
+                title_prefixes.append(content)
                 continue
             parts = fields[target.slot]
             if parts:
                 separator = ('\n' if member.annotations.asset_attachment is None else '\n\n')
                 parts.append(' ' if member.continues_from_previous else separator)
-            parts.extend(member.source.content)
+            parts.extend(content)
         for prefix in reversed(title_prefixes):
             fields['title'] = [*prefix, *(['\n'] if fields['title'] else []), *fields['title']]
         def compact(parts):

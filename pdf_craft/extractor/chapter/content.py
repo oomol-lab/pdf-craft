@@ -79,8 +79,9 @@ _LATEX_PLACEHOLDER_MARKER = "\uE000PDF_CRAFT_LATEX"
 
 
 def _normalize_paragraph_content(paragraph: TextFlowItem, *, preserve_fragments: bool = False):
-    # Defer normalization until after editable source ownership is compiled.
-    # Legacy joiner callers without source records retain their old behavior.
+    # Initial joiner sources remain literal until review. The traditional
+    # path can normalize on emission; refined assembly executes declared text
+    # operations instead and must never call this heuristic after adoption.
     if not preserve_fragments and any(
         isinstance(child, SourceTextFragment) and child.source is not None for child in paragraph.children
     ):
@@ -122,7 +123,7 @@ def _normalize_paragraph_content(paragraph: TextFlowItem, *, preserve_fragments:
 
 
 def normalize_source_projection(paragraph: TextFlowItem) -> None:
-    """Dehyphenate assembled semantic text without erasing source identities.
+    """Dehyphenate traditional (unrefined) text without erasing source identities.
 
     Content is already a detached projection here; TextSource keeps the exact
     OCR text. An empty projected fragment still owns its original PDF region.

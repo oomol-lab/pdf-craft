@@ -98,6 +98,7 @@ class RepairedLayout(_StrictModel):
     preserve_as_image: bool = False
     asset_attachment: RepairedAssetAttachment | None = None
     independent_stream: str | None = Field(default=None, min_length=1)
+    text_removals: list[RefAnchor] = Field(default_factory=list)
 
 
 class RepairedCitation(_StrictModel):
@@ -361,7 +362,7 @@ def _repair_packet(page):
     packet = _page_packet(editable_asset_sources(page))
     fields = ('ownership', 'continues_from_previous', 'continues_to_next',
               'paragraph_role', 'paragraph_level', 'citation_id', 'citation_index',
-              'asset_attachment', 'independent_stream')
+              'asset_attachment', 'independent_stream', 'text_removals')
     for layout in packet['layouts']:
         layout['initial_proposal'] = {key: layout.pop(key) for key in fields}
     text = [layout for layout in packet['layouts'] if layout['source_type'] == 'text']
@@ -445,8 +446,13 @@ def _layout_packet(
         text = layout_reference_text(layout)
     except ValueError:
         text = ""
+    from .text_operations import apply_text_removals, removal_anchors
+    from .analysis_content import _visible_content_text
     packet = {
         "layout_id": _layout_id(layout),
+        "text_removals": removal_anchors(layout) if layout.source_order is not None else [],
+        "projected_text": (_visible_content_text(apply_text_removals(layout.source.content, layout.annotations.text_removals))
+                           if layout.source_order is not None else text),
         "document_order": layout.document_order,
         "source_order": layout.source_order,
         "ocr_stream": getattr(getattr(layout.source, "origin", None), "stream", None),
@@ -609,6 +615,7 @@ def _compile_repaired_page(
                 asset_attachment=(AssetAttachment(proposed.asset_attachment.asset_id, proposed.asset_attachment.slot)
                                   if proposed.asset_attachment is not None else None),
                 independent_stream=proposed.independent_stream,
+                text_removals=original.annotations.text_removals,
             ),
         )
     for ownership, citation_id in [("paragraph", None), *[("citation", ident) for ident in citations_by_id]]:

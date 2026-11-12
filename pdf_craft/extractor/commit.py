@@ -77,7 +77,7 @@ def project_adopted(chapters: Path, evidence: Path, destination: Path, printed_p
         shutil.copyfile(sizes, destination / sizes.name)
 
 
-def partition_adopted(source: Path, destination: Path, toc):
+def partition_adopted(source: Path, destination: Path, toc, *, infer_levels=False):
     """Assign final chapter identities to already accepted flow, without repair."""
     from .chapter.chapter import decode, encode, search_references_in_chapter, TextFlowItem
     from .chapter.generation import _partition_chapters
@@ -101,7 +101,8 @@ def partition_adopted(source: Path, destination: Path, toc):
         for position, chapter in enumerate(_partition_chapters(items(), toc, assembled=True)):
             for ref in search_references_in_chapter(chapter):
                 db.execute('UPDATE refs SET used=1 WHERE page=? AND number=?', ref.id)
-            chapter = analyse_chapter_internal_levels(chapter)
+            if infer_levels:
+                chapter = analyse_chapter_internal_levels(chapter)
             tail = 'head' if chapter.id is None else str(chapter.id)
             path = destination / f'chapter_{tail}.xml'
             save_xml(encode(chapter), path)

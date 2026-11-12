@@ -16,12 +16,13 @@ from ...markdown.paragraph import HTMLTag
 from .chapter import (
     DisplayFormula,
     Reference,
+    Chapter,
     SourceAsset,
     SourceTextFragment,
     StandaloneAsset,
     TextFlowItem,
 )
-from .content import normalize_source_projection
+from .text_operations import propose_word_joins
 from .analysis_types import (
     LayoutOwnership,
     _ReferencePlaceholder,
@@ -100,7 +101,10 @@ def analyse_pages(
 
     # Establish author paragraphs before projecting them back into page order.
     from .generation import _assemble_flow_items
-    for item in _assemble_flow_items(paragraphs):
+    initial_items = list(_assemble_flow_items(paragraphs))
+    from .analyse_level import analyse_chapter_internal_levels
+    analyse_chapter_internal_levels(Chapter(None, -1, initial_items))
+    for item in initial_items:
         if isinstance(item, (StandaloneAsset, DisplayFormula)):
             item = item.asset
         if isinstance(item, SourceAsset):
@@ -113,6 +117,7 @@ def analyse_pages(
             _get_page(pages, layout.page_index).layouts.append(layout)
             continue
 
+        text_removals = propose_word_joins(item)
         texts = [child for child in item.children if isinstance(child, SourceTextFragment)]
         for fragment in item.children:
             if isinstance(fragment, SourceAsset):
@@ -128,6 +133,7 @@ def analyse_pages(
                 continues_to_next=index < len(texts) - 1,
                 paragraph_role=item.role,
                 paragraph_level=item.level,
+                text_removals=tuple(text_removals.get(id(fragment), ())),
             )
             _get_page(pages, layout.page_index).layouts.append(layout)
 
@@ -156,6 +162,7 @@ def analyse_pages(
                       for item in citation.flow_items)
         for flow_item in _assemble_flow_items(flat_items):
             if isinstance(flow_item, TextFlowItem):
+                text_removals = propose_word_joins(flow_item)
                 texts = [child for child in flow_item.children if isinstance(child, SourceTextFragment)]
                 for fragment in flow_item.children:
                     if isinstance(fragment, SourceAsset):
@@ -185,6 +192,7 @@ def analyse_pages(
                             continues_to_next=index < len(texts) - 1,
                             paragraph_role=flow_item.role,
                             paragraph_level=flow_item.level,
+                            text_removals=tuple(text_removals.get(id(fragment), ())),
                             citation_id=citation_id,
                             citation_index=segment.index,
                         )
@@ -341,6 +349,7 @@ def _analyse_layout(
     paragraph_level: int | None = None,
     citation_id: str | None = None,
     citation_index: int | None = None,
+    text_removals: tuple[tuple[int, int], ...] = (),
 ) -> AnalysedLayout:
     references: list[ReferenceLocation] = []
     analysed_source = (analyse_text_source(source, ownership, references)
@@ -358,6 +367,7 @@ def _analyse_layout(
             citation_id=citation_id,
             citation_index=citation_index,
             references=references,
+            text_removals=text_removals,
         ),
     )
 
@@ -473,7 +483,6 @@ def _restore_layouts(
         if pending_role is None or pending_level is None:
             raise PageStructureError("Text layout is missing paragraph role or level", pending[0].page_index)
         paragraph = TextFlowItem(pending_role, pending_level, pending)
-        normalize_source_projection(paragraph)
         result.append(paragraph)
         pending = []
         pending_role = None
@@ -551,6 +560,8 @@ def _restore_fragment(
     source = layout.source
     if not isinstance(source, _AnalysedTextSource):
         raise TypeError("Expected analysed text source")
+    from .analysis_content import layout_reference_text
+    edited = bool(layout.annotations.text_removals)
     return SourceTextFragment(
         page_index=source.page_index,
         source_order=source.source_order,
@@ -558,8 +569,9 @@ def _restore_fragment(
         content=_project_fragment_content(source, layout, references),
         source=source.origin,
         source_start=source.source_start,
-        source_end=source.source_end,
-        source_text=source.source_text,
+        source_end=(source.source_start + len(layout_reference_text(layout))
+                    if edited else source.source_end),
+        source_text=(source.source_text or layout_reference_text(layout)) if edited else source.source_text,
     )
 
 

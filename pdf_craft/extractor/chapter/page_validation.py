@@ -37,6 +37,12 @@ def validate_page(page):
     _validate_layout_sequences({_layout_id(item): item for item in page.layouts}, citations, issues)
     defined = {item.index for item in page.citations if item.index is not None}
     for layout in page.layouts:
+        if layout.source_order is not None:
+            from .text_operations import apply_text_removals
+            try:
+                apply_text_removals(layout.source.content, layout.annotations.text_removals)
+            except ValueError as error:
+                issues.append(str(error))
         if layout.ownership != 'ignored' and layout.source_order is not None and (
                 layout.paragraph_role not in ('body', 'heading') or layout.paragraph_level is None):
             issues.append('[PARAGRAPH_METADATA] Retained text needs a role and level')
