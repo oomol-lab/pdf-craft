@@ -645,6 +645,7 @@ class XMLTranslator:
         translated_text = plain_translation(translated_text)
         feedback_template = await self._fill_runtime.template("inline_feedback")
         repair_template = await self._fill_runtime.template("canonical_repair")
+        content_status_template = await self._fill_runtime.template("structure_content_feedback")
         translation = Element('translation', {'xml:space': 'preserve'})
         translation.text = translated_text
 
@@ -654,6 +655,13 @@ class XMLTranslator:
                 blocks = hill_climbing.inline_feedback_blocks(element)
                 if blocks:
                     error += '\n' + feedback_template.render(blocks=blocks)
+                if canonical_text_validator is not None:
+                    raw_blocks = hill_climbing.candidate_blocks_for_diagnostics(element)
+                    if raw_blocks is not None:
+                        from ...fill_text import text_difference
+                        difference = text_difference(translated_text, ''.join(
+                            ''.join(block.itertext()) + (block.tail or '') for block in raw_blocks))
+                        error += '\n' + content_status_template.render(difference=difference)
                 return error
             if canonical_text_validator is not None:
                 error = canonical_text_validator(element, translated_text)

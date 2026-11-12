@@ -20,19 +20,50 @@ def decoded(text, tag):
 class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
 
     async def test_misplaced_required_identity_is_not_told_to_be_deleted(self):
+        for last in ('b', 'c'):
+            with self.subTest(last=last):
+                translator, runtime = _repairing_translator([
+                    f'<xml><p id="1"><expression id="2">a<expression id="3">{last}</expression></expression></p></xml>',
+                    '<xml><p id="1"><expression id="2">a</expression><expression id="3">b</expression></p></xml>'])
+                translator._translate_text_async = AsyncMock(return_value='ab')
+                result, _ = await StructuredTranslation().translate(translator, TranslationTask(fromstring(
+                    '<body><p><expression id="2" display="inline">original</expression>'
+                    '<expression id="3" display="inline">words</expression></p></body>'), SubmitKind.REPLACE, None),
+                    error_policy=False, retry_policy=RetryPolicy(fill=1))
+                self.assertEqual(''.join(result.itertext()), 'ab')
+                self.assertEqual(runtime.context_value.calls, 2)
+                feedback = runtime.context_value.messages[1][0][-1].message
+                self.assertIn('MISPLACED, not disposable', feedback)
+                self.assertNotIn('Fix: Remove all', feedback)
+                if last == 'b':
+                    self.assertIn('ALREADY MATCHES', feedback)
+                else:
+                    self.assertNotIn('ALREADY MATCHES', feedback)
+                    self.assertIn('Missing 1, added 1', feedback)
+
+    async def test_duplicate_blocks_cannot_claim_content_is_already_complete(self):
         translator, runtime = _repairing_translator([
-            '<xml><p id="1"><expression id="2">a<expression id="3">b</expression></expression></p></xml>',
-            '<xml><p id="1"><expression id="2">a</expression><expression id="3">b</expression></p></xml>'])
+            '<xml><p id="1">wrong</p><p id="1">ab</p></xml>', '<xml><p id="1">ab</p></xml>'])
         translator._translate_text_async = AsyncMock(return_value='ab')
-        result, _ = await StructuredTranslation().translate(translator, TranslationTask(fromstring(
-            '<body><p><expression id="2" display="inline">original</expression>'
-            '<expression id="3" display="inline">words</expression></p></body>'), SubmitKind.REPLACE, None),
+        result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+            fromstring('<body><p>original</p></body>'), SubmitKind.REPLACE, None),
             error_policy=False, retry_policy=RetryPolicy(fill=1))
         self.assertEqual(''.join(result.itertext()), 'ab')
         self.assertEqual(runtime.context_value.calls, 2)
-        feedback = runtime.context_value.messages[1][0][-1].message
-        self.assertIn('MISPLACED, not disposable', feedback)
-        self.assertNotIn('Fix: Remove all', feedback)
+        self.assertNotIn('RAW CONTENT STATUS', runtime.context_value.messages[1][0][-1].message)
+
+    async def test_unowned_text_cannot_claim_content_is_already_complete(self):
+        translator, runtime = _repairing_translator([
+            '<xml>unowned<p id="1"><expression id="2">a<expression id="3">b</expression></expression></p></xml>',
+            '<xml><p id="1"><expression id="2">a</expression><expression id="3">b</expression></p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='ab')
+        result, _ = await StructuredTranslation().translate(translator, TranslationTask(fromstring(
+            '<body><p><expression id="2" display="inline">source</expression>'
+            '<expression id="3" display="inline">text</expression></p></body>'), SubmitKind.REPLACE, None),
+            error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(''.join(result.itertext()), 'ab')
+        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertNotIn('RAW CONTENT STATUS', runtime.context_value.messages[1][0][-1].message)
 
     async def test_fill_input_output_and_repair_history_share_codec(self):
         raw = 'A & B; <span>; &lt;span&gt;.'

@@ -9,6 +9,8 @@ from pdf_craft.transformer.xml_translator.segment import (
     search_text_segments, TextPosition,
 )
 from pdf_craft.transformer.xml_translator.xml import encode_friendly
+from pdf_craft.transformer.xml_translator.xml.matching import element_id
+from pdf_craft.common.whitespace import is_whitespace
 from .stream_mapper import InlineSegmentMapping
 from .validation import LEVEL_DEPTH, generate_error_message, nest_as_errors_group, truncate_errors_group
 
@@ -55,6 +57,24 @@ class HillClimbing:
         candidates = {item.id: item for item in self._block_segment.submit(element)}
         return [(segment.parent, _submitted_segments(candidates[segment.id].submitted_element))
                 if segment.id in candidates else None for segment in self._block_segment]
+
+    def candidate_blocks_for_diagnostics(self, element: Element) -> list[Element] | None:
+        """Read raw text despite inline errors, only with intact outer ownership.
+
+        This is a diagnostic view, never a mapping or an accepted candidate.
+        Missing/duplicate blocks and broken resource boundaries cannot supply
+        trustworthy delivery-order text.
+        """
+        if any(not isinstance(error, BlockContentError) for error in self._block_segment.validate(element)):
+            return None
+        if any(not is_whitespace(char) for char in element.text or ''):
+            return None
+        candidates = {element_id(node): node for node in element}
+        expected = {segment.id for segment in self._block_segment}
+        if any(any(not is_whitespace(char) for char in ''.join(node.itertext()) + (node.tail or ''))
+               for identity, node in candidates.items() if identity not in expected):
+            return None
+        return [candidates[segment.id] for segment in self._block_segment]
 
     def submit(self, element: Element) -> str | None:
         error_message, block_weights = self._validate_block_weights_and_error_message(element)
