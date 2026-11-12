@@ -1,4 +1,5 @@
 """Plain artist view and symmetric comparison, independent of XML field layout."""
+from collections import Counter
 from difflib import SequenceMatcher
 import re
 import unicodedata
@@ -103,6 +104,7 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     expected, actual = comparison_text(expected), comparison_text(actual)
     if expected == actual:
         return None
+    blocks = tuple(blocks)
     edits = _comparison_edits(expected, actual)
     missing = sum(end-start for _, start, end, _, _ in edits)
     added = sum(end-start for _, _, _, start, end in edits)
@@ -144,24 +146,38 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     # allocation plan. Both complete texts remain in the request and the gate.
     statistics = []
     samples = set()
-    for _, a, b, c, d in edits[:10]:
-        for excerpt in (expected[a:b][:64], actual[c:d][:64]):
-            # Short literal words are easier to check than a sample spanning
-            # several repetitions. This is lexical evidence, not a formula or
-            # sentence parser, a minimal-period search or a compressed payload.
-            words = sorted(set(re.findall(r'[^\W\d_]{2,}', excerpt)), key=lambda word: (-len(word), word))[:2]
-            for sample in (excerpt, *words):
-                if not sample or sample in samples:
-                    continue
-                samples.add(sample)
-                expected_count = _literal_occurrences(expected, sample)
-                actual_count = _literal_occurrences(actual, sample)
-                if expected_count and actual_count and max(expected_count, actual_count) > 1:
-                    from xml.etree.ElementTree import Element
-                    from .xml_translator.xml import encode_friendly
-                    literal = Element('literal', {'xml:space': 'preserve'})
-                    literal.text = sample
-                    statistics.append(dict(literal=encode_friendly(literal), expected=expected_count, actual=actual_count))
+    def record_sample(sample, require_difference=False):
+        if not sample or sample in samples:
+            return
+        samples.add(sample)
+        expected_count = _literal_occurrences(expected, sample)
+        actual_count = _literal_occurrences(actual, sample)
+        if (expected_count and actual_count and max(expected_count, actual_count) > 1
+                and (not require_difference or expected_count != actual_count)):
+            statistics.append(dict(literal=_quoted_text('literal', sample),
+                                   expected=expected_count, actual=actual_count))
+
+    # Prefer short whole values actually repeated in candidate fields over a
+    # diff slice that crosses several occurrences. These are literal evidence,
+    # not inferred formula units, field quotas or a compressed translation.
+    values = Counter(value for block in blocks for node in block.iter()
+                     for value in (node.text, node.tail) if value and len(value) <= 64)
+    for value, count in values.most_common():
+        if count < 2:
+            break
+        sample = _document_text(value)
+        if sample not in actual:
+            sample = comparison_text(value)
+        record_sample(sample, require_difference=True)
+        if len(statistics) >= 2:
+            break
+    if not statistics:
+        for _, a, b, c, d in edits[:10]:
+            for excerpt in (expected[a:b][:64], actual[c:d][:64]):
+                words = sorted(set(re.findall(r'[^\W\d_]{2,}', excerpt)),
+                               key=lambda word: (-len(word), word))[:2]
+                for sample in (excerpt, *words):
+                    record_sample(sample)
     if statistics:
         details += '\n' + _FEEDBACK.get_template('literal_occurrences.jinja').render(
             statistics=statistics[:4]).strip()

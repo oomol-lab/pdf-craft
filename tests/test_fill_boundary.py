@@ -133,6 +133,19 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
                                        SubmitKind.REPLACE, None), error_policy=False, retry_policy=RetryPolicy(fill=1))
         return result, model
 
+    async def test_extra_translated_passage_precedes_ending_after_last_required_slot(self):
+        translator, model = translator_fixture()
+        model_replies(model, 'a a a end', [
+            '<xml><fragment id="1"><expression id="2">a</expression> '
+            '<expression id="3">end</expression> <expression id="4">a</expression></fragment></xml>',
+            '<xml><fragment id="1"><expression id="2">a</expression> '
+            '<expression id="3">a</expression> a end</fragment></xml>'])
+        target = encode(await NarrativeXMLTransformer(translator).transform(
+            chapter([expression('u'), ' ', expression('v'), ' source ending']), error_policy=False))
+        self.assertIsNone(text_difference('a a a end', ''.join(target.itertext())))
+        self.assertEqual(len(list(target.iter('inline_expr'))), 2)
+        self.assertEqual(len(model.wire_calls), 3)
+
     async def test_plain_view_is_same_in_request_and_comparison(self):
         raw = '# Title\n\n**Bold** and [link](https://example.org). Costs $20.'
         target, model = await self.translate(raw, ['<xml><p id="1">Title Bold and link. Costs $20.</p></xml>'])

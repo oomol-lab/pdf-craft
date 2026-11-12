@@ -45,15 +45,20 @@ fallback; this answer must still pass all structure and whole-text checks.
 Use friendly XML escapes for text <, > and &: &lt;, &gt;, &amp;. Literal spelling
 &lt; is written &amp;lt;. Do not use CDATA or invent identities.
 
-A surplus inline wrapper is not permission to drop its words:
+A source inline slot is not a sentence boundary or the final translated word:
 Required structure: <xml><fragment id="1"><expression id="2"/><expression id="3"/></fragment></xml>
-Translation: "\(a\) \(b\) \(c\)"
-Rejected XML: <xml><fragment id="1"><expression id="2">\(a\)</expression> <expression id="3">\(b\)</expression> <expression id="4">\(c\)</expression></fragment></xml>
-Corrected XML: <xml><fragment id="1"><expression id="2">\(a\)</expression> <expression id="3">\(b\)</expression> \(c\)</fragment></xml>
-ID 4 was invented. UNWRAP that element, keeping its actual characters at the same
-reading position as ordinary mixed text. The extra translated formula does not
-need a new source identity or its own expression node. Alternatively an existing
-expression may hold several consecutive translated formulas. Never truncate to
-the number of source slots. This example's IDs and text are not your task's values.
-If you empty a fragment, keep any required inline children present EMPTY; an empty
-parent does not replace its required children. Return every actual character.
+Translation: "\(x=y\) \(x=y\) \(x=y\) \(x=\)"
+Rejected XML: <xml><fragment id="1"><expression id="2">\(x=y\)</expression> <expression id="3">\(x=\)</expression> <expression id="4">\(x=y\)</expression></fragment></xml>
+Corrected XML: <xml><fragment id="1"><expression id="2">\(x=y\)</expression> <expression id="3">\(x=y\)</expression> \(x=y\) \(x=\)</fragment></xml>
+ID 4 was invented. Keep required IDs 2 and 3; ordinary mixed text after them can
+hold additional translated formulas AND the final unfinished expression. Do not
+pin the translation's ending inside the last source slot and then append earlier
+passages after it. Read the entire final mixed content in order, including tails.
+A surplus wrapper can be UNWRAPPED while retaining its text, or its content moved
+into an existing editable slot. Never delete its words just to remove the ID.
+An existing expression may hold several consecutive translated formulas. Neither
+the number of source slots nor the source's ending limits the translation.
+Even incomplete mathematical notation is literal artist data to preserve, not
+something to repair from source. Only XML syntax must be well formed.
+This example's IDs and text are not your task's values. If you empty a fragment,
+keep every required inline child EMPTY. Return every actual character.

@@ -146,6 +146,17 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertEqual(next(decode_friendly(error, tags='extra_excerpt')).text, 'bc')
         self.assertEqual(tostring(block), before)
 
+    def test_repeated_whole_field_samples_distinguish_a_shortage_from_an_ending(self):
+        block = fromstring('<p id="1"><i>Repeat.</i><i>Repeat.</i><i>Repeat.</i><i>End.</i><i>End.</i></p>')
+        before = tostring(block)
+        error = text_difference('Repeat.' * 5 + 'End.', ''.join(block.itertext()), iter([block]))
+        assert error is not None
+        samples = [node.text for node in decode_friendly(error, tags='literal')]
+        self.assertEqual(samples, ['Repeat.', 'End.'])
+        self.assertIn('complete candidate): +2.', error)
+        self.assertIn('complete candidate): -1.', error)
+        self.assertEqual(tostring(block), before)
+
     def test_repeated_literal_statistics_are_generic_and_not_a_count_acceptance_gate(self):
         for unit, wanted, found in [('Echo.', 3, 2), ('.', 16, 15), ('a', 5, 4), ('Echo.', 2, 3)]:
             with self.subTest(unit=unit, wanted=wanted, found=found):
