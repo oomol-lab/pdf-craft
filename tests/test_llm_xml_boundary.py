@@ -101,7 +101,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
             error_policy=False, retry_policy=RetryPolicy(fill=0))
         user = runtime.context_value.messages[0][0][1].message
         trees = re.findall(r'```XML\n(.*?)\n```', user, re.S)
-        reference, target = [decoded(tree, 'xml') for tree in trees]
+        target, reference = [decoded(tree, 'xml') for tree in trees]
         self.assertEqual(reference[0].text, 'Source.')
         self.assertFalse(''.join(target[0].itertext()).strip())
         self.assertEqual([(n.tag, n.attrib) for n in reference.iter()], [(n.tag, n.attrib) for n in target.iter()])
