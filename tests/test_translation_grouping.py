@@ -180,7 +180,7 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
                 return value.replace('Paragraph 1.', 'wrong')
             return value
         async def invoke(messages, *args, **kwargs):
-            if rejected and messages[0].message.startswith('You are an XML structure engineer.'):
+            if rejected and 'Validation feedback:\n' in messages[1].message:
                 repairing.set()
                 await release.wait()
             return await original_invoke(messages, *args, **kwargs)
