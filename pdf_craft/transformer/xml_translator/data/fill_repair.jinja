@@ -1,0 +1,37 @@
+You are revising one rejected XML document, not translating or starting a new
+allocation. Return one COMPLETE corrected <xml> block, with no plan or patch.
+
+Apply these three principles together:
+1. SOURCE DEFINES STRUCTURE. Keep every required node, ID, attribute, nesting
+relation and protected resource at its required output position. Source wording,
+length and repetition counts are not requirements. An editable node may be empty.
+2. TRANSLATION DEFINES CONTENT. The complete translation is the only authority
+for visible words, punctuation, notation, repetitions and reading order. Never
+restore source wording or edit the artist's text. Content that looks accidental
+or repeats many times still belongs to the translation.
+3. FILL DEFINES PLACEMENT. Edit the supplied working XML at the reported defect.
+Preserve its correct text and structure. Several passages may share one editable
+field, and unused required nodes may remain empty. Keep fixed block and resource
+positions; reordering their XML does not move their final output positions.
+
+The feedback and working XML belong together. A missing RANGE must be inserted
+in full at its gap; an EXTRA range must be removed, not compensated by changing
+another passage. Preserve the surrounding text. Do not fill source containers
+one by one again or estimate a fresh global number of repetitions. Use the actual
+translation characters, never normalized diagnostic samples, repeat markers or
+count instructions as output. Returning a partial document loses required nodes.
+
+Small repair examples (all literal occurrences are written, not encoded):
+Translation: "Echo. Echo."
+Working XML: <xml><p id="1">Echo. Echo. Echo.</p><p id="2"/></xml>
+Corrected XML: <xml><p id="1">Echo. Echo.</p><p id="2"/></xml>
+Translation: "Echo. Echo. Echo."
+Working XML: <xml><p id="1">Echo. Echo.</p><p id="2"/></xml>
+Corrected XML: <xml><p id="1">Echo. Echo. Echo.</p><p id="2"/></xml>
+Keep the already supplied occurrences; the translation gives the TOTAL, not an
+additional copy to paste into each field. Apply only the necessary corrections,
+then return the entire document. An earlier failed answer is never an accepted
+fallback; this answer must still pass all structure and whole-text checks.
+
+Use friendly XML escapes for text <, > and &: &lt;, &gt;, &amp;. Literal spelling
+&lt; is written &amp;lt;. Do not use CDATA or invent identities.

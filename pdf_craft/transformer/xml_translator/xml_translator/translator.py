@@ -704,6 +704,7 @@ class XMLTranslator:
         repair_source_xml = encode_friendly(hill_climbing.request_template())
         repair_input = await self._fill_runtime.template('fill_repair_input')
         progress_template = await self._fill_runtime.template("fill_repair_progress")
+        repair_system_template = await self._fill_runtime.template("fill_repair")
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render() + "\n\n" + canonical_instructions),
@@ -785,7 +786,9 @@ class XMLTranslator:
                     user = repair_input.render(source_xml=repair_source_xml if previous is not None else source_xml,
                         candidate_xml=previous,
                         feedback=feedback, translated_text=encode_friendly(translation))
-                    messages = [fixed_messages[0], Message(MessageRole.USER, user)]
+                    system = (Message(MessageRole.SYSTEM, repair_system_template.render())
+                              if previous is not None else fixed_messages[0])
+                    messages = [system, Message(MessageRole.USER, user)]
                 return await request_model(llm_context, messages, retry_index=index, retry_max=maximum,
                                            use_cache=False, max_tokens=output_budget)
 

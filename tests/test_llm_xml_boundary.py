@@ -217,6 +217,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertEqual(''.join(decoded(previous_xml(third), 'xml')[0].itertext()), 'Echo. Echo.')
                 self.assertIn('Missing 5, added 0', repair_feedback(third))
                 self.assertIn('complete earlier answer from THIS loop', repair_feedback(third))
+                self.assertIn('revising one rejected XML document', third[0].message)
                 self.assertNotIn('unterminated', previous_xml(third))
 
     async def test_closest_rejected_answer_is_not_adopted_on_exhaustion(self):
