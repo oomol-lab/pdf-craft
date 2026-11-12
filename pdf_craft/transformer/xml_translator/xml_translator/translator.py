@@ -54,6 +54,7 @@ class _RepairBaseline:
     distance: int
     xml: str
     feedback: str
+    improved_at: int
 
 
 @dataclass
@@ -747,7 +748,9 @@ class XMLTranslator:
                                 ''.join(block.itertext()) + (block.tail or '') for block in raw_blocks))
                             last_distance = distance
                             if best_repair is None or distance <= best_repair.distance:
-                                best_repair = _RepairBaseline(distance, encode_friendly(validated), error)
+                                improved_at = (attempt if best_repair is None or distance < best_repair.distance
+                                               else best_repair.improved_at)
+                                best_repair = _RepairBaseline(distance, encode_friendly(validated), error, improved_at)
                     # Preserve the actual answer even when content errors
                     # repeat: releasing it loses an already-correct tree and
                     # makes the engineer regenerate every required identity.
@@ -781,7 +784,8 @@ class XMLTranslator:
                         feedback = progress_template.render(
                             reused=previous != baseline or feedback != baseline_feedback,
                             attempt=index + 1, maximum=maximum + 1,
-                            last_distance=last_distance, distance=best_repair.distance) + '\n\n' + baseline_feedback
+                            last_distance=last_distance, distance=best_repair.distance,
+                            stagnant=index - best_repair.improved_at > 2) + '\n\n' + baseline_feedback
                         previous = baseline
                     structure = (None if best_repair is not None else
                                  repair_source_xml if previous is not None else source_xml)
