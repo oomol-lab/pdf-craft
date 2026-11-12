@@ -6,13 +6,20 @@ import json
 import hashlib
 import re
 from zipfile import ZipFile
+from xml.etree.ElementTree import Element
 
 from tiktoken import get_encoding
 
 from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
-from pdf_craft.transformer.formula_source import SourceMath
 from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class SourceMath:
+    """Archived formula evidence; not part of the product fill protocol."""
+    latex: str
+    element: Element
 
 
 @dataclass
