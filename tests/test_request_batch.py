@@ -70,7 +70,7 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
             original = model.answer
             def answer(messages):
                 value = original(messages)
-                if 'XML template:' in messages[1]['content']:
+                if messages[0]['content'].startswith('You are an XML structure engineer.'):
                     return value.replace('Paragraph 1.', 'wrong')
                 return value
             model.answer = answer
@@ -87,6 +87,8 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
             self.assertEqual(len(requests), 2)
             self.assertIn('XML structure', requests[0]['messages'][0]['content'])
             self.assertIn('Paragraph 0.', requests[1]['messages'][1]['content'])
+            self.assertEqual([message['role'] for message in requests[1]['messages']], ['system', 'user'])
+            self.assertIn('Rejected candidate XML', requests[1]['messages'][1]['content'])
             usage = collector.report()[config]
             self.assertEqual(usage.effective.requests, 0)
             self.assertEqual(usage.wasted.requests, 3)
