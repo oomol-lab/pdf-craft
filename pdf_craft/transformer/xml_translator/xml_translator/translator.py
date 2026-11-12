@@ -49,6 +49,13 @@ CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | Non
 DeliveryFormatter = Callable[[list[InlineSegmentMapping | None], str, Element], list[InlineSegmentMapping | None] | None]
 
 
+@dataclass(frozen=True)
+class _RepairBaseline:
+    distance: int
+    xml: str
+    feedback: str
+
+
 @dataclass
 class TranslationTask(Generic[T]):
     element: Element
@@ -715,7 +722,7 @@ class XMLTranslator:
             last_error: str | None = None
             # A repair baseline is an entire actual answer, never an adopted
             # result or a tree assembled from multiple attempts.
-            best_repair: tuple[int, str, str] | None = None
+            best_repair: _RepairBaseline | None = None
 
             class _XMLProtocol:
                 async def validate(self, response: str, state, attempt: int, max_attempts: int):
@@ -735,8 +742,8 @@ class XMLTranslator:
                         if raw_blocks is not None:
                             distance = comparison_distance(translated_text, ''.join(
                                 ''.join(block.itertext()) + (block.tail or '') for block in raw_blocks))
-                            if best_repair is None or distance <= best_repair[0]:
-                                best_repair = distance, encode_friendly(validated), error
+                            if best_repair is None or distance <= best_repair.distance:
+                                best_repair = _RepairBaseline(distance, encode_friendly(validated), error)
                     # Preserve the actual answer even when content errors
                     # repeat: releasing it loses an already-correct tree and
                     # makes the engineer regenerate every required identity.
@@ -765,7 +772,7 @@ class XMLTranslator:
                                      if message.role == MessageRole.ASSISTANT), None)
                     feedback = messages_for_attempt[-1].message
                     if best_repair is not None:
-                        _, baseline, baseline_feedback = best_repair
+                        baseline, baseline_feedback = best_repair.xml, best_repair.feedback
                         if previous != baseline or feedback != baseline_feedback:
                             feedback = progress_template.render() + '\n\n' + baseline_feedback
                         previous = baseline
