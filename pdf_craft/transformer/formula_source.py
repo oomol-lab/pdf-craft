@@ -7,10 +7,9 @@ from .xml_translator.segment import TextSegment
 MathMapping = tuple[Element, list[TextSegment]]
 
 
-class MathProjectionError(ValueError):
-    """Canonical math cannot be represented without changing accepted content."""
+class FormatDeliveryError(ValueError):
+    """An accepted fill answer could not be delivered without changing content."""
 
-    attempts: int = 1
 
 
 @dataclass(frozen=True)

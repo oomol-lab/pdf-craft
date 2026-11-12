@@ -16,7 +16,6 @@ from xml.etree.ElementTree import Element
 from pdf_craft.concurrency import AsyncExecutor
 
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
-from pdf_craft.language import is_han_char, is_latin_letter
 from pdf_craft.llm.loop import ProtocolRetry, ProtocolSuccess, RepairLoopOptions, run_repair_loop
 from pdf_craft.runtime import invoke_callback, IO_DOMAIN
 from pdf_craft.transformer.xml_translator.segment import (
@@ -34,13 +33,13 @@ from .fill_diagnostics import FillDiagnostics
 from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
 from .submitter import SubmitKind, submit
 from ...word_count import count_xml_words
-from ...source_view import SourceView
-from ...formula_source import MathProjectionError
 from ...progress import TranslationProgress, active_progress, selected_item, selected_assets
 from pdf_craft.progress import UnitOutcome
 from collections import Counter, deque
 import asyncio
 from pdf_craft._progress import DiskUnits, progress_directory
+
+from ...formula_source import FormatDeliveryError
 
 if TYPE_CHECKING:
     from ...structured_translation import StructuredTranslation
@@ -48,18 +47,7 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 SourceTextRenderer = Callable[[list[InlineSegment]], str]
 CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | None]
-CandidateProjector = Callable[[list[InlineSegmentMapping | None], str, Element], list[InlineSegmentMapping | None] | None]
-
-
-def _already_in_target_language(text: str, target_language: str) -> bool:
-    normalized = target_language.strip().casefold().replace("_", "-")
-    if normalized not in {
-        "zh", "zh-cn", "zh-hans", "chinese", "simplified chinese", "中文", "简体中文",
-    }:
-        return False
-    han_count = sum(is_han_char(char) for char in text)
-    latin_count = sum(is_latin_letter(char) for char in text)
-    return han_count >= 2 and han_count >= latin_count
+DeliveryFormatter = Callable[[list[InlineSegmentMapping | None], str, Element], list[InlineSegmentMapping | None] | None]
 
 
 @dataclass
@@ -521,7 +509,6 @@ class XMLTranslator:
             translation_protocol.context(primary)
             if translation_protocol is not None and translation_protocol.context else '',
             ''.join(self._render_source_text_parts(overlap))) if part)
-        source_view = translation_protocol.source_view(primary) if translation_protocol is not None else None
         result = await self._translate_inline_segment_group_async(
             inline_segments=primary,
             callbacks=callbacks,
@@ -529,16 +516,13 @@ class XMLTranslator:
                 immutable_elements_for_inline_segments(primary)
                 if immutable_elements_for_inline_segments is not None else []
             ),
-            source_text_renderer=((lambda segments, math=source_view: translation_protocol.render(segments, math))
-                                  if source_view is not None and translation_protocol is not None
-                                  else source_text_renderer),
+            source_text_renderer=source_text_renderer,
             canonical_text_validator=canonical_text_validator,
             source_context=context,
-            candidate_projector=(
+            delivery_formatter=(
                 (lambda mappings, canonical, response:
-                 translation_protocol.materialize_candidate(mappings, canonical, response, primary))
+                 translation_protocol.materialize_accepted(mappings, canonical, response, primary))
                 if translation_protocol is not None else None),
-            source_view=source_view,
             allow_direct_fill=(translation_protocol is not None
                                and translation_protocol.is_text_unit(translation_protocol.unit(primary[0]))),
         )
@@ -560,8 +544,7 @@ class XMLTranslator:
         source_text_renderer: SourceTextRenderer | None,
         canonical_text_validator: CanonicalTextValidator | None,
         source_context: str = '',
-        candidate_projector: CandidateProjector | None = None,
-        source_view: SourceView | None = None,
+        delivery_formatter: DeliveryFormatter | None = None,
         allow_direct_fill: bool = False,
     ) -> list[InlineSegmentMapping | None]:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
@@ -590,12 +573,8 @@ class XMLTranslator:
         )
         targets = segment_locations(primary)
         try:
-            if source_view is not None:
-                context = '\n\n'.join(value for value in (source_context, source_view.context) if value)
-                translated_text = await self._translate_text_async(source_text, context=context)
-            else:
-                translated_text = (await self._translate_text_async(source_text, context=source_context)
-                                   if source_context else await self._translate_text_async(source_text))
+            translated_text = (await self._translate_text_async(source_text, context=source_context)
+                               if source_context else await self._translate_text_async(source_text))
         except Exception as error:
             await recover(error, FailureCategory.TRANSLATION, 'text_translation',
                           'omit_translation', targets=targets, context_locations=context_targets,
@@ -610,11 +589,11 @@ class XMLTranslator:
                     (lambda element, canonical=translated_text: canonical_text_validator(inline_segments, canonical, element))
                     if canonical_text_validator is not None else None
                 ),
-                candidate_projector=candidate_projector,
+                delivery_formatter=delivery_formatter,
                 allow_direct_fill=allow_direct_fill,
             )
         except Exception as error:
-            await recover(error, FailureCategory.FILL, 'xml_fill', 'omit_translation',
+            await recover(error, FailureCategory.FILL, 'format_delivery' if isinstance(error, FormatDeliveryError) else 'xml_fill', 'omit_translation',
                           targets=targets, context_locations=context_targets, backend='llm', model=getattr(self._fill_llm, 'model', None))
             return [None] * len(inline_segments)
         if projected is not None:
@@ -640,7 +619,7 @@ class XMLTranslator:
                 yield text_segment.text
 
     async def _translate_text_async(self, text: str, *, context: str = "") -> str:
-        if not normalize_whitespace(text, trim=True) or _already_in_target_language(text, self._target_language):
+        if not normalize_whitespace(text, trim=True):
             return text
         template = await self._translation_runtime.template("translate")
         messages = [Message(MessageRole.SYSTEM, template.render(
@@ -658,7 +637,7 @@ class XMLTranslator:
         callbacks: Callbacks,
         canonical_text_validator: Callable[[Element, str], str | None] | None = None,
         failure_locations: tuple = (),
-        candidate_projector: CandidateProjector | None = None,
+        delivery_formatter: DeliveryFormatter | None = None,
         allow_direct_fill: bool = False,
     ) -> list[InlineSegmentMapping | None] | None:
         from ...fill_text import plain_translation
@@ -670,32 +649,36 @@ class XMLTranslator:
         translation.text = translated_text
 
         def validate_candidate(element):
-            projected = None
             error = hill_climbing.validate(element)
             if error is not None:
                 blocks = hill_climbing.inline_feedback_blocks(element)
                 if blocks:
                     error += '\n' + feedback_template.render(blocks=blocks)
-                return error, None
+                return error
             if canonical_text_validator is not None:
                 error = canonical_text_validator(element, translated_text)
-            if error is None and candidate_projector is not None:
-                try:
-                    projected = candidate_projector(
-                        hill_climbing.candidate_mappings(element), translated_text, element)
-                except MathProjectionError as failure:
-                    error = str(failure)
-            if error is None:
-                error = hill_climbing.submit(element)
-            elif canonical_text_validator is not None:
+            if error is not None and canonical_text_validator is not None:
                 error += '\n\n' + repair_template.render(translation=encode_friendly(translation))
-            return error, projected
+            return error
+
+        def deliver(element):
+            try:
+                mappings = hill_climbing.candidate_mappings(element)
+                if delivery_formatter is not None:
+                    projected = delivery_formatter(mappings, translated_text, element)
+                    if projected is not None:
+                        return projected
+                return mappings
+            except FormatDeliveryError:
+                raise
+            except Exception as error:
+                raise FormatDeliveryError(f'Accepted fill could not be materialized: {error}') from error
 
         if allow_direct_fill and canonical_text_validator is not None:
             for candidate in self._direct_fill_candidates(hill_climbing, translated_text):
-                error, projected = validate_candidate(candidate)
+                error = validate_candidate(candidate)
                 if error is None:
-                    return projected
+                    return deliver(candidate)
 
         translation = Element('translation', {'xml:space': 'preserve'})
         translation.text = translated_text
@@ -732,18 +715,16 @@ class XMLTranslator:
                     nonlocal last_error
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
-                        error, projected = validated, None
-                        history = None
+                        error = validated
                     else:
-                        # Preserve the unmodified parsed answer in repair history.
-                        history = encode_friendly(validated)
-                        error, projected = validate_candidate(validated)
+                        error = validate_candidate(validated)
                     if error is None:
                         last_error = None
-                        return ProtocolSuccess(projected, state)
+                        return ProtocolSuccess(validated, state)
                     last_error = error
-                    return ProtocolRetry(error, state, include_response=history is not None,
-                                         response_for_history=history, reset_history=False)
+                    # Rejected XML remains in diagnostic logs, not as an answer
+                    # to imitate. Rebuild from the source and current feedback.
+                    return ProtocolRetry(error, state, include_response=False, reset_history=True)
 
                 async def empty(self, state, attempt: int, max_attempts: int):
                     nonlocal last_error
@@ -755,7 +736,7 @@ class XMLTranslator:
                     error = last_error or "XML fill exhausted retries; no usable response was produced."
                     raise XMLFillError(error, attempts=attempts)
 
-            return await run_repair_loop(RepairLoopOptions(
+            accepted = await run_repair_loop(RepairLoopOptions(
                 messages=fixed_messages,
                 request=lambda current, index, maximum: request_model(
                     llm_context, current, retry_index=index, retry_max=maximum, use_cache=False,
@@ -769,13 +750,16 @@ class XMLTranslator:
                 failure_log_context={'stage': 'xml_fill', 'model': self._fill_llm.model, 'artist_text': original_artist_text,
                     'targets': [asdict(location) for location in failure_locations]},
             ))
+            # Delivery failures belong to the engineering layer. The enclosing
+            # group diagnostic scope keeps the accepted conversation until submit.
+            return deliver(accepted)
 
     @staticmethod
     def _direct_fill_candidates(hill_climbing: HillClimbing, canonical: str) -> Iterable[Element]:
         candidate = hill_climbing.request_element()
         if (len(candidate) == 1 and not len(candidate[0])
                 and candidate[0].get('id') is not None
-                and candidate[0].tag not in ('expression', 'formula_context')):
+                and candidate[0].tag != 'expression'):
             candidate[0].text = canonical
             yield candidate
 

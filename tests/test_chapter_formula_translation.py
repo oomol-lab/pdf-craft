@@ -1,209 +1,104 @@
-"""PCEX formula interruption tests without network-backed language models."""
-
+"""All narrative formulas have real editable output slots, without background copies."""
 # pylint: disable=protected-access
-
-from __future__ import annotations
-
 import unittest
-from xml.etree.ElementTree import Element
+from typing import cast
+from xml.etree.ElementTree import tostring
 
-from tiktoken import get_encoding
-
-from pdf_craft.extractor.chapter.chapter import (
-    SourceAsset,
-    SourceTextFragment,
-    Chapter,
-    DisplayFormula,
-    TextFlowItem,
-)
+from pdf_craft import RetryPolicy
+from pdf_craft.extractor.chapter.chapter import Chapter, DisplayFormula, SourceAsset, TextFlowItem, InlineExpression, SourceTextFragment, encode, decode
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
-from pdf_craft.transformer.xml_translator.segment import search_text_segments
-from pdf_craft.transformer.xml_translator.xml_translator.callbacks import warp_callbacks
-from pdf_craft.transformer.xml_translator.xml_translator.stream_mapper import XMLStreamMapper
-from pdf_craft.transformer.xml_translator.xml_translator.submitter import submit
+from pdf_craft.transformer.translation_coverage import formula_states, accepted_translation
+from tests.fill_fixtures import chapter, expression, model_replies
+from tests.translation_model import translator_fixture
 
 
-class _FormulaAwareTranslator:
-    """A deterministic XMLTranslator stand-in that deliberately corrupts formulas."""
-
-    def __init__(self, max_group_score: int = 10_000) -> None:
-        self.model_sources: list[str] = []
-        self._max_group_score = max_group_score
-
-    async def translate_element(self, task, **kwargs):
-        source_hook = kwargs["interrupt_source_text_segments"]
-
-        def record_source(segments):
-            interrupted = list(source_hook(segments))
-            return iter(interrupted)
-
-        callbacks = warp_callbacks(
-            interrupt_source_text_segments=record_source,
-            interrupt_translated_text_segments=kwargs["interrupt_translated_text_segments"],
-            interrupt_block_element=kwargs["interrupt_block_element"],
-
-        )
-        mapper = XMLStreamMapper(get_encoding("cl100k_base"), max_group_score=self._max_group_score)
-
-        async def translate_group(inline_segments):
-            self.model_sources.append(
-                "\n\n".join("".join(segment.text for segment in inline) for inline in inline_segments)
-            )
-            mappings = []
-            for inline in inline_segments:
-                template = inline.create_element()
-                self._corrupt_formula_text_and_move_it(template)
-                assigned = inline.assign_attributes(template)
-                mappings.append((inline.parent, list(search_text_segments(assigned))))
-            return mappings
-
-        translated = task.element
-        async for element, mappings in mapper.map_stream_async(
-            elements=iter((task.element,)), callbacks=callbacks, map=translate_group, window=1, ownership=kwargs.get('translation_protocol'),
-        ):
-            translated = submit(element, task.action, mappings)
-        return translated, task.payload
-
-    def _corrupt_formula_text_and_move_it(self, element: Element) -> None:
-        formulas = [child for child in element if child.tag == "expression"]
-        if formulas:
-            # The expression content is deliberately changed. The interrupter
-            # must recover the source formula rather than accepting this text.
-            # Keep the fake's following prose after the whole formula sequence.
-            # The segmenter now preserves adjacent sibling tokens separately;
-            # inserting prose after the first would intentionally split them.
-            formula = formulas[-1]
-            formula.text = "MODEL_CHANGED_FORMULA"
-            formula.tail = "译文"
-            return
-        for node in element.iter():
-            if node.text:
-                node.text = "译:" + node.text
-            if node.tail:
-                node.tail = "译:" + node.tail
+def equation(value='x+1'):
+    return DisplayFormula(SourceAsset(2, 'formula', (0, 20, 90, 40), content=[value]))
 
 
-class _ReorderingFormulaTranslator(_FormulaAwareTranslator):
-    """Simulate a fill model that moves one frozen token before natural text."""
+class ChapterFormulaTranslationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_equation_is_translated_once_at_its_real_position(self):
+        source = chapter(['Before.'])
+        source.flow_items.append(equation())
+        source.flow_items.extend(chapter(['After.']).flow_items)
+        translator, model = translator_fixture()
+        model_replies(model, '前。$$x+2$$后。', [
+            '<xml><fragment id="1">前。</fragment><expression id="2">$$x+2$$</expression><fragment id="3">后。</fragment></xml>'])
+        result = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+        self.assertEqual(cast(DisplayFormula, result.flow_items[1]).asset.content, ['x+2'])
+        self.assertEqual(decode(encode(result)), result)
+        self.assertTrue(accepted_translation(result.flow_items[1]))
+        self.assertEqual(list(formula_states(source, result))[0].state, 'translated')
+        self.assertEqual(len(model.wire_calls), 2)
+        for call in model.wire_calls:
+            for message in call:
+                self.assertNotIn('formula_context', message.message)
+        self.assertEqual(model.wire_calls[0][1].message.count('$$x+1$$'), 1)
 
-    def _corrupt_formula_text_and_move_it(self, element: Element) -> None:
-        formulas = [child for child in element if child.tag == "expression"]
-        if len(formulas) == 1:
-            formula = formulas[0]
-            element.text = None
-            formula.text = "MODEL_CHANGED_FORMULA"
-            formula.tail = "译文后"
-            return
-        super()._corrupt_formula_text_and_move_it(element)
+    async def test_equation_only_chapter_has_the_same_path(self):
+        source = Chapter(5, -1, [equation('4')])
+        translator, model = translator_fixture()
+        model_replies(model, '$$40$$', ['<xml><expression id="1">$$40$$</expression></xml>'])
+        target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+        self.assertEqual(cast(DisplayFormula, target.flow_items[0]).asset.content, ['40'])
+        self.assertEqual(list(formula_states(source, target))[0].order, 'body:0')
+        self.assertEqual(len(model.wire_calls), 2)
 
+    async def test_failed_equation_is_not_claimed_as_translated(self):
+        source = Chapter(5, -1, [equation()])
+        translator, model = translator_fixture()
+        model_replies(model, '$$x+2$$', ['<xml><expression id="1">wrong</expression></xml>'])
+        target = await NarrativeXMLTransformer(translator).transform(source, retry_policy=RetryPolicy(fill=0), error_policy=True)
+        self.assertFalse(accepted_translation(target.flow_items[0]))
+        self.assertEqual(list(formula_states(source, target))[0].state, 'preserved')
 
-class TestChapterFormulaTranslation(unittest.IsolatedAsyncioTestCase):
+    async def test_inline_reuse_cannot_replace_accepted_notation(self):
+        source = chapter([expression(r'\mathbf{\Sigma}=1')])
+        translator, model = translator_fixture()
+        artist = r'\[\mathbf{\Sigma}=1\]'
+        model_replies(model, artist, [rf'<xml><fragment id="1"><expression>{artist}</expression></fragment></xml>'])
+        target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+        self.assertEqual(cast(InlineExpression, cast(SourceTextFragment, cast(TextFlowItem, target.flow_items[0]).children[0]).content[0]).kind.name, 'DISPLAY_BRACKET')
+        self.assertEqual(len(model.wire_calls), 2)
 
+    async def test_engineering_failure_does_not_retry_model(self):
+        from unittest.mock import patch
+        source = chapter([expression('4')])
+        translator, model = translator_fixture()
+        model_replies(model, '40', ['<xml><fragment id="1"><expression>40</expression></fragment></xml>'])
+        with patch('pdf_craft.transformer.chapter_formula_interrupter.ChapterFormulaInterrupter.materialize',
+                   side_effect=ValueError('engineering failure')):
+            with self.assertRaisesRegex(ValueError, 'engineering failure'):
+                await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+        self.assertEqual(len(model.wire_calls), 2)
 
-    async def test_equation_content_is_context_and_is_never_rewritten(self):
-        equation = SourceAsset(
-            page_index=1,
-            ref="formula",
-            bbox=(10, 40, 90, 60),
-            title=[],
-            content=[r"\int_0^1 x^2 dx"],
-            caption=[],
-            asset_hash="equation-image",
-        )
-        chapter = Chapter(None, 0, [
-            TextFlowItem("body", 0, [SourceTextFragment(1, 1, (1, 1, 100, 30), ["Before equation."])]),
-            DisplayFormula(equation),
-            TextFlowItem("body", 0, [SourceTextFragment(1, 2, (1, 70, 100, 100), ["After equation."])]),
-        ])
-        translator = _FormulaAwareTranslator(max_group_score=1)
+    async def test_chinese_source_is_not_silently_accepted_by_character_ratio(self):
+        translator, model = translator_fixture()
+        model_replies(model, '修改后的中文。', ['<xml><fragment id="1">修改后的中文。</fragment></xml>'])
+        target = await NarrativeXMLTransformer(translator).transform(chapter(['原始中文。']), error_policy=False)
+        self.assertIn('修改后的中文。', tostring(encode(target), encoding='unicode'))
+        self.assertEqual(len(model.wire_calls), 2)
 
-        translated = await NarrativeXMLTransformer(translator).transform(chapter)
-
-        self.assertTrue(any(
-            "Before equation." in source and r"$$\int_0^1 x^2 dx$$" in source
-            for source in translator.model_sources
-        ))
-        self.assertTrue(any(
-            r"$$\int_0^1 x^2 dx$$" in source and "After equation." in source
-            for source in translator.model_sources
-        ))
-        restored = translated.flow_items[1]
-        self.assertIsInstance(restored, DisplayFormula)
-        assert isinstance(restored, DisplayFormula)
-        self.assertEqual(restored.asset, equation)
-
-    async def test_equation_title_and_caption_are_translated_while_content_is_frozen(self):
-        for title, caption in [(["Title"], []), ([], ["Caption"]), (["Title"], ["Caption"])]:
-            with self.subTest(title=title, caption=caption):
-                equation = SourceAsset(
-                    page_index=1,
-                    ref="formula",
-                    bbox=(10, 40, 90, 60),
-                    title=title,
-                    content=[r"x^2"],
-                    caption=caption,
-                    asset_hash="equation-metadata",
-                )
-                chapter = Chapter(None, 0, [
-                    TextFlowItem("body", 0, [SourceTextFragment(
-                        1, 1, (1, 1, 100, 30), ["Before."],
-                    )]),
-                    DisplayFormula(equation),
-                    TextFlowItem("body", 0, [SourceTextFragment(
-                        1, 2, (1, 70, 100, 100), ["After."],
-                    )]),
-                ])
-
-                translator = _FormulaAwareTranslator()
-                translated = await NarrativeXMLTransformer(translator).transform(chapter)
-
-                restored = translated.flow_items[1]
-                self.assertIsInstance(restored, DisplayFormula)
-                assert isinstance(restored, DisplayFormula)
-                self.assertEqual(restored.asset.content, equation.content)
-                self.assertEqual(
-                    restored.asset.title,
-                    [f"译:{item}" for item in equation.title],
-                )
-                self.assertEqual(
-                    restored.asset.caption,
-                    [f"译:{item}" for item in equation.caption],
-                )
-                self.assertTrue(any(r"$$x^2$$" in source for source in translator.model_sources))
-
-
-    async def test_equation_only_chapter_keeps_the_asset_and_does_not_skip_translation(self):
-        equation = SourceAsset(
-            page_index=1,
-            ref="formula",
-            bbox=(10, 40, 90, 60),
-            title=[],
-            content=[r"x^2 + y^2 = z^2"],
-            caption=[],
-            asset_hash="equation-only",
-        )
-        translator = _FormulaAwareTranslator(max_group_score=1)
-
-        translated = await NarrativeXMLTransformer(translator).transform(
-            Chapter(None, 0, [DisplayFormula(equation)])
-        )
-
-        self.assertTrue(any(r"$$x^2 + y^2 = z^2$$" in source for source in translator.model_sources))
-        self.assertEqual(translated.flow_items, [DisplayFormula(equation)])
-
-    async def test_chapter_without_formula_keeps_normal_xml_translation(self):
-        chapter = Chapter(None, 0, [
-            TextFlowItem("body", 0, [SourceTextFragment(1, 1, (1, 1, 100, 30), ["plain text"])]),
-        ])
-
-        translated = await NarrativeXMLTransformer(_FormulaAwareTranslator()).transform(chapter)
-
-        layout = translated.flow_items[0]
-        self.assertIsInstance(layout, TextFlowItem)
-        assert isinstance(layout, TextFlowItem)
-        content = layout.children[0].content
-        self.assertEqual(content, ["译:plain text"])
-
-
-if __name__ == "__main__":
-    unittest.main()
+    async def test_formula_only_workspace_persists_adoption_and_current_format(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from pdf_craft.common import save_xml, read_xml
+        from pdf_craft.document.migrations import CURRENT_VERSION
+        from pdf_craft.transformer.content import translate_workspace
+        from pdf_craft.transformer.translation_coverage import read_coverage
+        from tests.extraction_helpers import make_extraction
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root/'source')
+            value = DisplayFormula(SourceAsset(1, 'formula', (0,20,90,40), content=['4']))
+            save_xml(encode(Chapter(None, -1, [value])), root/'source/chapters/chapter_head.xml')
+            translator, model = translator_fixture()
+            model_replies(model, '$$40$$', ['<xml><expression id="1">$$40$$</expression></xml>'])
+            result = await translate_workspace(source, root/'translated', NarrativeXMLTransformer(translator))
+            result._validate()
+            self.assertEqual(read_coverage(root/'translated/translation.xml').narrative,
+                             {('head', 'formula', 'body:0'): 'translated'})
+            self.assertEqual(read_xml(root/'translated/chapters/chapter_head.xml').findtext('.//content'), '40')
+            self.assertEqual(json.loads((root/'translated/manifest.json').read_text())['format_version'], CURRENT_VERSION)
+            self.assertEqual(len(model.wire_calls), 2)

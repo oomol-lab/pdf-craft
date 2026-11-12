@@ -238,7 +238,7 @@ fragment 的 `(page_index, fragment_id)`、自然段首 fragment identity、chap
 
 ```json
 {
-  "format_version": 7,
+  "format_version": 8,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -267,12 +267,12 @@ fragment 的 `(page_index, fragment_id)`、自然段首 fragment identity、chap
 
 | 字段 | 类型 | 必需 | 含义与约束 |
 | --- | --- | --- | --- |
-| `format_version` | integer | 是 | 规范值为 `6`；旧 v1–v5 在业务使用前通过 migration 规范化。 |
+| `format_version` | integer | 是 | 规范值为 `8`；旧 v1–v7 在业务使用前通过 migration 规范化。 |
 | `producer` | object | 是 | 创建归档的软件标识；必须且只能含 `name`、`version` |
 | `created_at` | string 或 null | 否 | 归档创建时间；字符串须为可解析的 ISO 8601 时间 |
 | `document` | object | 是 | 文档级元数据；必须且只能含下一节的字段 |
 
-规范值 `format_version` 是 JSON 数字 `6`。输入边界在私有副本上校验并迁移旧 v1–v5，再交给翻译和渲染；未知版本会被拒绝。
+规范值 `format_version` 是 JSON 数字 `8`。输入边界在私有副本上校验并迁移旧 v1–v7，再交给翻译和渲染；未知版本会被拒绝。
 
 pdf-craft 自身写出时，`producer.name` 固定为 `pdf-craft`，`producer.version` 是已安装的 pdf-craft 包版本；无法取得安装版本时为 `unknown`。当前校验器允许其他生产者，但 `name` 和 `version` 都必须是非空字符串。
 
@@ -709,7 +709,7 @@ craft.patch_pdf_with_extraction(
 
 ## 版本兼容
 
-当前格式版本为 `7`。旧 v1–v6 在输入物化副本上校验并迁移，源章节与已有译文层同步转换；之后翻译、渲染和导出只处理当前格式，原始归档不修改。未知版本拒绝。
+当前格式版本为 `8`。旧 v1–v7 在输入物化副本上校验并迁移，源章节与已有译文层同步转换；之后翻译、渲染和导出只处理当前格式，原始归档不修改。未知版本拒绝。
 
 应用程序若只需要后续渲染或翻译，也应通过 Craft 门面打开归档并执行版本和完整性检查，不要仅凭 ZIP 可解压就认定包可用。
 
@@ -743,3 +743,17 @@ PDF 回填成功。
 ### 已采用的空 furniture（v7）
 
 普通 position 和无 association 的 section 允许文本为空，身份和几何仍保留。coverage 为 `translated` 时，空值表示已采用的空译文，PDF 写回仅擦除来源区域，不增加文字；`preserved` 或缺失 coverage 仍表示保留原文。v6→v7 在历史校验后只升级格式声明，源和全部既有译文层的值、身份及 coverage 不变。
+
+
+### 独立公式的翻译采用状态（v8）
+
+独立公式与正文一起翻译，具有实际输出槽位。coverage.xml 的 narrative 可包含：
+
+```xml
+<formula chapter_id="3" path="body:2" state="translated"/>
+<formula chapter_id="3" path="note:7-1:0" state="preserved"/>
+```
+
+path 按源 flow 顺序定位正文或脚注定义内的 DisplayFormula，不以几何猜身份。
+未采用时保留来源，不能把来源公式算作译文。v7 及更早的独立公式曾冻结原样交付，
+迁移为全部旧译文层补充 preserved；原章节/公式内容及资源不修改。

@@ -455,13 +455,13 @@ def _source_unit_identity(owner: Element) -> str:
     fragment = owner.find('fragment') if owner.tag == 'text' else None
     if fragment is not None:
         return f'{fragment.get("page_index")}:{fragment.get("fragment_id")}'
-    return owner.get('__pdf_craft_stream_node') or str(id(owner))
+    return owner.get('__pdf_craft_formula_unit') or owner.get('__pdf_craft_stream_node') or str(id(owner))
 
 
 def _source_unit_owner(inline_segment) -> Element:
     """Return a PCEX TextFlowItem wrapper, or a safe independent fallback."""
     for element in inline_segment.head.parent_stack:
-        if element.tag == "text":
+        if element.tag in ("text", "display-formula"):
             return element
     # Display formulas and other non-text XML content remain hard boundaries.
     return inline_segment.parent

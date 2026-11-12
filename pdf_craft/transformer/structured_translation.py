@@ -1,13 +1,11 @@
-"""Validate group content and materialize the final format before adoption."""
-from copy import deepcopy
+"""Read-only fill acceptance followed by format-specific delivery."""
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol
 from xml.etree.ElementTree import Element
 
 from ..common.whitespace import is_whitespace
 from .fill_text import text_difference
-from .formula_source import MathMapping, SourceMath, MathProjectionError
-from .source_view import SourceView
+from .formula_source import MathMapping, FormatDeliveryError
 from .xml_translator.segment import (InlineSegment, TextSegment, TextPosition, combine_text_segments, search_text_segments)
 from .xml_translator.xml.matching import element_id
 
@@ -20,9 +18,9 @@ class FormulaProjection(Protocol):
     def interrupt_source_text_segments(self, segments: Iterable[TextSegment], /) -> Iterable[TextSegment]: ...
     def interrupt_translated_text_segments(self, segments: Iterable[TextSegment], /) -> Iterable[TextSegment]: ...
     def interrupt_block_element(self, element: Element) -> Element: ...
-    def source_formulas(self, segments: Iterable[TextSegment]) -> list[SourceMath]: ...
     def materialize(self, root: Element) -> Element: ...
     def visible_text(self, root: Element) -> str: ...
+    def delivery_source_text(self, root: Element) -> str: ...
 
 
 class StructuredTranslation:
@@ -49,7 +47,7 @@ class StructuredTranslation:
             return self.identity(owner)
         return owner.get('__pdf_craft_stream_node') or str(id(owner))
 
-    def render(self, segments: list[InlineSegment], math: SourceView | None = None) -> str:
+    def render(self, segments: list[InlineSegment]) -> str:
         parts, previous = [], None
         for segment in segments:
             if getattr(segment, '_translation_context', False):
@@ -57,76 +55,55 @@ class StructuredTranslation:
             owner = self.owner(segment) if self.owner is not None else segment
             if parts and owner is not previous:
                 parts.append('\n\n')
-            parts.extend(math.readable(text) if math is not None else text.text for text in segment)
+            parts.extend(text.text for text in segment)
             previous = owner
         return ''.join(parts)
 
     def validate(self, segments: list[InlineSegment], canonical: str, response: Element) -> str | None:
-        # Top-level tails are outside the adapter's adopted fragment fields.
-        # Plain fragments can retain their own
-        # trailing text. Never move it across an anchor or a rich inline tag.
-        # This adapter discards display-equation context during restoration.
-        # It must never count artist words hidden in those non-output slots.
-        if any(not is_whitespace(char) for context in response.iter('formula_context')
-               for text in context.itertext() for char in text):
-            return 'formula_context is read-only background. Leave it empty and put artist text in output slots.'
-        original_response = response
-        response = deepcopy(response)
         if any(not is_whitespace(char) for char in response.text or ''):
             return 'Visible text outside the required translation fragments.'
         for index, child in enumerate(response):
             if not any(not is_whitespace(char) for char in child.tail or ''):
                 continue
-            if (self.owner is None or child.tag != 'fragment'
-                    or len(child) or element_id(child) not in {segment.id for segment in segments}
+            if (self.owner is None or child.tag != 'fragment' or len(child)
+                    or element_id(child) not in {segment.id for segment in segments}
                     or (index+1 < len(response) and response[index+1].tag != 'fragment')):
                 return 'Visible tail has ambiguous fragment ownership.'
-            child.text = (child.text or '') + (child.tail or '')
-            child.tail = None
         slots_by_id = {element_id(slot): slot for slot in response}
         filled = [slots_by_id[segment.id] for segment in segments if segment.id in slots_by_id]
-        error = text_difference(canonical, ''.join(''.join(slot.itertext()) for slot in filled), filled)
-        if error is None:
-            original_response[:] = list(response)
-            return None
-        return error
+        return text_difference(canonical, ''.join(''.join(slot.itertext()) + (slot.tail or '') for slot in filled), filled)
 
 
     def prepare(self, root: Element) -> None:
         if self.formulas is not None:
             self.formulas.prepare(root)
 
-    def source_view(self, segments: list[InlineSegment]) -> SourceView | None:
-        if self.formulas is None:
-            return None
-        segments = [segment for segment in segments if not getattr(segment, '_translation_context', False)]
-        sources = self.formulas.source_formulas(text for segment in segments for text in segment)
-        if not sources:
-            return None
-        return SourceView(sources)
-
-    def materialize_candidate(self, mappings: list[MathMapping | None], canonical: str,
+    def materialize_accepted(self, mappings: list[MathMapping | None], canonical: str,
                               _response: Element, segments: list[InlineSegment]) -> list[MathMapping | None] | None:
         if self.formulas is None:
             return None
-        projected, visible = [], {}
+        projected, restored = [], []
         assert self.formulas is not None
-        # Materialize and check the SAME private nodes later sent to submit.
+        # Called only AFTER the XML repair loop has accepted its original answer.
         for segment, mapping in zip(segments, mappings, strict=True):
             if mapping is None:
-                raise MathProjectionError('A complete candidate must retain every source block.')
+                raise FormatDeliveryError('A complete candidate must retain every source block.')
             block, fields = mapping
             roots = list(combine_text_segments(part.clone().strip_block_parents() for part in fields))
             if len(roots) != 1:
-                raise MathProjectionError('A candidate must retain its owning block.')
-            root = self.formulas.materialize(roots[0][0])
-            visible[segment.id] = self.formulas.visible_text(root)
+                raise FormatDeliveryError('A candidate must retain its owning block.')
+            restored.append(''.join(roots[0][0].itertext()))
+            original = roots[0][0]
+            root = self.formulas.materialize(original)
+            error = text_difference(self.formulas.delivery_source_text(original), self.formulas.visible_text(root))
+            if error is not None:
+                raise FormatDeliveryError('Format delivery changed an accepted answer. ' + error)
             output = list(search_text_segments(root, normalize_whitespace=False)) or [
                 TextSegment('', [root], 0, 0, 1, TextPosition.TEXT)]
             projected.append((block, output))
-        error = text_difference(canonical, ''.join(visible[segment.id] for segment in segments))
+        error = text_difference(canonical, ''.join(restored))
         if error is not None:
-            raise MathProjectionError(error)
+            raise FormatDeliveryError(error)
         if self._record_units:
             self.projected_math_units.update(self.key(self.unit(segment)) for segment in segments)
         return projected

@@ -200,6 +200,18 @@ def narrative_texts(chapter: Chapter) -> Generator[TextFlowItem, None, None]:
                 yield item
 
 
+
+def formula_items(chapter):
+    """Stable source flow paths, including equations inside note definitions."""
+    for index, item in enumerate(chapter.flow_items):
+        if isinstance(item, DisplayFormula):
+            yield f'body:{index}', item
+    for reference in search_references_in_chapter(chapter):
+        for index, item in enumerate(reference.flow_items):
+            if isinstance(item, DisplayFormula):
+                yield f'note:{reference.page_index}-{reference.order}:{index}', item
+
+
 def decode(element: Element, *, allow_legacy: bool = False) -> Chapter:
     if not allow_legacy:
         if element.tag != "chapter": raise ValueError("PCEX v3 chapter root must be <chapter>")

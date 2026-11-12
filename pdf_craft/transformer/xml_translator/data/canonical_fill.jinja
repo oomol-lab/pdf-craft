@@ -1,7 +1,5 @@
 Fill the complete group in one response. The XML template defines required
 structure; the complete translation payload defines delivered content.
-Read-only formula_context nodes must retain their structure but remain empty;
-they cannot carry delivered text.
 
 Reading-order example:
 Source: <xml><fragment id="1">The main sentence starts</fragment><fragment id="2">Sidebar.</fragment><fragment id="3">and ends here.</fragment></xml>
@@ -35,3 +33,11 @@ ALSO CORRECT: <p id="1"><expression id="2">$u=</expression><expression id="3">v+
 WRONG: <p id="1"><expression id="2">$u=$</expression><expression id="3">$v+w$</expression></p>
 The last version inserts two dollar signs. A source container is not a separate
 mathematical boundary: never add delimiters to complete each container's formula.
+
+Repetitions belong to the translation too, including repetitions that look
+accidental. Do not deduplicate them or infer their count from source blocks.
+For source <xml><p id="1">Echo.</p><p id="2">Echo.</p></xml> and translation
+"Echo. Echo. Echo.", a complete fill is
+<xml><p id="1">Echo. Echo.</p><p id="2">Echo.</p></xml>.
+One phrase per source container would lose an occurrence. The same applies to
+repeated punctuation. Keep the source containers, not their original lengths.

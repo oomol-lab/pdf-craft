@@ -9,7 +9,7 @@ from ..common.stream import DiskDelivery
 from ..document.paragraph import ParagraphContent, SourceRegion
 from ..document.render import RenderMode, _compose_chapter
 from ..extractor.chapter.chapter import (
-    Chapter, Reference, TextFlowItem, SourceTextFragment, encode, decode,
+    Chapter, Reference, TextFlowItem, DisplayFormula, SourceTextFragment, encode, decode,
 )
 from ..markdown.render.layouts import render_layouts
 from ..runtime import IO_DOMAIN, temporary_directory
@@ -38,6 +38,12 @@ def display_values(item, mode):
     if item.narrative_states is not None:
         preserved = {identity for identity in identities if item.narrative_states.get(identity) == 'preserved'}
         identities = {identity for identity in identities if item.narrative_states.get(identity) == 'translated'}
+    if isinstance(item.value, DisplayFormula):
+        chapter_id = str(item.chapter_id) if item.chapter_id is not None else 'head'
+        if item.narrative_states is not None and item.narrative_states.get((chapter_id, 'formula', f'body:{item.index}')) == 'translated':
+            identities.add((chapter_id, 'formula', 'body:0'))
+    elif isinstance(item.value, Reference) and item.narrative_states is not None:
+        identities.update(key for key, state in item.narrative_states.items() if key[1] == 'formula' and state == 'translated')
     if item.asset_children is None:
         children = range(len(item.value.children)) if isinstance(item.value, TextFlowItem) else [-1]
     else:

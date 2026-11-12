@@ -46,9 +46,9 @@ class _Hill:
     def validate(self, _element):
         return next(self.errors)
 
-    def submit(self, _element):
+    def candidate_mappings(self, _element):
         self.submissions += 1
-        return None
+        return []
 
 
 def _translator(responses):

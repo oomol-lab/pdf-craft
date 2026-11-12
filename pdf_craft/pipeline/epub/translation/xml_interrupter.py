@@ -10,7 +10,6 @@ from mathml2latex.mathml import process_mathml  # pyright: ignore[reportMissingI
 from pdf_craft.transformer.xml_translator.segment import TextSegment, combine_text_segments, find_block_depth
 from pdf_craft.transformer.xml_translator.utils import ensure_list
 from pdf_craft.transformer.xml_translator.xml import DISPLAY_ATTRIBUTE, clone_element, is_inline_element
-from pdf_craft.transformer.formula_source import SourceMath
 from pdf_craft.transformer.formula_payload import replace_formulas
 from pdf_craft.formula.comparison import same_formula
 
@@ -34,18 +33,6 @@ class XMLInterrupter:
         """No temporary projection identity belongs in the final XHTML."""
         for node in root.iter():
             node.attrib.pop(_ID_KEY, None)
-
-    def source_formulas(self, segments: Iterable[TextSegment]) -> list[SourceMath]:
-        identities = {node.get(_ID_KEY): node for segment in segments for node in segment.parent_stack
-                      if _ID_KEY in node.attrib}
-        sources = []
-        for key, element in self._placeholder2interrupted.items():
-            if key in identities and is_inline_element(element):
-                node = clone_element(element)
-                for child in node.iter():
-                    child.attrib.pop(_ID_KEY, None)
-                sources.append(SourceMath(self._latex_by_id[key], node, identities[key]))
-        return sources
 
     def interrupt_source_text_segments(
         self, text_segments: Iterable[TextSegment]
@@ -102,6 +89,9 @@ class XMLInterrupter:
         children = list(root if presentation is None else presentation)
         children = [node for node in children if node.tag not in ('annotation', 'annotation-xml')]
         return len(children) == 1 and children[0].tag == 'mtext'
+
+    def delivery_source_text(self, root: Element) -> str:
+        return ''.join(root.itertext())
 
     def visible_text(self, root: Element) -> str:
         if root.tag == 'math':

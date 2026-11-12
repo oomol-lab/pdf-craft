@@ -2,11 +2,14 @@
 from difflib import SequenceMatcher
 import unicodedata
 
+from jinja2 import Environment, PackageLoader
 from markdown_it import MarkdownIt
 
 from ..common.whitespace import is_whitespace
 from ..formula.comparison import normalize_latex
 
+
+_FEEDBACK = Environment(loader=PackageLoader("pdf_craft.transformer.xml_translator", "data"), autoescape=False)
 
 def plain_translation(text: str) -> str:
     """Best-effort CommonMark rendering. Unknown syntax remains literal data."""
@@ -57,6 +60,9 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                         f'expected context={expected[max(0,a-50):min(len(expected),b+50)]!r}; '
                         f'candidate context={actual[max(0,c-50):min(len(actual),d+50)]!r}'
                         for kind, a, b, c, d in edits[:10])
+    if any(expected[a:b] and expected[a:b] in actual
+           for kind, a, b, _, _ in edits if kind in ('delete', 'replace')):
+        details += '\n' + _FEEDBACK.get_template('repeated_missing.jinja').render().strip()
     message = f'Visible text differs from the canonical translation: Missing {missing}, added {added} characters.\n{details}'
     if actual != _document_text(raw_actual):
         # LaTeX normalization need not be compositional across XML fields.
@@ -73,6 +79,7 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                              f'entire_block_extra={whole_extra}, text={"".join(block.itertext())[:200]!r}')
         cursor = end
     prefix = ''
+    located_missing = set()
     def fields(node, path):
         yield path + '.text', node.text or ''
         for index, child in enumerate(node):
@@ -86,6 +93,18 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
             end = len(comparison_text(prefix))
             if end <= start:
                 continue
+            for index, (kind, a, b, c, d) in enumerate(edits):
+                if kind == 'delete' and c == d and start <= c <= end and index not in located_missing:
+                    boundary = 'BEGINNING' if c == start else 'END' if c == end else None
+                    if boundary is not None:
+                        from xml.etree.ElementTree import Element
+                        from .xml_translator.xml import encode_friendly
+                        field_value = Element('field-value', {'xml:space': 'preserve'})
+                        field_value.text = expected[a:b]+value if boundary == 'BEGINNING' else value+expected[a:b]
+                        locations.append(_FEEDBACK.get_template('missing_location.jinja').render(
+                            path=path, boundary=boundary, missing=repr(expected[a:b][:6000]),
+                            current=repr(value), suggested=encode_friendly(field_value)).strip())
+                        located_missing.add(index)
             if any((start <= left < end) if left == right else (start < right and left < end)
                    for _, _, _, left, right in edits):
                 extra = any(kind == 'insert' and left <= start and end <= right

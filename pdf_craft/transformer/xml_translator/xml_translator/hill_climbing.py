@@ -8,8 +8,7 @@ from pdf_craft.transformer.xml_translator.segment import (
     BlockContentError, BlockImmutableElementsError, BlockSegment, BlockSubmitter, FoundInvalidIDError, TextSegment,
     search_text_segments, TextPosition,
 )
-from pdf_craft.transformer.xml_translator.xml import plain_text, encode_friendly
-from .common import DATA_ORIGIN_LEN_KEY
+from pdf_craft.transformer.xml_translator.xml import encode_friendly
 from .stream_mapper import InlineSegmentMapping
 from .validation import LEVEL_DEPTH, generate_error_message, nest_as_errors_group, truncate_errors_group
 
@@ -35,17 +34,8 @@ class HillClimbing:
         self._block_segment: BlockSegment = block_segment
 
     def request_element(self) -> Element:
-        element = self._block_segment.create_element()
-        for child_element in element:
-            # Immutable structural nodes (for example, Narrative asset
-            # anchors) are deliberately text-free.  They are protocol tokens,
-            # not score-bearing translation blocks.
-            if child_element.get("id") is None:
-                continue
-            text = plain_text(child_element)
-            tokens = self._encoding.encode(text)
-            child_element.set(DATA_ORIGIN_LEN_KEY, str(len(tokens)))
-        return element
+        # Source text length is neither output capacity nor a model obligation.
+        return self._block_segment.create_element()
 
     def gen_mappings(self) -> Generator[InlineSegmentMapping | None, None, None]:
         for inline_segment in self._block_segment:

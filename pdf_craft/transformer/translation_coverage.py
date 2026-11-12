@@ -15,7 +15,7 @@ from xml.etree.ElementTree import Element, SubElement
 from pdf_craft.document.furniture import coverage_identity
 from pdf_craft.common import indent, read_xml, save_xml
 from pdf_craft.extractor.chapter.chapter import (
-    Chapter, SourceAsset, SourceTextFragment, StandaloneAsset, TextFlowItem,
+    Chapter, SourceAsset, formula_items, SourceTextFragment, StandaloneAsset, TextFlowItem,
 )
 
 
@@ -27,8 +27,8 @@ class NarrativeCoverage:
     """One PDF-patchable Narrative paragraph's stable source identity."""
 
     chapter_id: str
-    page_index: int
-    order: int
+    page_index: int | str
+    order: int | str
     state: CoverageState
 
 
@@ -65,10 +65,10 @@ class AnchoredContentCoverage:
 class TranslationCoverage:
     """A parsed sidecar. Missing entries intentionally mean ``preserved``."""
 
-    narrative: dict[tuple[str, int, int], CoverageState]
+    narrative: dict[tuple[str, int | str, int | str], CoverageState]
     positions: dict[tuple[str, str], CoverageState]
     sections: dict[tuple[int, str], CoverageState]
-    anchored: dict[tuple[str, int, int], CoverageState]
+    anchored: dict[tuple[str, int | str, int | str], CoverageState]
 
 
 def paragraph_identity(chapter: Chapter, item: TextFlowItem) -> tuple[str, int, int] | None:
@@ -82,6 +82,16 @@ def paragraph_identity(chapter: Chapter, item: TextFlowItem) -> tuple[str, int, 
     if fragment is None:
         return None
     return (str(chapter.id) if chapter.id is not None else "head", fragment.page_index, fragment.identity_order)
+
+
+
+def formula_states(source, target, *, body_index=None):
+    chapter = str(source.id) if source.id is not None else 'head'
+    for (path, _), (_, item) in zip(formula_items(source), formula_items(target), strict=True):
+        if body_index is not None and path.startswith('body:'):
+            path = f'body:{body_index}'
+        yield NarrativeCoverage(chapter, 'formula', path,
+                                'translated' if accepted_translation(item) else 'preserved')
 
 
 def anchored_content_identities(chapter: Chapter) -> set[tuple[str, int, int]]:
@@ -104,12 +114,14 @@ def read_coverage(path: Path) -> TranslationCoverage:
     if not path.exists():
         return TranslationCoverage({}, {}, {}, {})
     root = read_xml(path)
-    narrative: dict[tuple[str, int, int], CoverageState] = {}
+    narrative: dict[tuple[str, int | str, int | str], CoverageState] = {}
     positions: dict[tuple[str, str], CoverageState] = {}
     sections: dict[tuple[int, str], CoverageState] = {}
-    anchored: dict[tuple[str, int, int], CoverageState] = {}
+    anchored: dict[tuple[str, int | str, int | str], CoverageState] = {}
     for entry in root.findall("narrative/paragraph"):
         narrative[(entry.get("chapter_id", ""), int(entry.get("page_index", "0")), int(entry.get("order", "0")))] = entry.get("state", "preserved")
+    for entry in root.findall("narrative/formula"):
+        narrative[(entry.get('chapter_id', ''), 'formula', entry.get('path', ''))] = entry.get('state', 'preserved')
     for entry in root.findall("furnitures/position"):
         positions[(entry.get("pattern_id", ""), entry.get("position_id", ""))] = entry.get("state", "preserved")
     for entry in root.findall("furnitures/section"):
@@ -185,6 +197,9 @@ def _replace_child(
 def _narrative_element(entries: Iterable[NarrativeCoverage]) -> Element:
     narrative = Element("narrative")
     for entry in entries:
+        if entry.page_index == 'formula':
+            SubElement(narrative, 'formula', dict(chapter_id=entry.chapter_id, path=str(entry.order), state=entry.state))
+            continue
         SubElement(narrative, "paragraph", {
             "chapter_id": entry.chapter_id,
             "page_index": str(entry.page_index),
@@ -239,6 +254,9 @@ def apply_outcomes(chapter, outcomes):
         if identity is not None:
             key = f'{identity[1]}:{identity[2]}'
             setattr(item, '_translation_missing', outcomes.get(key) is False)
+
+    for index, (_, item) in enumerate(formula_items(chapter)):
+        setattr(item, '_translation_missing', outcomes.get(f'formula:{index}') is False)
 
 
 def accepted_translation(item):

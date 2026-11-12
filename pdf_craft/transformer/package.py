@@ -40,7 +40,7 @@ from pdf_craft.transformer.furniture_translation import translate_furnitures_in_
 from pdf_craft.transformer.anchored_content import AnchoredContentTransformer
 from pdf_craft.transformer.anchored_translation import translate_anchored_contents_in_workspace_async
 from pdf_craft.transformer.translation_coverage import (
-    NarrativeCoverage, paragraph_identity, write_narrative_coverage,
+    NarrativeCoverage, paragraph_identity, write_narrative_coverage, formula_states,
 )
 
 
@@ -150,6 +150,7 @@ class ChapterExtractionTransformer:
                     else "preserved"
                 )
                 chapter_coverage.append(NarrativeCoverage(*identity, state))
+            chapter_coverage.extend(formula_states(chapter, transformed))
             return chapter_coverage
 
         if is_xml_transformer:

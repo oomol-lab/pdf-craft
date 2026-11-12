@@ -1,0 +1,11 @@
+Missing occurrence {{ missing }} can be inserted at the {{ boundary }} of
+{{ path }} in final reading order. Retain that field's existing content.
+This is an insertion location, not an instruction to move or remove another
+occurrence. Preserve all required nodes and return the complete XML.
+Current field value: {{ current }}
+A literal candidate for that field is the TEXT inside this diagnostic wrapper:
+{{ suggested }}
+The diagnostic wrapper is not an output node. Copy its text with ordinary
+friendly XML escaping; do not double the LaTeX backslashes.
+Check this candidate against the complete translation; this is a text-field edit,
+not permission to add a source container or change an ID.

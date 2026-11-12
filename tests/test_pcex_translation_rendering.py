@@ -470,6 +470,12 @@ class TestPCEXTranslationRendering(unittest.TestCase):
             reference_formula.asset.title = ["Translated note formula title"]
             reference_formula.asset.caption = ["Translated note formula caption"]
             save_xml(encode(translated), translated_path)
+            from pdf_craft.transformer.translation_coverage import formula_states, write_narrative_coverage, read_coverage, NarrativeCoverage
+            coverage_path = root / 'source/translations/english-a/coverage.xml'
+            coverage = read_coverage(coverage_path)
+            entries = [NarrativeCoverage(*key, state) for key, state in coverage.narrative.items()]
+            entries.extend(formula_states(chapter, translated))
+            write_narrative_coverage(coverage_path, entries)
             extraction._validate(require_toc=True)
 
             markers = (

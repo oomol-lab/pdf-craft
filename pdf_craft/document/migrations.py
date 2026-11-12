@@ -12,7 +12,7 @@ from xml.etree import ElementTree
 
 from ..common import save_xml
 
-CURRENT_VERSION = 7
+CURRENT_VERSION = 8
 
 
 def migrate_workspace(root: Path) -> None:
@@ -37,6 +37,7 @@ def migrate_workspace(root: Path) -> None:
     # v7 permits adopted empty furniture in translation layers. Existing v6
     # fields, source identities and coverage already have their final meaning;
     # preserve every source/layer value rather than guessing missing text.
+    _migrate_formula_coverage(paths.chapters, paths.translations, root / 'translation.xml')
     manifest['format_version'] = CURRENT_VERSION
     paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     _validate_workspace(paths)
@@ -140,3 +141,33 @@ def _v3_chapter_xml(path: Path) -> bytes:
     root = ElementTree.parse(path).getroot()
     chapter = decode_chapter(root, allow_legacy=True)
     return ElementTree.tostring(encode_chapter(chapter), encoding="utf-8", xml_declaration=True)
+
+
+def _migrate_formula_coverage(chapters: Path, translations: Path, coverage: Path) -> None:
+    """Old display equations were frozen, not adopted translations.
+
+    Source/layer content and paths remain unchanged. Record that fact once at
+    the input boundary; runtime rendering never guesses from absent fields.
+    """
+    identities = []
+    for path in chapters.glob('chapter_*.xml'):
+        root = ElementTree.parse(path).getroot()
+        chapter = root.get('id', 'head')
+        for index, item in enumerate(root.find('flow') or []):
+            if item.tag == 'display-formula':
+                identities.append((chapter, f'body:{index}'))
+        for reference in root.findall('references/ref'):
+            for index, item in enumerate(reference.find('flow') or []):
+                if item.tag == 'display-formula':
+                    identities.append((chapter, f"note:{reference.get('id')}:{index}"))
+    for path in [coverage, *translations.glob('*/coverage.xml')]:
+        if not path.exists() or not identities:
+            continue
+        root = ElementTree.parse(path).getroot()
+        narrative = root.find('narrative')
+        if narrative is None:
+            narrative = ElementTree.Element('narrative')
+            root.insert(0, narrative)
+        for chapter, formula_path in identities:
+            ElementTree.SubElement(narrative, 'formula', dict(chapter_id=chapter, path=formula_path, state='preserved'))
+        save_xml(root, path)
