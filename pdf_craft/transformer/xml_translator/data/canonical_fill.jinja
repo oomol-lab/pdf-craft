@@ -34,29 +34,9 @@ WRONG: <p id="1"><expression id="2">$u=$</expression><expression id="3">$v+w$</e
 The last version inserts two dollar signs. A source container is not a separate
 mathematical boundary: never add delimiters to complete each container's formula.
 
-Repetitions belong to the translation too, including repetitions that look
-accidental. Do not deduplicate them or infer their count from source blocks.
-For source <xml><p id="1">Echo.</p><p id="2">Echo.</p><p id="3">Echo.</p></xml>
-and the complete translation
-"Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo.", a complete fill is
-<xml><p id="1">Echo. Echo. Echo. Echo.</p><p id="2">Echo. Echo. Echo.</p><p id="3">Echo. Echo. Echo.</p></xml>.
-The exact distribution is optional; all ten actual passages must be written.
-One phrase per source container would lose content. Several consecutive passages
-can share a container; manageable batches across existing containers help keep
-track of a long repeated passage. This is not a per-container quota and does not
-require filling unused nodes. The same applies to repeated punctuation. Keep the
-source containers, not their original lengths.
-
-The number of translated formulas is not the number of source expression nodes.
-For required IDs 2 and 3 and translation "$x$ $x$ $x$", this preserves all content:
-<p id="1"><expression id="2"/><expression id="3">$x$ $x$ $x$</expression></p>
-For those SAME required IDs and translation "$x$", this is complete:
-<p id="1"><expression id="3"/><expression id="2">$x$</expression></p>
-Here the unused empty inline ID 3 is emitted first, before the filled ID 2,
-inside their original parent. This changes no visible text and leaves no empty
-inline identities to emit after the long passage. Do not do this with blocks or
-resource anchors.
-Do not force the artist to repeat twice merely because there are two source
-containers. Do not shorten three translated occurrences to two either. Every
-occurrence counts, even when the artist repeats a passage hundreds of times or
-appears to have made a generation mistake. You are not the artist's editor.
+Keep the translation's repetitions, including repeated punctuation. Container
+counts do not determine occurrence counts. For source <p id="1">Echo.</p>
+<p id="2">Echo.</p> and translation "Echo. Echo. Echo.", a complete fill is:
+<xml><p id="1">Echo. Echo.</p><p id="2">Echo.</p></xml>
+This distribution is optional. Preserve all occurrences and required nodes;
+several passages may share a field, and unused required containers may be empty.

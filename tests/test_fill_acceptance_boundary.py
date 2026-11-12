@@ -147,7 +147,7 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertEqual(tostring(block), before)
 
     def test_field_preview_does_not_silently_shorten_the_work_to_repair(self):
-        for count in (80, 600):
+        for count in (20, 80, 600):
             with self.subTest(count=count):
                 block = Element('p', {'id': '1'})
                 block.text = 'Echo.' * count
@@ -156,9 +156,9 @@ class FillAcceptanceBoundaryTests(TestCase):
                 assert error is not None
                 previews = list(decode_friendly(error, tags='field_excerpt'))
                 self.assertTrue(previews)
-                self.assertEqual(previews[0].text, block.text[:2000])
-                if len(block.text) > 2000:
-                    self.assertIn('TRUNCATED: first 2000 of 3000 characters', error)
+                self.assertEqual(previews[0].text, block.text[:300])
+                if len(block.text) > 300:
+                    self.assertIn(f'TRUNCATED: first 300 of {len(block.text)} characters', error)
                 self.assertEqual(tostring(block), before)
 
     def test_exact_original_missing_excerpt_follows_partial_field_previews(self):
