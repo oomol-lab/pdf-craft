@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
+from tiktoken import get_encoding
 
 from pdf_craft.document.migrations import _migrate_formula_coverage
 from pdf_craft.document.render import _compose_chapter, RenderMode
@@ -14,9 +15,26 @@ from pdf_craft.transformer.word_count import count_xml_words
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.translation_coverage import NarrativeCoverage, read_coverage, write_narrative_coverage
 from pdf_craft.transformer.xml_translator.segment import search_inline_segments, search_text_segments
+from pdf_craft.transformer.xml_translator.segment import BlockSegment, ImmutableBlockElement
+from pdf_craft.transformer.xml_translator.xml_translator.hill_climbing import HillClimbing
 
 
 class FillAcceptanceBoundaryTests(TestCase):
+    def test_empty_structure_keeps_resource_identity_and_original_reference(self):
+        source = fromstring('<body><p>SOURCE_ONLY <b>REFERENCE</b></p></body>')
+        segments = list(search_inline_segments(search_text_segments(source)))
+        anchor = Element('anchor', anchor_key='image&one', asset_ref='image')
+        hill = HillClimbing(get_encoding('cl100k_base'), 10, BlockSegment(
+            'xml', segments, [ImmutableBlockElement(anchor, 0)]))
+        full = hill.request_element()
+        before = tostring(source)
+        template = hill.request_template()
+        self.assertEqual(''.join(template.itertext()), '')
+        self.assertEqual(tostring(template[0]), tostring(full[0]))
+        self.assertEqual(template[0].get('anchor_key'), 'image&one')
+        self.assertEqual(tostring(source), before)
+        self.assertIn('SOURCE_ONLY', ''.join(hill.request_element().itertext()))
+
     def test_retired_formula_context_name_does_not_exempt_text_from_counting(self):
         self.assertEqual(count_xml_words(fromstring('<body><formula_context>Visible words.</formula_context></body>')), 2)
 

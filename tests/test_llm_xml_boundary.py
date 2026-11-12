@@ -27,19 +27,43 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                     '<xml><p id="1"><expression id="2">a</expression><expression id="3">b</expression></p></xml>'])
                 translator._translate_text_async = AsyncMock(return_value='ab')
                 result, _ = await StructuredTranslation().translate(translator, TranslationTask(fromstring(
-                    '<body><p><expression id="2" display="inline">original</expression>'
-                    '<expression id="3" display="inline">words</expression></p></body>'), SubmitKind.REPLACE, None),
+                    '<body><p><expression id="2" display="inline">SOURCE_ONLY_LEFT</expression>'
+                    '<expression id="3" display="inline">SOURCE_ONLY_RIGHT</expression></p></body>'), SubmitKind.REPLACE, None),
                     error_policy=False, retry_policy=RetryPolicy(fill=1))
                 self.assertEqual(''.join(result.itertext()), 'ab')
                 self.assertEqual(runtime.context_value.calls, 2)
                 feedback = runtime.context_value.messages[1][0][-1].message
                 self.assertIn('MISPLACED, not disposable', feedback)
                 self.assertNotIn('Fix: Remove all', feedback)
+                self.assertIn('SOURCE_ONLY_LEFT', runtime.context_value.messages[1][0][1].message)
+                self.assertNotIn('SOURCE_ONLY_LEFT', feedback)
+                self.assertNotIn('SOURCE_ONLY_RIGHT', feedback)
                 if last == 'b':
                     self.assertIn('ALREADY MATCHES', feedback)
                 else:
                     self.assertNotIn('ALREADY MATCHES', feedback)
                     self.assertIn('Missing 1, added 1', feedback)
+
+    async def test_repairs_keep_only_the_latest_actual_answer_and_full_inputs(self):
+        values = ['BAD_ROUND_ZERO', 'BAD_ROUND_ONE', 'BAD_ROUND_TWO', 'ab']
+        translator, runtime = _repairing_translator([
+            f'<xml><p id="1"><em>{text}</em></p></xml>' for text in values])
+        translator._translate_text_async = AsyncMock(return_value='ab')
+        result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+            fromstring('<body><p><em id="2">SOURCE_REFERENCE_ONLY</em></p></body>'), SubmitKind.REPLACE, None),
+            error_policy=False, retry_policy=RetryPolicy(fill=3))
+        self.assertEqual(''.join(result.itertext()), 'ab')
+        self.assertEqual(runtime.context_value.calls, 4)
+        for index, recorded in enumerate(runtime.context_value.messages):
+            messages = recorded[0]
+            self.assertIn('SOURCE_REFERENCE_ONLY', messages[1].message)
+            payload = re.search(r'<translation\b.*?</translation>', messages[1].message, re.S)
+            assert payload is not None
+            self.assertEqual(''.join(decoded(payload[0], 'translation').itertext()), 'ab')
+            answers = [message.message for message in messages if message.role == MessageRole.ASSISTANT]
+            self.assertEqual(len(answers), int(index > 0))
+            if index:
+                self.assertIn(values[index-1], answers[0])
 
     async def test_duplicate_blocks_cannot_claim_content_is_already_complete(self):
         translator, runtime = _repairing_translator([

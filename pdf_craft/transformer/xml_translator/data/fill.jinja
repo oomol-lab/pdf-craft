@@ -30,10 +30,15 @@ Use required inline formatting and formula containers for the corresponding
 translated content. Keeping their IDs but moving all their content into plain
 text is not the aim. Empty containers are for content absent from the translation
 or merged into another required container, not a shortcut around placement.
-Use one cursor through the translation, from START to END. At each successive
-output block, take the NEXT untranslated content, not the translated counterpart
-of that block's source words. Never jump ahead in the translation or return to
-an earlier passage. Read your candidate in fixed output order before returning it.
+Use the COMPLETE TRANSLATION as your starting text and insert the required XML
+tags around its consecutive passages. Do not start from the source XML and
+rewrite its fields: doing that recreates the source's words and repetition count.
+Copy the translation from START to END once, without regenerating its repeated
+passages from memory or assigning one occurrence per source container. A long
+consecutive passage may occupy one appropriate existing field; required nodes
+left after the translation ends remain present but EMPTY. Perform this inside
+your single XML answer; do not output an intermediate text or allocation plan.
+Read the final text in fixed output order before returning it.
 Source length metadata does not limit how much translation a block can receive.
 A complete translated passage may occupy one earlier block while its later
 source fragments remain structurally present but empty.

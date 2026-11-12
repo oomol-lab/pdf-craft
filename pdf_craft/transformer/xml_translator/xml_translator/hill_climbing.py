@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from copy import deepcopy
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 
@@ -38,6 +39,15 @@ class HillClimbing:
     def request_element(self) -> Element:
         # Source text length is neither output capacity nor a model obligation.
         return self._block_segment.create_element()
+
+    def request_template(self) -> Element:
+        """Keep identities/resources without suggesting source words to restore."""
+        template = deepcopy(self.request_element())
+        for block in template:
+            if block.get('id') is not None:
+                for node in block.iter():
+                    node.text = node.tail = None
+        return template
 
     def gen_mappings(self) -> Generator[InlineSegmentMapping | None, None, None]:
         for inline_segment in self._block_segment:
@@ -107,7 +117,7 @@ class HillClimbing:
 
     def inline_feedback_blocks(self, element: Element) -> list[dict[str, str]]:
         """Show both allocations for missing inline identities, without guessing semantics."""
-        sources = {node.get('id'): node for node in self._block_segment.create_element()}
+        sources = {node.get('id'): node for node in self.request_template()}
         candidates = {node.get('id'): node for node in element}
         blocks = []
         for error in self._block_segment.validate(element):

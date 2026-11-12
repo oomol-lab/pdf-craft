@@ -2,7 +2,6 @@
 
 from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft.usage import UsageCollector, adopted_result
-from copy import deepcopy
 from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
@@ -691,11 +690,7 @@ class XMLTranslator:
         translation = Element('translation', {'xml:space': 'preserve'})
         translation.text = translated_text
         source_xml = hill_climbing.request_element()
-        skeleton = deepcopy(source_xml)
-        for block in skeleton:
-            if block.get('id') is not None:
-                for node in block.iter():
-                    node.text = node.tail = None
+        skeleton = hill_climbing.request_template()
         user_message = (await self._fill_runtime.template('fill_input')).render(
             source_xml=encode_friendly(source_xml), xml_template=encode_friendly(skeleton),
             translated_text=encode_friendly(translation))
@@ -757,7 +752,7 @@ class XMLTranslator:
                 protocol=_XMLProtocol(),
                 state=None,
                 max_attempts=current().retry.attempts(RetryScope.FILL),
-                history_limit=4,
+                history_limit=2,
                 failure_log_path=getattr(self._fill_llm, 'failure_log_path', None),
                 failure_log_context={'stage': 'xml_fill', 'model': self._fill_llm.model, 'artist_text': original_artist_text,
                     'targets': [asdict(location) for location in failure_locations]},
