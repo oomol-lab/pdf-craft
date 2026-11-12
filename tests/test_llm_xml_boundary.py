@@ -243,6 +243,25 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
             self.assertEqual(''.join(decoded(payload[0], 'translation').itertext()), 'Echo. Echo. Echo.')
             self.assertEqual([message.role for message in messages], [MessageRole.SYSTEM, MessageRole.USER])
 
+    async def test_diff_locations_do_not_freeze_the_models_field_allocation(self):
+        for text, permission in [('AAB', 'not a required allocation'), ('A', 'not a required destination')]:
+            with self.subTest(text=text):
+                translator, runtime = _repairing_translator([
+                    f'<xml><p id="1">{text}</p><p id="2"/></xml>',
+                    '<xml><p id="1"/><p id="2">AB</p></xml>'])
+                translator._translate_text_async = AsyncMock(return_value='AB')
+                result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+                    fromstring('<body><p>First source.</p><p>Second source.</p></body>'), SubmitKind.REPLACE, None),
+                    error_policy=False, retry_policy=RetryPolicy(fill=1))
+                self.assertEqual(''.join(result.itertext()), 'AB')
+                self.assertFalse(result[0].text)
+                self.assertEqual(result[1].text, 'AB')
+                self.assertEqual(runtime.context_value.calls, 2)
+                feedback = repair_feedback(runtime.context_value.messages[1][0])
+                self.assertIn(permission, feedback)
+                self.assertIn('p#1.text', feedback)
+                self.assertNotIn('does not authorize emptying', feedback)
+
     async def test_closest_rejected_answer_is_not_adopted_on_exhaustion(self):
         translator, runtime = _repairing_translator([
             '<xml><p id="1">Echo. Echo.</p></xml>', '<xml><p id="1">Echo.</p></xml>'])

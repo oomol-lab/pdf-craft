@@ -1,9 +1,13 @@
 Missing occurrence inside {{ path }} at NORMALIZED COMPARISON VIEW offset {{ offset }}.
 {% if raw_offset is not none %}
 The gap is immediately before raw character offset {{ raw_offset }} (zero-based)
-in that field's current string. Keep the existing text on both sides of this gap.
+in that field's current string, if you retain the current allocation.
 {% endif %}
 This is a location, not replacement text. Obtain the missing original characters
 from the complete translation and the quoted original excerpt when supplied.
-Insert them into the existing field; do not remove or recreate required nodes,
-move another occurrence out of its place, or regenerate the source's repetition count.
+This CURRENT gap location is not a required destination. You may extend this
+field or redistribute consecutive actual passages among compatible existing
+fields, while preserving the final reading order, all required nodes and fixed
+resource boundaries. Correct surrounding text must survive in the final document,
+not necessarily in its old field. Moving an occurrence alone leaves a shortage;
+supply the missing text too. Do not regenerate source words or repetition counts.

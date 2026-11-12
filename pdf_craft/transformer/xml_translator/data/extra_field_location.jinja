@@ -3,6 +3,9 @@ Extra range in {{ path }}: NORMALIZED COMPARISON VIEW [{{ left }}:{{ right }}).
 This corresponds to raw character range [{{ raw_left }}:{{ raw_right }}) in that
 field's current string (zero-based, end exclusive).
 {% endif %}
-Remove only that extra range, retaining the field's correct prefix/suffix and
-every required element. A partial-field extra range does not authorize emptying
-the entire field, deleting an XML node or restoring source wording.
+If you keep the current allocation, remove only that extra range here. Retain
+the correct prefix/suffix in the final document. This CURRENT field location is
+not a required allocation: you may redistribute correct consecutive passages
+among compatible existing fields, even emptying this field after moving its
+correct content elsewhere. Do not drop correct text, delete required nodes,
+change identities, cross protected resource boundaries or restore source wording.
