@@ -26,6 +26,11 @@ Translation: "Echo. Echo. Echo."
 Working XML: <xml><p id="1">Echo. Echo.</p><p id="2"/></xml>
 Corrected XML: <xml><p id="1">Echo. Echo. Echo.</p><p id="2"/></xml>
 The translation gives the TOTAL, not another copy to paste into each field.
+Punctuation is content too: appending a missing "." to "." produces "..",
+not another unchanged ".". No new node is needed.
+If a plain <p id="2"/> rejects an extra wrapper in
+<p id="2"><b><i>.</i></b>Next</p>, repair it as <p id="2">.Next</p>.
+Unwrap only the extra tags; retain their punctuation AND the following text.
 Return the whole corrected XML. The working draft remains rejected until all
 structure and whole-text checks pass.
 
