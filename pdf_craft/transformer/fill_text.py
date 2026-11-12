@@ -49,8 +49,19 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     expected, actual = comparison_text(expected), comparison_text(actual)
     if expected == actual:
         return None
-    edits = [item for item in SequenceMatcher(None, expected, actual, autojunk=False).get_opcodes()
-             if item[0] != 'equal']
+    # Repetitive text can make SequenceMatcher quadratic even when the sole
+    # difference is a missing suffix. Exact shared boundaries need no search.
+    prefix, suffix = 0, 0
+    common = min(len(expected), len(actual))
+    while prefix < common and expected[prefix] == actual[prefix]:
+        prefix += 1
+    while suffix < common - prefix and expected[-suffix-1] == actual[-suffix-1]:
+        suffix += 1
+    left_end, right_end = len(expected) - suffix, len(actual) - suffix
+    edits = [(kind, prefix+a, prefix+b, prefix+c, prefix+d)
+             for kind, a, b, c, d in SequenceMatcher(
+                 None, expected[prefix:left_end], actual[prefix:right_end], autojunk=False).get_opcodes()
+             if kind != 'equal']
     missing = sum(end-start for _, start, end, _, _ in edits)
     added = sum(end-start for _, _, _, start, end in edits)
     names = {'delete': 'missing', 'insert': 'extra', 'replace': 'different'}

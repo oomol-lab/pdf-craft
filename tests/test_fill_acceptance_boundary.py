@@ -80,6 +80,17 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertIn('p#8/expression[699].text', error)
         self.assertIn('END', error)
 
+    def test_repeated_context_keeps_the_exact_missing_occurrence_and_location(self):
+        prefix, suffix = 'Surrounding sentence. ' * 2000, ' Closing sentence.' * 2000
+        block = Element('p', id='6')
+        block.text = prefix + 'Echo.'
+        SubElement(block, 'span').text = suffix
+        error = text_difference(prefix + 'Echo.Echo.' + suffix, ''.join(block.itertext()), [block])
+        assert error is not None
+        self.assertIn('Missing 5, added 0', error)
+        self.assertIn("='Echo.'", error)
+        self.assertIn('p#6.text', error)
+
     def test_formula_coverage_round_trips_and_controls_rendering(self):
         source = encode(Chapter(5, -1, [DisplayFormula(SourceAsset(1, 'formula', (0,0,10,10), content=['x+1']))]))
         target = deepcopy(source)
