@@ -42,15 +42,21 @@ class SmokeRetryBudgetTests(TestCase):
             translator, model = translator_fixture()
             original = model.answer
             attempts, limits, xml_limits = [], [], []
+            correct_response = None
             def answer(messages):
+                nonlocal correct_response
                 if messages[0]['content'].startswith('You are a translator.'):
                     return original(messages).replace('Paragraph', 'Translated')
+                if correct_response is None:
+                    # Script the valid response before fault injection. Later
+                    # repair requests intentionally carry blank source text.
+                    correct_response = original(messages).replace('Paragraph', 'Translated')
                 attempts.append(len(attempts)+1)
                 limits.append(current().retry.attempts(RetryScope.FILL))
                 xml_limits.append(current().retry.attempts(RetryScope.FILL))
                 if len(attempts) <= failures:
                     return 'not XML'
-                return original(messages).replace('Paragraph', 'Translated')
+                return correct_response
             model.answer = answer
             run = SmokeRun('pdf/citation.pdf', 'markdown', translation={
                 'target_language': 'English', 'retry_policy': {'fill': 12}})
