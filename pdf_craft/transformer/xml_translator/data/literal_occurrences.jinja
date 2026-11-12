@@ -4,11 +4,21 @@ Literal sample (XML-escaped diagnostic text):
 {{ item.literal }}
 Occurrences in the complete translation: {{ item.expected }}.
 Occurrences in your candidate: {{ item.actual }}.
+GLOBAL match-count difference (complete translation minus complete candidate): {{ "%+d"|format(item.expected - item.actual) }}.
+Your existing XML already supplies {{ item.actual }} of these matches across ALL
+fields. The target {{ item.expected }} is NOT a number to add, and is NOT a
+target for the single field identified by a local error.
 {% endfor %}
 These count this literal substring, including overlapping matches. A sample may
 span several phrases: it is NOT a formula count, an XML-node count or a compressed
 replacement for the translation. Use the difference to check repeated content,
 its order and the surrounding words. Counts alone do not establish correctness.
+A positive difference is a net global shortage of literal matches; a negative
+difference is a net excess. Because matches may overlap, this is NOT an instruction
+to append the sample that many times. Use the actual missing/extra character
+range and quoted original excerpt to make the local correction. Preserve the
+correct passages already supplied by the other fields; do not fill one field
+with another copy of the complete translation.
 Use the original complete translation for spelling and spacing; do not paste
 normalized diagnostic samples or output count markers. Return the full XML with
 all actual characters and required nodes, not a repeat instruction.
