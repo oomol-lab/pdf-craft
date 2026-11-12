@@ -205,10 +205,12 @@ class InlineSegment:
         # Transport the semantic hints needed by the shared formatter; source
         # attributes are still restored by assign_attributes after acceptance.
         from ...whitespace import mode_in_stack, WhiteSpace
-        if self.parent.get('display') is not None:
+        if self.parent.get('display') is not None and not (
+                self.parent.tag == 'expression' and self.parent.get('display') == 'inline'):
             element.set('display', self.parent.get('display', ''))
         mode = mode_in_stack(self._parent_stack)
-        if mode != WhiteSpace.NORMAL or mode != mode_in_stack(self._parent_stack[:-1]):
+        if self.parent.tag != 'expression' and (
+                mode != WhiteSpace.NORMAL or mode != mode_in_stack(self._parent_stack[:-1])):
             element.set('white-space', mode.value)
         previous_element: Element | None = None
         for child in self._children:

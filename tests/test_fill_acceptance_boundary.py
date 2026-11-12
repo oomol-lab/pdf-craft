@@ -61,11 +61,46 @@ class FillAcceptanceBoundaryTests(TestCase):
         full = hill.request_element()
         before = tostring(source)
         template = hill.request_template()
-        self.assertEqual(''.join(template.itertext()), '')
+        self.assertEqual(''.join(template.itertext()).strip(), '')
         self.assertEqual(tostring(template[0]), tostring(full[0]))
         self.assertEqual(template[0].get('anchor_key'), 'image&one')
         self.assertEqual(tostring(source), before)
         self.assertIn('SOURCE_ONLY', ''.join(hill.request_element().itertext()))
+
+    def test_large_structure_feedback_preserves_all_nodes_without_repeating_trees(self):
+        source = fromstring('<body><p>Source ' + '<expression display="inline">x</expression>' * 200 + '</p></body>')
+        segments = list(search_inline_segments(search_text_segments(source)))
+        hill = HillClimbing(get_encoding('cl100k_base'), 10, BlockSegment('xml', segments))
+        original = tostring(hill.request_element())
+        template = hill.request_template()
+        from pdf_craft.transformer.xml_translator.xml import encode_friendly
+        encoded = encode_friendly(template, preserve_whitespace=True)
+        self.assertGreater(encoded.count('\n'), 199)
+        self.assertEqual([node.get('id') for node in template.iter('expression')],
+                         [node.get('id') for node in hill.request_element().iter('expression')])
+        candidate = deepcopy(hill.request_element())
+        candidate[0].remove(candidate[0][-1])
+        self.assertIsNotNone(hill.validate(candidate))
+        self.assertEqual(hill.inline_feedback_blocks(candidate), [])
+        self.assertEqual(tostring(hill.request_element()), original)
+
+    def test_expression_defaults_are_not_repeated_but_real_source_attributes_survive(self):
+        source = fromstring('<body><p>Value <expression display="inline" class="source-math">x</expression>.</p></body>')
+        segments = list(search_inline_segments(search_text_segments(source)))
+        hill = HillClimbing(get_encoding('cl100k_base'), 10, BlockSegment('xml', segments))
+        candidate = hill.request_element()
+        expression = next(candidate.iter('expression'))
+        self.assertNotIn('display', expression.attrib)
+        self.assertNotIn('white-space', expression.attrib)
+        self.assertIsNone(hill.validate(candidate))
+        mappings = hill.candidate_mappings(candidate)
+        assert mappings[0] is not None
+        from pdf_craft.transformer.xml_translator.xml_translator.submitter import submit, SubmitKind
+        submit(source, SubmitKind.REPLACE, [mapping for mapping in mappings if mapping is not None])
+        actual = next(source.iter('expression'))
+        self.assertEqual(actual.get('display'), 'inline')
+        self.assertEqual(actual.get('class'), 'source-math')
+        self.assertEqual(actual.text, 'x')
 
     def test_retired_formula_context_name_does_not_exempt_text_from_counting(self):
         self.assertEqual(count_xml_words(fromstring('<body><formula_context>Visible words.</formula_context></body>')), 2)
@@ -164,7 +199,7 @@ class FillAcceptanceBoundaryTests(TestCase):
             self.assertEqual(states, {('5', 'formula', 'body:0'): 'translated'})
             for accepted in (False, True):
                 result = deepcopy(source)
-                _compose_chapter(result, target, set(states) if accepted else set(), set(), RenderMode.REPLACE, set())
+                _compose_chapter(result, target, set(states) if accepted else set(), set(), RenderMode.REPLACE)
                 self.assertEqual(result.findtext('.//content'), 'x+2' if accepted else 'x+1')
 
     def test_old_layers_mark_frozen_formulas_preserved_once(self):

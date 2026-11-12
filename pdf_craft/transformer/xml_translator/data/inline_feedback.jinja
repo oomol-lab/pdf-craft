@@ -1,5 +1,11 @@
 TARGETED STRUCTURE DIAGNOSTIC
-Compare the required source structure with your current XML:
+Required structure is the source XML template in this request. Your current
+XML is the preceding answer. A missing identity must remain present even if its
+text is empty: insert the required empty node, not source words.
+Do not close a parent merely because the translated text has ended. Emit every
+remaining required empty child before closing that parent. Empty nodes still
+carry source identities and are not optional punctuation.
+Compare the required structure with your current XML:
 {% for item in blocks %}
 Required structure (editable text is blank, not source wording to restore):
 {{ item.source }}

@@ -44,7 +44,7 @@ class BoundaryNormalizationTests(TestCase):
         self.assertEqual(len(blocks), 1)
         structure = fromstring(blocks[0]['source'])
         self.assertEqual([node.get('id') for node in structure.iter('code')], ['2', '3'])
-        self.assertEqual(''.join(structure.itertext()), '')
+        self.assertEqual(''.join(structure.itertext()).strip(), '')
         self.assertIn('true', ''.join(hill.request_element().itertext()))
         self.assertIn('errors.Is()', ''.join(hill.request_element().itertext()))
         self.assertIn('<code id="2">errors.Is()</code>', blocks[0]['candidate'])

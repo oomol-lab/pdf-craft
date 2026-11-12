@@ -655,8 +655,7 @@ class XMLTranslator:
             structure_valid = error is None
             if error is not None:
                 blocks = hill_climbing.inline_feedback_blocks(element)
-                if blocks:
-                    error += '\n' + feedback_template.render(blocks=blocks)
+                error += '\n' + feedback_template.render(blocks=blocks)
                 if canonical_text_validator is not None:
                     raw_blocks = hill_climbing.candidate_blocks_for_diagnostics(element)
                     if raw_blocks is not None:
@@ -704,7 +703,7 @@ class XMLTranslator:
         content_input = (await self._fill_runtime.template('content_repair_input')).render(
             translated_text=encode_friendly(translation))
         structure_input = (await self._fill_runtime.template('fill_input')).render(
-            source_xml=encode_friendly(hill_climbing.request_template()),
+            source_xml=encode_friendly(hill_climbing.request_template(), preserve_whitespace=True),
             translated_text=encode_friendly(translation))
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
@@ -759,15 +758,15 @@ class XMLTranslator:
                     error = last_error or "XML fill exhausted retries; no usable response was produced."
                     raise XMLFillError(error, attempts=attempts)
 
-            async def request(current, index, maximum):
+            async def request(messages_for_attempt, index, maximum):
                 # Keep the full original reference in the first request/log.
                 # Repairs use the actual preceding answer, not source words
                 # to restore. Structure errors also receive the required blank
                 # tree with all identities, attributes and opaque resources.
-                has_answer = any(message.role == MessageRole.ASSISTANT for message in current[2:])
+                has_answer = any(message.role == MessageRole.ASSISTANT for message in messages_for_attempt[2:])
                 user = content_input if structure_valid and has_answer else structure_input
-                messages = ([current[0], Message(MessageRole.USER, user), *current[2:]]
-                            if index else current)
+                messages = ([messages_for_attempt[0], Message(MessageRole.USER, user), *messages_for_attempt[2:]]
+                            if index else messages_for_attempt)
                 return await request_model(llm_context, messages, retry_index=index, retry_max=maximum,
                                            use_cache=False, max_tokens=output_budget)
 

@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from copy import deepcopy
 from dataclasses import dataclass
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import Element, indent
 
 from tiktoken import Encoding
 
@@ -47,6 +47,7 @@ class HillClimbing:
             if block.get('id') is not None:
                 for node in block.iter():
                     node.text = node.tail = None
+                indent(block)
         return template
 
     def gen_mappings(self) -> Generator[InlineSegmentMapping | None, None, None]:
@@ -124,8 +125,12 @@ class HillClimbing:
             if isinstance(error, BlockContentError):
                 key = str(error.id)
                 if key in sources and key in candidates:
-                    blocks.append({'source': encode_friendly(sources[key]),
-                                   'candidate': encode_friendly(candidates[key])})
+                    source, candidate = encode_friendly(sources[key]), encode_friendly(candidates[key])
+                    # The complete template and previous answer are already
+                    # in the request. Repeating huge trees hides the actual
+                    # missing-node diagnostic instead of clarifying it.
+                    if len(source) + len(candidate) <= 4096:
+                        blocks.append({'source': source, 'candidate': candidate})
         return blocks[:self._max_fill_displaying_errors]
 
     def validate(self, element: Element) -> str | None:
