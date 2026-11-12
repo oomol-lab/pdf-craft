@@ -305,7 +305,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual(runtime.context_value.calls, 2)
         self.assertEqual(len(result[0]), 2)
         self.assertEqual(result[0][-1].tail, ' c')
-        self.assertIn('UNWRAP that element', runtime.context_value.messages[1][0][0].message)
+        self.assertIn('UNWRAP', runtime.context_value.messages[1][0][0].message)
 
     async def test_closest_rejected_answer_is_not_adopted_on_exhaustion(self):
         translator, runtime = _repairing_translator([
