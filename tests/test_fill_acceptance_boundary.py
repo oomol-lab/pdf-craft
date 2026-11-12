@@ -11,6 +11,7 @@ from pdf_craft.document.migrations import _migrate_formula_coverage
 from pdf_craft.document.render import _compose_chapter, RenderMode
 from pdf_craft.extractor.chapter.chapter import Chapter, SourceAsset, DisplayFormula, encode
 from pdf_craft.transformer.fill_text import text_difference
+from pdf_craft.transformer.xml_translator.xml import decode_friendly
 from pdf_craft.transformer.word_count import count_xml_words
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.translation_coverage import NarrativeCoverage, read_coverage, write_narrative_coverage
@@ -20,6 +21,37 @@ from pdf_craft.transformer.xml_translator.xml_translator.hill_climbing import Hi
 
 
 class FillAcceptanceBoundaryTests(TestCase):
+    def test_missing_excerpt_quotes_original_spacing_and_xml_characters(self):
+        expected = 'Alice & Bob. Alice & Bob.'
+        error = text_difference(expected, 'Alice & Bob.')
+        assert error is not None
+        excerpt = next(decode_friendly(error, tags='excerpt'))
+        self.assertEqual(excerpt.text, 'Alice & Bob.')
+        self.assertIn('not a new translation or a ready-made XML', error)
+
+    def test_repetitive_math_diagnostic_quotes_data_without_building_a_candidate(self):
+        passage = r"\(\frac{49x}{100} = y\) "
+        expected = 'Question: ' + passage * 720 + r"\(\frac{49x}{100} ="
+        actual = 'Question: ' + passage * 659 + r"\(\frac{49x}{100} ="
+        candidate = Element('fragment', {'id': '1'})
+        candidate.text = actual
+        before = tostring(candidate)
+        error = text_difference(expected, actual, [candidate])
+        assert error is not None
+        excerpt = next(decode_friendly(error, tags='excerpt'))
+        assert excerpt.text is not None
+        self.assertIn(excerpt.text, expected)
+        self.assertIn(r'\frac{49x}{100} = y', excerpt.text)
+        self.assertNotIn(r'\\frac', excerpt.text)
+        self.assertEqual(tostring(candidate), before)
+        self.assertIsNone(text_difference(expected, expected))
+
+    def test_original_excerpt_does_not_guess_math_or_unicode_offsets(self):
+        for expected in ['A e\u0301 B', r'A \(x+1\) B']:
+            error = text_difference(expected, 'AB')
+            assert error is not None
+            self.assertNotIn('Original translation excerpt', error)
+
     def test_empty_structure_keeps_resource_identity_and_original_reference(self):
         source = fromstring('<body><p>SOURCE_ONLY <b>REFERENCE</b></p></body>')
         segments = list(search_inline_segments(search_text_segments(source)))

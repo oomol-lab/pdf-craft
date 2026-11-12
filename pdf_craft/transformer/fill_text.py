@@ -43,6 +43,7 @@ def comparison_text(text: str) -> str:
 
 
 def text_difference(expected: str, actual: str, blocks=()) -> str | None:
+    original = expected
     # Optional mathematical interpretation cannot invalidate existing text equivalence.
     if _document_text(expected) == _document_text(actual):
         return None
@@ -70,6 +71,21 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                         f'expected context={expected[max(0,a-50):min(len(expected),b+50)]!r}; '
                         f'candidate context={actual[max(0,c-50):min(len(actual),d+50)]!r}'
                         for kind, a, b, c, d in edits[:10])
+    # Quote actual artist data, never a field manufactured from the comparison
+    # view. Only whitespace removal on already-NFC text has a direct index map;
+    # mathematical rewrites or Unicode composition cannot safely supply one.
+    if unicodedata.normalize('NFC', original) == original and _document_text(original) == expected:
+        from xml.etree.ElementTree import Element
+        from .xml_translator.xml import encode_friendly
+        positions = [index for index, char in enumerate(original) if not is_whitespace(char)]
+        for kind, start, end, _, _ in edits[:10]:
+            if kind not in ('delete', 'replace') or start == end:
+                continue
+            raw = original[positions[start]:positions[end-1]+1]
+            excerpt = Element('excerpt', {'xml:space': 'preserve'})
+            excerpt.text = raw[:6000]
+            details += '\n' + _FEEDBACK.get_template('original_missing_excerpt.jinja').render(
+                start=start, end=end, excerpt=encode_friendly(excerpt), truncated=len(raw) > 6000).strip()
     if any(expected[a:b] and expected[a:b] in actual
            for kind, a, b, _, _ in edits if kind in ('delete', 'replace')):
         details += '\n' + _FEEDBACK.get_template('repeated_missing.jinja').render().strip()
