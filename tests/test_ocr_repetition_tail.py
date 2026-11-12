@@ -13,6 +13,10 @@ from PIL import Image
 
 from pdf_craft.common import AssetHub
 from pdf_craft.ocr_config import DeepSeekOCRLocalConfig
+from pdf_craft.ocr_config import DeepSeekOCRVendorConfig
+from pdf_craft.pdf.ocr import _decode_vendor_response, _PreparedVendorPage
+from pdf_craft.pdf.vendor_ocr import VendorOCRResponse
+from pdf_craft.extractor.chapter.source import capture_sources
 from pdf_craft.pdf.repetition_tail import repeated_tail, clean_page
 from pdf_craft.pdf.types import Page, PageLayout, decode, encode
 from pdf_craft.pdf.page_extractor import PageExtractorNode
@@ -88,6 +92,28 @@ class OCRRepetitionTailTests(unittest.TestCase):
         page = Page(1, None, items, [layout('Repeated words.', i) for i in range(10)], 0, 0)
         self.assertEqual(clean_page(page), page)
 
+    def test_cross_block_code_fences_preserve_whole_page_before_any_cuts(self):
+        for marker in ('```', '~~~'):
+            for closing in (True, False):
+                for split_streams in (True, False):
+                    with self.subTest(marker=marker, closing=closing, split_streams=split_streams):
+                        items = [layout(marker + 'python', 0), layout('print(value)\n' * 40, 1)]
+                        if closing:
+                            items.append(layout(marker, 2))
+                        # A second repeated block must also remain untouched;
+                        # its relationship to an unmatched fence is uncertain.
+                        items.append(layout('Repeated words. ' * 40, len(items)))
+                        page = Page(3, None, items[:1] if split_streams else items,
+                                    items[1:] if split_streams else [], 12, 34)
+                        before = deepcopy(page)
+                        result = clean_page(page)
+                        self.assertEqual(page, before)
+                        self.assertEqual(result, before)
+                        self.assertEqual(clean_page(result), before)
+                        for stream in ('body_layouts', 'footnotes_layouts'):
+                            self.assertEqual([(x.text, x.det, x.order) for x in getattr(result, stream)],
+                                             [(x.text, x.det, x.order) for x in getattr(before, stream)])
+
     def test_inner_bad_block_tail_does_not_remove_following_valid_block(self):
         page = Page(1, None, [layout('Prefix ' + 'Repeated words. ' * 40),
                              layout('Next unique valid paragraph.', 1)], [], 0, 0)
@@ -135,3 +161,44 @@ class OCRRepetitionTailTests(unittest.TestCase):
         self.assertIsNotNone(repeated_tail(periodic))
         self.assertIsNone(repeated_tail(periodic + 'Different ending.'))
         self.assertLess(time.perf_counter() - start, 5)
+
+    def test_constructed_deepseek_protocol_through_production_decoder_and_source_capture(self):
+        # Constructed protocol example, NOT a recovered historical vendor reply.
+        raw_text = 'Valid introduction. ' + 'Repeated words. ' * 40
+        protocol = ('<|ref|>text<|/ref|><|det|>[[100,100,900,400]]<|/det|>' + raw_text +
+                    '\n<|ref|>image<|/ref|><|det|>[[100,500,900,900]]<|/det|>')
+        response = VendorOCRResponse({'constructed_fixture': True}, raw_text=protocol)
+        original_response = deepcopy(response)
+        config = DeepSeekOCRVendorConfig(base_url='https://example.invalid/v1', api_key='fixture', model='fixture')
+        with TemporaryDirectory() as directory, Image.new('RGB', (100, 100), 'white') as image:
+            path = Path(directory) / 'request.png'
+            image.save(path)
+            prepared = _PreparedVendorPage(2, path, path, 0, 1)
+            result = _decode_vendor_response(config, prepared, response)
+            original_layouts = deepcopy(result.layouts)
+            self.assertEqual(len(result.layouts), 2)
+            self.assertIsNotNone(result.structured)
+            with patch('pdf_craft.pdf.page_extractor.printed_line_metrics', return_value=None), \
+                 patch('pdf_craft.pdf.page_extractor.first_line_inset', return_value=None), \
+                 patch('pdf_craft.pdf.page_extractor.has_vertical_columns', return_value=False):
+                page = PageExtractorNode(config).results2page(
+                    results=[(image, result)], page_index=2, asset_hub=AssetHub(Path(directory)/'assets'),
+                    includes_footnotes=False, raw_image=None, plot_path=None,
+                    input_tokens=3, output_tokens=4, aborted=lambda: False)
+            text, asset = page.body_layouts
+            self.assertEqual(text.text, 'Valid introduction. Repeated words.')
+            self.assertEqual((text.det, text.order), ((10, 10, 90, 40), 0))
+            self.assertEqual((asset.ref, asset.det, asset.order), ('image', (10, 50, 90, 90), 1))
+            self.assertTrue(asset.hash)
+            self.assertTrue(any((Path(directory)/'assets').rglob('*.png')))
+            sources = capture_sources([page])
+            identity, source = sources[(2, id(text))]
+            self.assertEqual(identity, 0)
+            self.assertEqual(source.text, text.text)
+            self.assertNotIn('Repeated words. Repeated words.', source.text)
+            self.assertEqual(source.reading_order, 0)
+            self.assertEqual(sources[(2, id(asset))][0], 1)
+            self.assertEqual(result.layouts, original_layouts)
+            self.assertEqual(response, original_response)
+            self.assertEqual(result.raw_text, protocol)
+            self.assertEqual(clean_page(page), page)

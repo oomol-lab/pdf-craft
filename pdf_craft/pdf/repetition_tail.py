@@ -159,6 +159,13 @@ def clean_layouts(layouts: list['PageLayout']) -> tuple[list['PageLayout'], list
 
 def clean_page(page: 'Page') -> 'Page':
     """Materialize current OCR input, including old cache reads, without edits to raw evidence."""
+    # Fences can live in different OCR observations from their code. Decide
+    # before touching any block, including across body/footnote streams. An
+    # unmatched or ambiguous fence also preserves the whole page: we cannot
+    # safely classify the intervening repetitions as degeneration.
+    if any('```' in layout.text or '~~~' in layout.text
+           for layouts in (page.body_layouts, page.footnotes_layouts) for layout in layouts):
+        return page
     body, body_cuts = clean_layouts(page.body_layouts)
     notes, note_cuts = clean_layouts(page.footnotes_layouts)
     for stream, cuts in (('body', body_cuts), ('footnotes', note_cuts)):
