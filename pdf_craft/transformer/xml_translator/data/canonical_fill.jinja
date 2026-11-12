@@ -36,11 +36,16 @@ mathematical boundary: never add delimiters to complete each container's formula
 
 Repetitions belong to the translation too, including repetitions that look
 accidental. Do not deduplicate them or infer their count from source blocks.
-For source <xml><p id="1">Echo.</p><p id="2">Echo.</p></xml> and translation
-"Echo. Echo. Echo.", a complete fill is
-<xml><p id="1">Echo. Echo.</p><p id="2">Echo.</p></xml>.
-One phrase per source container would lose an occurrence. The same applies to
-repeated punctuation. Keep the source containers, not their original lengths.
+For source <xml><p id="1">Echo.</p><p id="2">Echo.</p><p id="3">Echo.</p></xml>
+and the complete translation
+"Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo.", a complete fill is
+<xml><p id="1">Echo. Echo. Echo. Echo.</p><p id="2">Echo. Echo. Echo.</p><p id="3">Echo. Echo. Echo.</p></xml>.
+The exact distribution is optional; all ten actual passages must be written.
+One phrase per source container would lose content. Several consecutive passages
+can share a container; manageable batches across existing containers help keep
+track of a long repeated passage. This is not a per-container quota and does not
+require filling unused nodes. The same applies to repeated punctuation. Keep the
+source containers, not their original lengths.
 
 The number of translated formulas is not the number of source expression nodes.
 For required IDs 2 and 3 and translation "$x$ $x$ $x$", this preserves all content:
