@@ -30,17 +30,6 @@ passage. Do not force one formula per node. If you move all text out of a
 fragment, keep its required inline children present EMPTY; an empty parent does
 not replace those children. Required structure and occurrence totals are separate.
 
-For a very long repeated passage that keeps gaining or losing occurrences in
-one field, you MAY redistribute that uninterrupted passage among compatible
-EXISTING containers to keep track. Account for occurrences already present
-outside that passage. Privately divide the remaining occurrence total among
-those existing positions: a base number in each, with one extra in the first
-few positions for the remainder. This is an optional bookkeeping technique,
-not a source-derived quota or a required distribution. Keep fixed block/resource
-boundaries and the translation's actual order. Write EVERY literal occurrence;
-do not return the calculation, counters, comments, repeat instructions or new IDs.
-Do not discard a long translated passage merely because it exceeds source length.
-
 Small repair examples (all literal occurrences are written, not encoded):
 Translation: "Echo. Echo."
 Working XML: <xml><p id="1">Echo. Echo. Echo.</p><p id="2"/></xml>

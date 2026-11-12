@@ -54,7 +54,6 @@ class _RepairBaseline:
     distance: int
     xml: str
     feedback: str
-    improved_at: int
     structure_valid: bool
 
     @property
@@ -758,10 +757,8 @@ class XMLTranslator:
                             rank = distance, not structure_valid
                             last_distance = distance
                             if best_repair is None or rank <= best_repair.rank:
-                                improved_at = (attempt if best_repair is None or rank < best_repair.rank
-                                               else best_repair.improved_at)
                                 best_repair = _RepairBaseline(distance, encode_friendly(validated), error,
-                                                              improved_at, structure_valid)
+                                                              structure_valid)
                     # Preserve the actual answer even when content errors
                     # repeat: releasing it loses an already-correct tree and
                     # makes the engineer regenerate every required identity.
@@ -796,7 +793,6 @@ class XMLTranslator:
                             reused=previous != baseline or feedback != baseline_feedback,
                             attempt=index + 1, maximum=maximum + 1,
                             last_distance=last_distance, distance=best_repair.distance,
-                            stagnant=index - best_repair.improved_at > 2,
                             structure_valid=best_repair.structure_valid) + '\n\n' + baseline_feedback
                         previous = baseline
                     structure = (None if best_repair is not None and best_repair.structure_valid else

@@ -222,27 +222,6 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertIn('revising one rejected XML document', third[0].message)
                 self.assertNotIn('unterminated', previous_xml(third))
 
-    async def test_stalled_repair_changes_guidance_without_new_stages_or_budget(self):
-        bad = '<xml><p id="1">Echo. Echo.</p></xml>'
-        good = '<xml><p id="1">Echo. Echo. Echo.</p></xml>'
-        translator, runtime = _repairing_translator([bad, bad, bad, good])
-        translator._translate_text_async = AsyncMock(return_value='Echo. Echo. Echo.')
-        result, _ = await StructuredTranslation().translate(translator, TranslationTask(
-            fromstring('<body><p>Original.</p></body>'), SubmitKind.REPLACE, None),
-            error_policy=False, retry_policy=RetryPolicy(fill=3))
-        self.assertEqual(''.join(result.itertext()), 'Echo. Echo. Echo.')
-        self.assertEqual(runtime.context_value.calls, 4)
-        requests = [entry[0] for entry in runtime.context_value.messages]
-        self.assertNotIn('REPEATED NON-IMPROVEMENT:', requests[1][1].message)
-        self.assertNotIn('REPEATED NON-IMPROVEMENT:', requests[2][1].message)
-        self.assertIn('REPEATED NON-IMPROVEMENT:', requests[3][1].message)
-        self.assertEqual(decoded(previous_xml(requests[3]), 'xml')[0].text, 'Echo. Echo.')
-        for messages in requests[1:]:
-            payload = re.search(r'<translation\b.*?</translation>', messages[1].message, re.S)
-            assert payload is not None
-            self.assertEqual(''.join(decoded(payload[0], 'translation').itertext()), 'Echo. Echo. Echo.')
-            self.assertEqual([message.role for message in messages], [MessageRole.SYSTEM, MessageRole.USER])
-
     async def test_diff_locations_do_not_freeze_the_models_field_allocation(self):
         for text, permission in [('AAB', 'not a required allocation'), ('A', 'not a required destination')]:
             with self.subTest(text=text):
