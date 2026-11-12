@@ -63,7 +63,7 @@ async def _run_page_repair_smoke(
         runtime = runtime_for(
             llm,
             ConcurrentExecutor(FixedCapacity(int(config.get("concurrency", 1)))),
-            protocol_version="current-page-refinement-plan-v1",
+            protocol_version="current-page-refinement-plan-v2",
         )
         raw_path = run_path / "llm-raw"
         raw_path.mkdir()

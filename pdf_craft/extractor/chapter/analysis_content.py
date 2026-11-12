@@ -7,6 +7,7 @@ from typing import Iterable
 
 from ...markdown.paragraph import HTMLTag, tag_definition
 from .chapter import InlineExpression, Reference, SourceTextFragment
+from .content_ranges import content_text as _visible_content_text, replace_ranges
 from .mark import Mark
 from .analysis_types import (
     LayoutOwnership,
@@ -94,21 +95,11 @@ def replace_layout_references(
             )
         previous_end = span.end
 
-    leaves = _content_text_leaves(materialized)
-    replacements: dict[tuple[int, ...], list[tuple[int, int, ReferenceSpan]]] = {}
-    for span in ordered:
-        matched = _leaf_for_span(leaves, span.start, span.end)
-        if matched is None:
-            raise ValueError(
-                "Reference span crosses a structured content boundary: "
-                f"{span.start}..{span.end}"
-            )
-        path, leaf_start, _leaf_end = matched
-        replacements.setdefault(path, []).append(
-            (span.start - leaf_start, span.end - leaf_start, span)
-        )
-
-    rebuilt = _replace_content_text_leaves(materialized, replacements)
+    rebuilt = replace_ranges(materialized, [
+        (span.start, span.end, _ReferencePlaceholder(
+            span.mark_text, span.citation_page_index, span.citation_index))
+        for span in ordered
+    ])
     references: list[ReferenceLocation] = []
     _collect_reference_locations(rebuilt, references)
     return replace(
@@ -156,20 +147,6 @@ def _analyse_content(
     return tuple(result)
 
 
-def _visible_content_text(content: _AnalysedContent) -> str:
-    parts: list[str] = []
-    for part in content:
-        if isinstance(part, str):
-            parts.append(part)
-        elif isinstance(part, _ReferencePlaceholder):
-            parts.append(part.text)
-        elif isinstance(part, _AnalysedInlineExpression):
-            parts.append(part.content)
-        else:
-            parts.append(_visible_content_text(part.children))
-    return "".join(parts)
-
-
 def _materialize_reference_text(content: _AnalysedContent) -> _AnalysedContent:
     result: list[_AnalysedContentPart] = []
     for part in content:
@@ -183,118 +160,6 @@ def _materialize_reference_text(content: _AnalysedContent) -> _AnalysedContent:
         else:
             result.append(part)
     return tuple(result)
-
-
-def _content_text_leaves(
-    content: _AnalysedContent,
-) -> list[tuple[tuple[int, ...], int, int]]:
-    leaves: list[tuple[tuple[int, ...], int, int]] = []
-    offset = 0
-
-    def visit(parts: _AnalysedContent, prefix: tuple[int, ...]) -> None:
-        nonlocal offset
-        for index, part in enumerate(parts):
-            path = (*prefix, index)
-            if isinstance(part, str):
-                leaves.append((path, offset, offset + len(part)))
-                offset += len(part)
-            elif isinstance(part, _ReferencePlaceholder):
-                offset += len(part.text)
-            elif isinstance(part, _AnalysedInlineExpression):
-                leaves.append((path, offset, offset + len(part.content)))
-                offset += len(part.content)
-            else:
-                visit(part.children, path)
-
-    visit(content, ())
-    return leaves
-
-
-def _leaf_for_span(
-    leaves: list[tuple[tuple[int, ...], int, int]],
-    start: int,
-    end: int,
-) -> tuple[tuple[int, ...], int, int] | None:
-    if start != end:
-        return next((leaf for leaf in leaves if leaf[1] <= start and end <= leaf[2]), None)
-    candidates = [leaf for leaf in leaves if leaf[1] <= start <= leaf[2]]
-    if not candidates:
-        return None
-    # At a structured boundary, attach a zero-width ref to the text on its
-    # left. This preserves the natural reading position without crossing tags.
-    return candidates[-1]
-
-
-def _replace_content_text_leaves(
-    content: _AnalysedContent,
-    replacements: dict[tuple[int, ...], list[tuple[int, int, ReferenceSpan]]],
-    prefix: tuple[int, ...] = (),
-) -> _AnalysedContent:
-    result: list[_AnalysedContentPart] = []
-    for index, part in enumerate(content):
-        path = (*prefix, index)
-        if isinstance(part, str) and path in replacements:
-            cursor = 0
-            for start, end, span in sorted(
-                replacements[path], key=lambda item: (item[0], item[1])
-            ):
-                if start > cursor:
-                    result.append(part[cursor:start])
-                result.append(_ReferencePlaceholder(
-                    text=span.mark_text,
-                    citation_page_index=span.citation_page_index,
-                    citation_index=span.citation_index,
-                ))
-                cursor = end
-            if cursor < len(part):
-                result.append(part[cursor:])
-        elif isinstance(part, _AnalysedInlineExpression) and path in replacements:
-            spans = replacements[path]
-            if len(spans) != 1:
-                raise ValueError('Reference must cover the complete atomic OCR expression')
-            start, end, span = spans[0]
-            placeholder = _ReferencePlaceholder(span.mark_text, span.citation_page_index, span.citation_index)
-            if (start, end) == (0, len(part.content)):
-                result.append(placeholder)
-            elif (span.extract_from_expression and end == len(part.content)
-                  and re.fullmatch(r'\^\{[^{}]+\}', part.content[start:end])
-                  and start > 0 and _balanced_expression(part.content[:start])):
-                # Only remove a complete terminal annotation. The remaining
-                # expression is copied from source, never regenerated by a model.
-                result.extend((replace(part, content=part.content[:start]), placeholder))
-            elif start == end == 0:
-                result.extend((placeholder, part))
-            elif start == end == len(part.content):
-                result.extend((part, placeholder))
-            else:
-                raise ValueError('Reference must cover the complete atomic OCR expression')
-        elif isinstance(part, _AnalysedHTMLTag):
-            result.append(replace(
-                part,
-                children=_replace_content_text_leaves(
-                    part.children, replacements, path
-                ),
-            ))
-        else:
-            result.append(part)
-    return tuple(result)
-
-
-def _balanced_expression(text: str) -> bool:
-    depth = 0
-    escaped = False
-    for char in text:
-        if escaped:
-            escaped = False
-        elif char == "\\":
-            escaped = True
-        elif char == '{':
-            depth += 1
-        elif char == '}':
-            depth -= 1
-            if depth < 0:
-                return False
-    return depth == 0 and not escaped and not text.endswith(('^', '_'))
 
 
 def _collect_reference_locations(

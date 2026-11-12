@@ -33,10 +33,11 @@ def serialize_plan(data, **kwargs):
         if item.get('preserve_as_image') and destination['kind'] in ('body', 'note'):
             destination['as_image'] = True
         parts.append(dict(layout_id=item['layout_id'], source_range=item.get('source_range'),
+                          as_text=item.get('as_text', False),
                           destination=destination))
     return json.dumps(dict(reading=data.get('stream_assessment', ''), layouts=parts,
         notes=[dict(operation='continue', note_id=x['citation_id']) if x.get('continues_previous') else
                dict(operation='define', note_id=x['citation_id'], mark=x.get('mark')) for x in notes],
         references=[dict(layout_id=x['layout_id'], note_id=by_index.get(x['citation_index'], 'unknown'),
-                         anchor=x['anchor'], extract_from_expression=x.get('extract_from_expression', False))
+                         anchor=x['anchor'])
                     for x in data.get('references', [])]), **kwargs)

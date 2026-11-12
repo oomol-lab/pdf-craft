@@ -69,7 +69,6 @@ class ReferenceCandidate(_StrictModel):
     layout_id: str
     citation_index: int = Field(ge=1)
     anchor: RefAnchor
-    extract_from_expression: bool = False
 
 
 class AssetAttachmentCandidate(_StrictModel):
@@ -81,6 +80,7 @@ class LayoutCandidate(_StrictModel):
     """Resolved compiler record, NOT the model response schema."""
     layout_id: str
     source_range: SourceRange | None = None
+    as_text: bool = False
     ownership_evidence: str = ""
     ownership: Literal["paragraph", "citation", "ignored"]
     paragraph_evidence: str = ""
@@ -461,12 +461,13 @@ def _layout_packet(
     definition_mark: str | None,
     previous_in_initial_stream: AnalysedLayout | None,
 ) -> dict:
+    from .analysis_content import _visible_content_text
     try:
         text = layout_reference_text(layout)
     except ValueError:
-        text = ""
+        text = (_visible_content_text(layout.source.content)
+                if getattr(layout.source, "ref", None) == "formula" else "")
     from .text_operations import apply_text_removals, removal_anchors
-    from .analysis_content import _visible_content_text
     packet = {
         "layout_id": _layout_id(layout),
         "text_removals": removal_anchors(layout) if layout.source_order is not None else [],
@@ -698,17 +699,6 @@ def _compile_repaired_page(
             continue
         assert resolved is not None
         start, end = resolved
-        if reference.extract_from_expression:
-            printed = (_mark_text(citation.mark) or '').strip()
-            selected = text[start:end]
-            if not printed or selected != '^{' + printed + '}':
-                issues.append(review_text(
-                    'page_repair_expression_feedback', reference=prefix,
-                    layout_id=reference.layout_id, selected=repr(selected),
-                    index=reference.citation_index, citation=citation,
-                    mark=repr(printed), expected=repr('^{' + printed + '}'),
-                ))
-                continue
         spans_by_layout.setdefault(reference.layout_id, []).append(
             ReferenceSpan(
                 start=start,
@@ -716,7 +706,6 @@ def _compile_repaired_page(
                 citation_page_index=source.page_index,
                 citation_index=reference.citation_index,
                 mark_text=text[start:end],
-                extract_from_expression=reference.extract_from_expression,
             )
         )
 

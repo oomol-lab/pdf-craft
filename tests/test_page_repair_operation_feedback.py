@@ -109,24 +109,21 @@ class OperationFeedbackTests(TestCase):
         self.assertIn('Multiply assigned range [0, 12)', str(caught.exception))
         self.assertIn('Unique text.', str(caught.exception))
 
-    def test_superscript_conflict_reports_actual_span_and_target_definition(self):
+    def test_reference_identity_is_not_rejected_by_printed_mark_semantics(self):
         source = page(box(r'Year \(2005^{8}\).'), box('9 Another note.'))
         data = proposal(source)
         data['citations'] = [dict(citation_id='note', index=1, mark='9', stream_order=0)]
         data['layouts'][-1].update(ownership='citation', citation_id='note', citation_index=1,
                                   paragraph_role='body', paragraph_level=-1)
         data['references'] = [dict(layout_id=data['layouts'][0]['layout_id'], citation_index=1,
-                                  anchor=dict(before='2005', mark='^{8}', after='.'),
-                                  extract_from_expression=True)]
-        with self.assertRaises(ValueError) as caught:
-            compiled(source, data)
-        feedback = str(caught.exception)
-        for value in ('[REF_EXPRESSION]', "Selected source text='^{8}'",
-                      "printed mark='9'", "Expected selection='^{9}'", 'note_id=note'):
-            self.assertIn(value, feedback)
-        # A semantic mistake is not automatically reclassified by the program.
+                                  anchor=dict(before='2005', mark='^{8}', after='.'))]
+        # The model owns the semantic association. The compiler preserves its
+        # declaration, selected characters and unselected source, not a guess
+        # that matching printed labels are the only valid reference identity.
+        result = compiled(source, data)
+        self.assertEqual(result.layouts[0].references[0].citation_index, 1)
+        self.assertEqual(layout_reference_text(result.layouts[0]), 'Year 2005^{8}.')
         self.assertEqual(data['citations'][0]['mark'], '9')
-        self.assertEqual(layout_reference_text(source.layouts[0]), 'Year 2005^{8}.')
 
     def test_note_member_feedback_distinguishes_local_index_from_printed_mark(self):
         source = page(box('Body.'), box('8 A note.'))

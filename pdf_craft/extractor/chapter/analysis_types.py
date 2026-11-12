@@ -120,7 +120,6 @@ class ReferenceSpan:
     citation_page_index: int
     citation_index: int
     mark_text: str
-    extract_from_expression: bool = False
 
 
 @dataclass(frozen=True)
