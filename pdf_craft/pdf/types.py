@@ -77,14 +77,15 @@ def decode(element: Element) -> Page:
         for order, layout_element in enumerate(footnotes_element.findall("layout")):
             footnotes_layouts.append(_decode_layout(layout_element, order))
 
-    return Page(
+    from .repetition_tail import clean_page
+    return clean_page(Page(
         index=index,
         image=None,
         body_layouts=body_layouts,
         footnotes_layouts=footnotes_layouts,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
-    )
+    ))
 
 
 def encode(page: Page) -> Element:
