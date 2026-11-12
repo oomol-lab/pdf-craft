@@ -92,7 +92,7 @@ class PlanLoopTests(IsolatedAsyncioTestCase):
             schema=packet['output_contract']
             self.assertNotIn('page_index',schema['properties'])
             layout_schema=schema['$defs']['LayoutDecision']
-            self.assertNotIn('reason',layout_schema['required'])
+            self.assertIn('reason',layout_schema['required'])
             self.assertIn('Before choosing destination',layout_schema['properties']['reason']['description'])
             values=packet['target_page']['layouts'];calls.append(packet)
             return json.dumps(dict(layouts=[
@@ -102,6 +102,8 @@ class PlanLoopTests(IsolatedAsyncioTestCase):
                 dict(layout_id=values[3]['layout_id'],destination=dict(kind='ignored'))]))
         result=await repair_page_with_llm(previous_page=None,target_page=source,next_page=None,
             previous_pass_probability=None,next_pass_probability=None,request=request)
+        # Although requested for model deliberation, missing reasoning cannot
+        # cause a retry when the actual operations are complete and valid.
         self.assertEqual(len(calls),1)
         chapter=roundtrip(result)
         self.assertEqual(assets(chapter)[0].caption,['Note: figure.'])

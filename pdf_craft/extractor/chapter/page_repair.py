@@ -325,6 +325,9 @@ def build_page_repair_messages(
     del previous_pass_probability, next_pass_probability, target_pass_probability
     target = _repair_packet(target_page)
     output_contract = RepairPlan.model_json_schema()
+    # Ask for the reading decision before its operation. Acceptance deliberately
+    # tolerates omitted reasoning: prose is a model aid, never a validity gate.
+    output_contract['$defs']['LayoutDecision']['required'] = ['layout_id', 'reason', 'destination']
     output_contract['$defs']['LayoutDecision']['properties']['reason']['description'] = review_text(
         'page_repair_reason_instruction')
     for name in ('BodyDestination', 'NoteDestination', 'AssetDestination', 'IndependentDestination'):
