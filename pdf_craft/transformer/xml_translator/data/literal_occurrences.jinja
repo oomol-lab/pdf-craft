@@ -6,9 +6,9 @@ Occurrences in the complete translation: {{ item.expected }}.
 Occurrences in your candidate: {{ item.actual }}.
 GLOBAL match-count difference (complete translation minus complete candidate): {{ "%+d"|format(item.expected - item.actual) }}.
 Your existing XML already supplies {{ item.actual }} of these matches across ALL
-fields. The target {{ item.expected }} is NOT a number to add. Do not add
-{{ item.expected }} NEW matches to the field identified by a local error. Account
-for the correct passages already in that field AND in the other fields.
+fields. The target {{ item.expected }} is the whole-candidate TOTAL, not an
+instruction to insert {{ item.expected }} new matches. Account for existing
+passages kept or moved, and extra ranges removed, when deciding the local edits.
 {% endfor %}
 These count this literal substring, including overlapping matches. A sample may
 span several phrases: it is NOT a formula count, an XML-node count or a compressed

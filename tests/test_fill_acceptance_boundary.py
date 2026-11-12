@@ -154,7 +154,7 @@ class FillAcceptanceBoundaryTests(TestCase):
                 self.assertIn(f'Occurrences in the complete translation: {wanted}.', error)
                 self.assertIn(f'Occurrences in your candidate: {found}.', error)
                 self.assertIn(f'complete candidate): {wanted-found:+d}.', error)
-                self.assertIn('NOT a number to add', error)
+                self.assertIn('whole-candidate TOTAL', error)
                 self.assertIn('Counts alone do not establish correctness', error)
         self.assertEqual(_literal_occurrences('ababa', 'aba'), 2)
         self.assertEqual(_literal_occurrences('abc', ''), 0)
