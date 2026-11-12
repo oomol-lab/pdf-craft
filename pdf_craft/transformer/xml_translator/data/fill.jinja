@@ -35,9 +35,14 @@ tags around its consecutive passages. Do not start from the source XML and
 rewrite its fields: doing that recreates the source's words and repetition count.
 Copy the translation from START to END once, without regenerating its repeated
 passages from memory or assigning one occurrence per source container. A long
-consecutive passage may occupy one appropriate existing field; required nodes
-left after the translation ends remain present but EMPTY. Perform this inside
-your single XML answer; do not output an intermediate text or allocation plan.
+consecutive passage may occupy one appropriate existing field. When one parent
+contains many equivalent repeated inline formatting slots, keep unused earlier
+slots EMPTY and place the consecutive run in the LAST suitable existing slot.
+This lets you emit the required identities before expanding the long passage,
+instead of forgetting empty nodes after the text ends. Do not cross resource
+boundaries or apply this to distinct links or references. Keep any remaining
+required nodes too. Perform this inside your single XML answer; do not output
+an intermediate text or allocation plan.
 Read the final text in fixed output order before returning it.
 Source length metadata does not limit how much translation a block can receive.
 A complete translated passage may occupy one earlier block while its later

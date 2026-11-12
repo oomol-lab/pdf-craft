@@ -79,6 +79,18 @@ class ComparisonTests(TestCase):
 
 
 class FillBoundaryTests(IsolatedAsyncioTestCase):
+    async def test_repeated_math_in_last_existing_slot_survives_actual_delivery(self):
+        from pdf_craft.transformer.chapter_formula_interrupter import ChapterFormulaInterrupter
+        translator, model = translator_fixture()
+        artist = r'\(x\) \(x\) \(x\)'
+        model_replies(model, artist, [
+            r'<xml><fragment id="1"><expression id="2"/><expression id="3">\(x\) \(x\) \(x\)</expression></fragment></xml>'])
+        target = await NarrativeXMLTransformer(translator).transform(
+            chapter([expression('x'), ' ', expression('x')]), error_policy=False)
+        delivered = encode(decode(encode(target)))
+        self.assertIsNone(text_difference(artist, ChapterFormulaInterrupter().visible_text(delivered)))
+        self.assertEqual(len(model.wire_calls), 2)
+
     async def translate(self, raw, responses, *, source=None, formulas=None):
         translator, model = translator_fixture()
         model_replies(model, raw, responses)
