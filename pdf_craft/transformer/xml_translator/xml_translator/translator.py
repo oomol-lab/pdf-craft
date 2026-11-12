@@ -661,7 +661,7 @@ class XMLTranslator:
             if canonical_text_validator is not None:
                 error = canonical_text_validator(element, translated_text)
             if error is not None and canonical_text_validator is not None:
-                error += '\n\n' + repair_template.render()
+                error = repair_template.render() + '\n\n' + error
             return error
 
         def deliver(element):

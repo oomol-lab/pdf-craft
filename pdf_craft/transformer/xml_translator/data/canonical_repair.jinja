@@ -1,39 +1,10 @@
 CONTENT REPAIR
-The authoritative complete translation is already in the user input.
-The reported difference is a LOCAL correction to your previous XML, not a new
-field containing the whole translation. Use the quoted original missing excerpt
-when provided; do not append the complete translation to an already-filled field.
-Keep the passages on both sides of the reported gap.
-
-Return the whole corrected XML. Preserve correct surrounding content and every
-required node and identity. Remove extra characters from the identified text
-fields, not the required structure. Restore missing content by placing the
-translation in final output order. Move misplaced occurrences; add missing
-occurrences when the translation repeats them. Never add source wording to satisfy a structural requirement. Continue to
-apply all three principles together.
-
-A missing span and an extra span may be the SAME passage in the WRONG position.
-Move that passage to the position required by the translation, reallocating
-text among fixed block IDs. Its old source block is not its mandatory output
-location.
-If the difference is a misplaced passage rather than a missing repetition, MOVE it
-before the intervening text and shift that text to later output slots. Do not
-keep the wrong allocation merely because its source paragraph has that meaning.
-Source excerpts in diagnostics identify structure, not text you must restore.
-Text inside code and formula tags is editable too: repair its spelling to match
-the artist, not a programming language or the original formula. If extra math
-delimiters appear between containers, remove those characters while retaining
-the required containers; they do not each need a complete delimited formula.
-
-Apply field-level feedback literally. If entire_field_extra=True, empty ONLY
-that text/tail field while retaining its element, attributes and other fields.
-For example, if the only extra text is "return" in <code id="2">return</code>,
-retain <code id="2"/>; do not restore its source keyword on the next attempt.
-
-For a translated "$g(t)=\alpha t$", this split adds two unwanted dollar signs:
-<expression id="2">$g(t)=$</expression><span id="4"/><expression id="3">$\alpha t$</expression>
-Repair by removing the LEFT container's closing dollar sign and the RIGHT
-container's opening dollar sign, leaving all nodes and math content intact:
-<expression id="2">$g(t)=</expression><span id="4"/><expression id="3">\alpha t$</expression>
-The empty span is not a mathematical boundary. Repeating the previous split
-with each container individually wrapped does not repair the reported extra text.
+Keep the complete translation as the only content authority. The specific
+validation below identifies the CURRENT candidate's defect, not a new field
+containing the whole translation. Preserve correct surrounding content and all
+required XML structure; apply the reported local insertions/removals or move a
+misplaced passage without duplicating it. Add an occurrence when the translation
+repeats it. Empty fields consisting entirely of extra text, retaining their
+nodes and every other field. Do not restore source words or mathematical notation.
+Use original wording and spacing from the translation, not normalized diagnostic
+samples. Return the whole corrected XML, not a patch or an allocation plan.
