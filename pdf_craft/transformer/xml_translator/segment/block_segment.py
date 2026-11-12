@@ -2,6 +2,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from typing import TypeAlias, cast
 from xml.etree.ElementTree import Element
+from pdf_craft.common.whitespace import is_whitespace
 
 from .common import FoundInvalidIDError, validate_id_in_element
 from .inline_segment import InlineError, InlineSegment
@@ -233,6 +234,14 @@ class BlockSegment:
         return True
     def submit(self, target: Element) -> Generator[BlockSubmitter, None, None]:
         for child_element in target:
+            # Delivery only: a validated plain fragment tail has one output
+            # owner. Preserve its characters when binding source attributes;
+            # acceptance itself never edits the model's tree.
+            if child_element.tag == 'fragment' and not len(child_element) and any(not is_whitespace(char) for char in child_element.tail or ''):
+                from copy import deepcopy
+                child_element = deepcopy(child_element)
+                child_element.text = (child_element.text or '') + (child_element.tail or '')
+                child_element.tail = None
             element_id = id_in_element(child_element)
             if element_id is None:
                 continue

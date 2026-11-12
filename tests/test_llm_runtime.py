@@ -360,18 +360,14 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
                 [False, True],
             )
 
-    async def test_chinese_target_preserves_chinese_dominant_text_without_llm(self):
-        config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
-        translator = XMLTranslator(
-            config, config, "zh", None,   3, 10_000,
-            executor=ConcurrentExecutor(FixedCapacity(1)),
-         retry_policy=RetryPolicy(fill=max(0, (1) - 1)))
-        runtime = Mock()
-        translator._translation_runtime = runtime  # type: ignore[assignment]
-        source = "这是已经写成中文的正文，其中保留 API 和 Lacan 等专名。"
-
-        self.assertEqual(await translator._translate_text_async(source), source)
-        runtime.context.assert_not_called()
+    async def test_chinese_target_still_calls_the_artist(self):
+        from tests.translation_model import translator_fixture
+        translator, model = translator_fixture()
+        translator._target_language = 'zh'
+        source = '这是已经写成中文的正文，其中保留 API 和 Lacan 等专名。'
+        model.answer = lambda messages: '艺术家决定的表达。'
+        self.assertEqual(await translator._translate_text_async(source), '艺术家决定的表达。')
+        self.assertEqual(len(model.wire_calls), 1)
 
 
 if __name__ == "__main__":

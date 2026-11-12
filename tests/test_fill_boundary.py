@@ -9,7 +9,7 @@ from zipfile import ZipFile
 
 from pdf_craft import AsyncPDFCraft, SubmitKind, RetryPolicy
 from pdf_craft.llm.runtime import LLMRuntime
-from pdf_craft.transformer.fill_text import plain_translation, comparison_text, text_difference
+from pdf_craft.transformer.fill_text import plain_translation, comparison_text, text_difference, comparison_distance
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
@@ -32,6 +32,40 @@ class ComparisonTests(TestCase):
                             ('a\u200db', 'ab'), ('a\u200cb', 'ab'), ('ё', 'е')]:
             with self.subTest(left=left):
                 self.assertNotEqual(comparison_text(left), comparison_text(right))
+
+    def test_repair_distance_uses_the_same_full_comparison_as_feedback(self):
+        for expected, actual, distance in [('Echo. ' * 3, 'Echo. ' * 2, 5),
+                                           ('Echo. ' * 2, 'Echo. ' * 3, 5),
+                                           ('ab', 'ac', 2), ('a\u200b b', 'ab', 0),
+                                           (r'$20$', r'\( 20 \)', 0)]:
+            with self.subTest(expected=expected, actual=actual):
+                self.assertEqual(comparison_distance(expected, actual), distance)
+                self.assertEqual(text_difference(expected, actual) is None, distance == 0)
+
+    def test_diagnostics_quote_literal_backslashes_and_original_context_without_repr(self):
+        expected = r'Prefix \plain\name & <value> suffix'
+        actual = r'Prefix \plain\na & <value> suffix'
+        block = fromstring('<p id="1"/>')
+        block.text = actual
+        original = tostring(block)
+        feedback = text_difference(expected, actual, [block])
+        assert feedback is not None
+        expected_context = next(decode_friendly(feedback, tags='expected_context'))
+        actual_context = next(decode_friendly(feedback, tags='candidate_context'))
+        self.assertEqual(expected_context.text, expected)
+        self.assertEqual(actual_context.text, actual)
+        field = next(decode_friendly(feedback, tags='field_excerpt'))
+        self.assertEqual(field.text, actual)
+        self.assertNotIn(r'\\plain', feedback)
+        self.assertIn('&amp; &lt;value&gt;', feedback)
+        self.assertEqual(tostring(block), original)
+
+    def test_context_is_not_synthesized_from_a_noninvertible_comparison_view(self):
+        with patch('pdf_craft.transformer.fill_text.normalize_latex', side_effect=lambda value: value.replace('LONG', 'q')):
+            feedback = text_difference('LONG B', 'wrong B')
+        assert feedback is not None
+        self.assertNotIn('<expected_context', feedback)
+        self.assertNotIn('PAIRED ORIGINAL CONTEXT', feedback)
 
     def test_markdown_has_no_custom_formula_recognition(self):
         for raw, expected in [('**bold** and *emphasis*', 'bold and emphasis'),
@@ -79,6 +113,18 @@ class ComparisonTests(TestCase):
 
 
 class FillBoundaryTests(IsolatedAsyncioTestCase):
+    async def test_repeated_math_in_last_existing_slot_survives_actual_delivery(self):
+        from pdf_craft.transformer.chapter_formula_interrupter import ChapterFormulaInterrupter
+        translator, model = translator_fixture()
+        artist = r'\(x\) \(x\) \(x\)'
+        model_replies(model, artist, [
+            r'<xml><fragment id="1"><expression id="2"/><expression id="3">\(x\) \(x\) \(x\)</expression></fragment></xml>'])
+        target = await NarrativeXMLTransformer(translator).transform(
+            chapter([expression('x'), ' ', expression('x')]), error_policy=False)
+        delivered = encode(decode(encode(target)))
+        self.assertIsNone(text_difference(artist, ChapterFormulaInterrupter().visible_text(delivered)))
+        self.assertEqual(len(model.wire_calls), 2)
+
     async def translate(self, raw, responses, *, source=None, formulas=None):
         translator, model = translator_fixture()
         model_replies(model, raw, responses)
@@ -86,6 +132,19 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
             translator, TranslationTask(source if source is not None else fromstring('<body><p>Original text.</p></body>'),
                                        SubmitKind.REPLACE, None), error_policy=False, retry_policy=RetryPolicy(fill=1))
         return result, model
+
+    async def test_extra_translated_passage_precedes_ending_after_last_required_slot(self):
+        translator, model = translator_fixture()
+        model_replies(model, 'a a a end', [
+            '<xml><fragment id="1"><expression id="2">a</expression> '
+            '<expression id="3">end</expression> <expression id="4">a</expression></fragment></xml>',
+            '<xml><fragment id="1"><expression id="2">a</expression> '
+            '<expression id="3">a</expression> a end</fragment></xml>'])
+        target = encode(await NarrativeXMLTransformer(translator).transform(
+            chapter([expression('u'), ' ', expression('v'), ' source ending']), error_policy=False))
+        self.assertIsNone(text_difference('a a a end', ''.join(target.itertext())))
+        self.assertEqual(len(list(target.iter('inline_expr'))), 2)
+        self.assertEqual(len(model.wire_calls), 3)
 
     async def test_plain_view_is_same_in_request_and_comparison(self):
         raw = '# Title\n\n**Bold** and [link](https://example.org). Costs $20.'
@@ -230,7 +289,7 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual([node.get('class') for node in target.iter('span')], ['a', 'b'])
         self.assertEqual(len(model.wire_calls), 3)
         self.assertIn('EXTRA formatting wrapper', model.wire_calls[-1][-1].message)
-        self.assertIn('Source block:', model.wire_calls[-1][-1].message)
+        self.assertIn('Required structure', model.wire_calls[-1][-1].message)
 
     async def test_formatting_does_not_authorize_removing_literal_punctuation(self):
         source = fromstring('<body><p>EUR<sup>2</sup></p></body>')

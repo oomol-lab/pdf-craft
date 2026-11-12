@@ -78,11 +78,17 @@ def _add_translation(root: Path, translation_id: str, prefix: str) -> None:
         "description": f"{prefix}:Description",
         "language": "en",
     }), encoding="utf-8")
+    note_coverage = ''.join(
+        f"<paragraph chapter_id='{chapter.id if chapter.id is not None else 'head'}' "
+        f"page_index='{fragment.page_index}' order='{fragment.identity_order}' state='translated'/>"
+        for reference in search_references_in_chapter(chapter)
+        for item in reference.flow_items if isinstance(item, TextFlowItem)
+        for fragment in item.children[:1] if isinstance(fragment, SourceTextFragment))
     (layer / "coverage.xml").write_text(
         "<translation><narrative>"
         "<paragraph chapter_id='1' page_index='1' order='1' state='translated'/>"
         "<paragraph chapter_id='1' page_index='1' order='2' state='translated'/>"
-        "</narrative></translation>",
+        + note_coverage + "</narrative></translation>",
         encoding="utf-8",
     )
     index["translations"].append({
@@ -470,6 +476,12 @@ class TestPCEXTranslationRendering(unittest.TestCase):
             reference_formula.asset.title = ["Translated note formula title"]
             reference_formula.asset.caption = ["Translated note formula caption"]
             save_xml(encode(translated), translated_path)
+            from pdf_craft.transformer.translation_coverage import formula_states, write_narrative_coverage, read_coverage, NarrativeCoverage
+            coverage_path = root / 'source/translations/english-a/coverage.xml'
+            coverage = read_coverage(coverage_path)
+            entries = [NarrativeCoverage(*key, state) for key, state in coverage.narrative.items()]
+            entries.extend(formula_states(chapter, translated))
+            write_narrative_coverage(coverage_path, entries)
             extraction._validate(require_toc=True)
 
             markers = (

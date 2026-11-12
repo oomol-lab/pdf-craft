@@ -1,0 +1,6 @@
+Original translation excerpt corresponding to expected[{{ start }}:{{ end }}]:
+{{ excerpt }}
+{% if truncated %}This excerpt stops after {{ limit|default(600) }} original characters; obtain the remainder from the complete translation.
+{% endif %}These are the actual missing characters, not a new translation or a ready-made XML
+field. Insert the missing occurrence/range once at its gap, not the entire translation.
+Preserve other correct content and every required node. Return the complete XML.

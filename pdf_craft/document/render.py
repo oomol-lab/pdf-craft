@@ -212,24 +212,19 @@ def _write_effective_chapters(
 ) -> None:
     narrative_coverage = _narrative_coverage(coverage_path)
     translated_identities = {key for key, state in narrative_coverage.items() if state == "translated"}
-    preserved_identities = {key for key, state in narrative_coverage.items() if state == "preserved"}
     translated_assets = _translated_anchored_identities(coverage_path)
     for source_file in source_path.glob("*.xml"):
         source = ElementTree.parse(source_file).getroot()
         translated = ElementTree.parse(translated_path / source_file.name).getroot()
         _compose_chapter(
-            source, translated, translated_identities, translated_assets, mode, preserved_identities,
+            source, translated, translated_identities, translated_assets, mode,
         )
         save_xml(source, output_path / source_file.name)
 
 
-def _narrative_coverage(path: Path) -> dict[tuple[str, int, int], str]:
-    root = ElementTree.parse(path).getroot()
-    return {
-        (entry.get("chapter_id", ""), int(entry.get("page_index", "0")),
-         int(entry.get("order", "0"))): entry.get("state", "preserved")
-        for entry in root.findall("narrative/paragraph")
-    }
+def _narrative_coverage(path: Path) -> dict[tuple[str, int | str, int | str], str]:
+    from ..transformer.translation_coverage import read_coverage
+    return read_coverage(path).narrative
 
 
 def _translated_anchored_identities(path: Path) -> set[tuple[str, int, int]]:
@@ -248,10 +243,9 @@ def _translated_anchored_identities(path: Path) -> set[tuple[str, int, int]]:
 def _compose_chapter(
     source: ElementTree.Element,
     translated: ElementTree.Element,
-    translated_identities: set[tuple[str, int, int]],
+    translated_identities: set[tuple[str, int | str, int | str]],
     translated_assets: set[tuple[str, int, int]],
     mode: RenderMode,
-    preserved_identities: set[tuple[str, int, int]],
 ) -> None:
     chapter_id = source.get("id", "head")
     source_flow = source.find("flow")
@@ -259,8 +253,9 @@ def _compose_chapter(
     if source_flow is not None and translated_flow is not None:
         targets = _flow_targets(translated_flow)
         is_translated = lambda identity: (
-            identity[0] == "display-formula"
-            or (chapter_id, identity[0], identity[1]) in translated_identities
+            (chapter_id, 'formula', f'body:{identity[1]}') in translated_identities
+            if identity[0] == 'display-formula'
+            else (chapter_id, identity[0], identity[1]) in translated_identities
         )
         # Asset coverage uses source flow/child indexes. Compose before
         # bilingual paragraphs or heading fragments change those indexes.
@@ -271,7 +266,7 @@ def _compose_chapter(
             _replace_flow(source_flow, targets, is_translated)
         else:
             _merge_flow(source_flow, targets, is_translated, mode)
-    _compose_references(source, translated, mode, preserved_identities)
+    _compose_references(source, translated, mode, translated_identities)
 
 
 def _compose_anchored_assets(
@@ -336,7 +331,7 @@ def _compose_asset_element(
 
 def _compose_references(
     source: ElementTree.Element, translated: ElementTree.Element, mode: RenderMode,
-    preserved_identities: set[tuple[str, int, int]],
+    translated_identities,
 ) -> None:
     source_references = source.find("references")
     translated_references = translated.find("references")
@@ -352,13 +347,11 @@ def _compose_references(
         if source_flow is None or target_flow is None:
             continue
         target_items = _flow_targets(target_flow)
-        # Older layers have no footnote coverage. Keep their established
-        # availability behavior, but honor explicit preserved entries from
-        # layers that do record footnote paragraphs.
         available_targets = {
-            identity for identity, item in target_items.items()
-            if _visible_text(item) and
-            (source.get("id", "head"), *identity) not in preserved_identities
+            identity for identity in target_items
+            if ((source.get('id', 'head'), 'formula', f"note:{reference.get('id')}:{identity[1]}") in translated_identities
+                if identity[0] == 'display-formula' else
+                (source.get('id', 'head'), *identity) in translated_identities)
         }
         has_target = available_targets.__contains__
         if mode == RenderMode.REPLACE:
@@ -376,7 +369,6 @@ def _replace_flow(source_flow, targets, should_replace) -> None:
             identity is not None
             and target is not None
             and should_replace(identity)
-            and _visible_text(target)
         ):
             effective.append(deepcopy(target))
         else:

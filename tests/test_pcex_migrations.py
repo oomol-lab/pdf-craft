@@ -272,3 +272,34 @@ class PCEXLayerMigrationTests(IsolatedAsyncioTestCase):
                     after.writestr(member, data)
             with self.assertRaisesRegex(ValueError, 'ambiguous legacy image caption'):
                 await craft.open_extraction(root / 'ambiguous.pcex')
+
+
+class FormulaCoverageMigrationTests(TestCase):
+    def test_v7_formula_layers_migrate_without_rewriting_content(self):
+        from tests.test_pcex_translation_rendering import _source, _add_translation
+        from pdf_craft.extractor.chapter.chapter import DisplayFormula, decode
+        from pdf_craft.transformer.translation_coverage import read_coverage
+        with TemporaryDirectory() as folder:
+            root = Path(folder)/'source'
+            _source(root)
+            path = root/'chapters/chapter_1.xml'
+            chapter = decode(read_xml(path))
+            chapter.flow_items.append(DisplayFormula(SourceAsset(1, 'formula', (1,80,90,90), content=['x+1'])))
+            save_xml(encode(chapter), path)
+            original = path.read_bytes()
+            _add_translation(root, 'old-layer', 'EN')
+            translated_path = root/'translations/old-layer/chapters/chapter_1.xml'
+            translated = translated_path.read_bytes()
+            manifest_path = root/'manifest.json'
+            manifest = json.loads(manifest_path.read_text())
+            manifest['format_version'] = 7
+            manifest_path.write_text(json.dumps(manifest))
+            migrate_workspace(root)
+            self.assertEqual(json.loads(manifest_path.read_text())['format_version'], FORMAT_VERSION)
+            states = read_coverage(root/'translations/old-layer/coverage.xml').narrative
+            self.assertEqual(states[('1', 'formula', f'body:{len(chapter.flow_items)-1}')], 'preserved')
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(translated_path.read_bytes(), translated)
+            coverage = (root/'translations/old-layer/coverage.xml').read_bytes()
+            migrate_workspace(root)
+            self.assertEqual((root/'translations/old-layer/coverage.xml').read_bytes(), coverage)

@@ -347,7 +347,7 @@ class XMLStreamMapper:
                         for identity in text.progress_blocks:
                             weight += original_blocks.pop(identity, 0)
                         continue
-                    if any(parent.tag in ('formula_context', 'translation-context') for parent in text.parent_stack):
+                    if any(parent.tag == 'translation-context' for parent in text.parent_stack):
                         continue
                     for parent in reversed(text.parent_stack):
                         identity = id(parent)

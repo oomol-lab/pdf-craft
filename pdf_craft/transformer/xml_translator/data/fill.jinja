@@ -23,24 +23,40 @@ text to its source sentence is NOT a requirement. These IDs address output
 positions, not sentences. Redistribute
 text across output blocks when necessary; preserve required inline identities,
 resources and nesting. Container boundaries do not justify adding characters,
-duplicating words or restoring source order. Required containers may remain
-empty when their content is absent or belongs elsewhere. Formula containers are editable: their source
-notation and delimiters are not mandatory translated content.
-Use required inline formatting and formula containers for the corresponding
-translated content. Keeping their IDs but moving all their content into plain
-text is not the aim. Empty containers are for content absent from the translation
-or merged into another required container, not a shortcut around placement.
-Use one cursor through the translation, from START to END. At each successive
-output block, take the NEXT untranslated content, not the translated counterpart
-of that block's source words. Never jump ahead in the translation or return to
-an earlier passage. Read your candidate in fixed output order before returning it.
+duplicating words or restoring source order.
+A required ID protects STRUCTURE; it is NOT a requirement for nonempty content.
+Any editable container may remain empty, including when identical source words
+or a formula value also occur elsewhere in the translation. Their presence in
+the translation does not require filling EVERY matching source container.
+Preserve all required identities, not the source number of visible occurrences.
+Use appropriate existing inline formatting for the actual translated passages;
+formatting must serve those passages, not force additional text into them.
+Formula containers are editable: their source notation and delimiters are not
+mandatory translated content.
+On the FIRST attempt, or when no parseable working XML is supplied, use the
+COMPLETE TRANSLATION as your starting text and insert the required XML tags
+around its consecutive passages. Do not start from the source XML and
+rewrite its fields: doing that recreates source words and repetition counts.
+Copy the translation from START to END once. Prefer manageable consecutive
+passages in compatible existing containers rather than putting an entire long
+group into one field and leaving all other containers empty. This is a placement
+preference, NOT a field quota: never add text to fill containers, and keep nodes
+empty when appropriate. One existing field may hold several
+consecutive passages; one passage may span several fields. Keep unused nodes
+empty. Do not cross protected resource boundaries or change required nesting.
+Complete all placements inside your one XML answer, not an intermediate plan.
+Read the final text in fixed output order before returning it.
 Source length metadata does not limit how much translation a block can receive.
 A complete translated passage may occupy one earlier block while its later
 source fragments remain structurally present but empty.
 
-Repair feedback identifies a violation of these principles; it never authorizes
-changing the translation. Correct the reported defect while preserving the
-other correct content and all required structure.
+On a REPAIR attempt WITH a working XML supplied, revise that document instead
+of filling the source template afresh. The complete translation remains the content authority,
+not a replacement to paste into every field being repaired. Carry forward the
+correct existing passages and structure. Apply the reported corrections without
+unnecessarily replanning or regenerating already-correct content. Reallocate
+passages only when their placement needs correction. Return the complete edited
+XML, not a patch. Repair feedback never authorizes changing the translation.
 
 Use the shared friendly XML text protocol: write text <, > and & as &lt;, &gt;
 and &amp;. Literal spelling &lt; is written &amp;lt;. These escapes are text,

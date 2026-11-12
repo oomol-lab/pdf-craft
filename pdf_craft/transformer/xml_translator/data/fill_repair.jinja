@@ -1,0 +1,64 @@
+You are revising one rejected XML document, not translating or recreating source
+wording. Return one COMPLETE corrected <xml> block, with no plan or patch.
+
+Apply these three principles together:
+1. SOURCE DEFINES STRUCTURE. Keep every required node, ID, attribute, nesting
+relation and protected resource at its required output position. Source wording,
+length and repetition counts are not requirements. An editable node may be empty.
+2. TRANSLATION DEFINES CONTENT. The complete translation is the only authority
+for visible words, punctuation, notation, repetitions and reading order. Never
+restore source wording or edit the artist's text. Content that looks accidental
+or repeats many times still belongs to the translation.
+3. FILL DEFINES PLACEMENT. Edit the supplied working XML at the reported defect.
+Preserve its correct text and required structure. You may redistribute actual
+consecutive passages among compatible existing containers when needed to finish;
+correct words must survive in the same final reading order. Several passages may share one editable
+field, and unused required nodes may remain empty. Keep fixed block and resource
+positions; reordering their XML does not move their final output positions.
+
+The feedback and working XML belong together. A missing RANGE must be inserted
+in full at its gap; an EXTRA range must be removed, not compensated by changing
+another passage. Preserve the surrounding text. Do not fill source containers
+one by one again or estimate a fresh global number of repetitions. Use the actual
+translation characters, never normalized diagnostic samples, repeat markers or
+count instructions as output. Returning a partial document loses required nodes.
+
+In this transport, a fragment is an output position, NOT a fixed sentence or
+one occurrence of its source text. An expression slot is editable too: it may
+hold several consecutive translated formulas or a portion of a translated
+passage. Do not force one formula per node. If you move all text out of a
+fragment, keep its required inline children present EMPTY; an empty parent does
+not replace those children. Required structure and occurrence totals are separate.
+
+Small repair examples (all literal occurrences are written, not encoded):
+Translation: "Echo. Echo."
+Working XML: <xml><p id="1">Echo. Echo. Echo.</p><p id="2"/></xml>
+Corrected XML: <xml><p id="1">Echo. Echo.</p><p id="2"/></xml>
+Translation: "Echo. Echo. Echo."
+Working XML: <xml><p id="1">Echo. Echo.</p><p id="2"/></xml>
+Corrected XML: <xml><p id="1">Echo. Echo. Echo.</p><p id="2"/></xml>
+Keep the already supplied occurrences; the translation gives the TOTAL, not an
+additional copy to paste into each field. Apply only the necessary corrections,
+then return the entire document. An earlier failed answer is never an accepted
+fallback; this answer must still pass all structure and whole-text checks.
+
+Use friendly XML escapes for text <, > and &: &lt;, &gt;, &amp;. Literal spelling
+&lt; is written &amp;lt;. Do not use CDATA or invent identities.
+
+A source inline slot is not a sentence boundary or the final translated word:
+Required structure: <xml><fragment id="1"><expression id="2"/><expression id="3"/></fragment></xml>
+Translation: "\(x=y\) \(x=y\) \(x=y\) \(x=\)"
+Rejected XML: <xml><fragment id="1"><expression id="2">\(x=y\)</expression> <expression id="3">\(x=\)</expression> <expression id="4">\(x=y\)</expression></fragment></xml>
+Corrected XML: <xml><fragment id="1"><expression id="2">\(x=y\)</expression> <expression id="3">\(x=y\)</expression> \(x=y\) \(x=\)</fragment></xml>
+ID 4 was invented. Keep required IDs 2 and 3; ordinary mixed text after them can
+hold additional translated formulas AND the final unfinished expression. Do not
+pin the translation's ending inside the last source slot and then append earlier
+passages after it. Read the entire final mixed content in order, including tails.
+A surplus wrapper can be UNWRAPPED while retaining its text, or its content moved
+into an existing editable slot. Never delete its words just to remove the ID.
+An existing expression may hold several consecutive translated formulas. Neither
+the number of source slots nor the source's ending limits the translation.
+Even incomplete mathematical notation is literal artist data to preserve, not
+something to repair from source. Only XML syntax must be well formed.
+This example's IDs and text are not your task's values. If you empty a fragment,
+keep every required inline child EMPTY. Return every actual character.

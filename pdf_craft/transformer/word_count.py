@@ -4,7 +4,7 @@ from .xml_translator.xml import is_inline_element
 
 
 def _source_parts(element, stack=()):
-    if element.tag in ('translation-context', 'formula_context'):
+    if element.tag == 'translation-context':
         return
     stack = (*stack, element)
     pcex = stack[0].tag == 'chapter'

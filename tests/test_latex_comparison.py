@@ -77,7 +77,7 @@ class LatexComparisonTests(TestCase):
                 difference = text_difference(raw, raw.replace('$', ''))
                 assert difference is not None
                 self.assertIn('Missing 2, added 0', difference)
-                self.assertRegex(difference, r"missing: expected\[\d+:\d+\]='\${1,2}'")
+                self.assertRegex(difference, r'missing: expected\[\d+:\d+\]=<expected_view xml:space="preserve">\${1,2}</expected_view>')
         self.assertEqual(normalize_latex(r'Symbols: $\quad$.'), r'Symbols: $\quad$.')
 
     def test_failures_preserve_construct_and_other_valid_text(self):
@@ -123,8 +123,8 @@ class LatexComparisonTests(TestCase):
             fromstring('<p id="1">Result $α+2$.</p>')])
         assert difference is not None
         self.assertIn("expected[", difference)
-        self.assertIn("'1'", difference)
-        self.assertIn("'2'", difference)
+        self.assertIn('<expected_view xml:space="preserve">1</expected_view>', difference)
+        self.assertIn('<candidate_view xml:space="preserve">2</candidate_view>', difference)
 
 
 class LatexFillTests(IsolatedAsyncioTestCase):
@@ -166,8 +166,8 @@ class LatexFillTests(IsolatedAsyncioTestCase):
         self.assertEqual(''.join(result.itertext()), 'The value is $α+1$.')
         self.assertEqual(len(model.wire_calls), 3)
         feedback = model.wire_calls[-1][-1].message
-        self.assertIn("'1'", feedback)
-        self.assertIn("'2'", feedback)
+        self.assertIn('<expected_view xml:space="preserve">1</expected_view>', feedback)
+        self.assertIn('<candidate_view xml:space="preserve">2</candidate_view>', feedback)
         self.assertNotIn('Missing 8', feedback)
 
     async def test_optional_wrappers_do_not_repair_or_rewrite_the_filled_payload(self):
@@ -226,7 +226,7 @@ class LatexFillTests(IsolatedAsyncioTestCase):
                 self.assertEqual(len(model.wire_calls), 3)
                 feedback = model.wire_calls[-1][-1].message
                 self.assertIn('Missing 2, added 0', feedback)
-                self.assertRegex(feedback, r"missing: expected\[\d+:\d+\]='\${1,2}'")
+                self.assertRegex(feedback, r'missing: expected\[\d+:\d+\]=<expected_view xml:space="preserve">\${1,2}</expected_view>')
 
     async def test_visible_braces_cannot_be_removed_by_fill(self):
         for literal, structural in [
@@ -249,7 +249,8 @@ class LatexFillTests(IsolatedAsyncioTestCase):
                 self.assertIn('Visible text differs', feedback)
                 self.assertIn('missing:', feedback)
                 self.assertIn('expected[', feedback)
-                self.assertIn(r'\\', feedback.split('LITERAL CONTENT REPAIR', 1)[0])
+                self.assertTrue(any('\\' in (node.text or '')
+                                    for node in decode_friendly(feedback, tags='expected_view')))
 
     async def test_conversion_failure_does_not_add_requests_or_modify_content(self):
         translator, model = translator_fixture()

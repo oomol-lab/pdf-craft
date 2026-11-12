@@ -206,5 +206,5 @@ class MathSubsetFillTests(IsolatedAsyncioTestCase):
                         assert formula is not None
                         self.assertEqual(formula.text, translated)
                         if source == translated:
-                            self.assertEqual(formula.get('kind'), r'\(')
+                            self.assertEqual(formula.get('kind'), '$')
                     self.assertEqual(len(model.wire_calls), 2)

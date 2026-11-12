@@ -56,7 +56,7 @@ class SingleXMLFillTests(IsolatedAsyncioTestCase):
                 self.assertEqual([node.text for node in target], ['First.', 'Second.'])
                 self.assertEqual(len(model.wire_calls), 3)
 
-    async def test_discarded_display_context_cannot_swallow_artist_text(self):
+    async def test_arbitrary_tag_names_do_not_grant_read_only_content_privileges(self):
         translator, model = translator_fixture()
         model_replies(model, 'Translated.', [
             '<xml><p id="1"><formula_context><expression>Translated.</expression></formula_context></p></xml>',
@@ -64,9 +64,8 @@ class SingleXMLFillTests(IsolatedAsyncioTestCase):
         source = fromstring('<body><p><formula_context display="inline"><expression display="inline"/></formula_context>Original.</p></body>')
         target, _ = await StructuredTranslation().translate(translator, TranslationTask(source, SubmitKind.REPLACE, None), error_policy=False, retry_policy=RetryPolicy(fill=1))
         self.assertEqual(''.join(target.itertext()), 'Translated.')
-        self.assertEqual(''.join(target[0][0].itertext()), '')
-        self.assertEqual(len(model.wire_calls), 3)
-        self.assertIn('read-only background', model.wire_calls[-1][-1].message)
+        self.assertEqual(''.join(target[0][0].itertext()), 'Translated.')
+        self.assertEqual(len(model.wire_calls), 2)
 
     async def test_protected_code_preserves_exact_spaces_and_line_breaks(self):
         translator, model = translator_fixture()

@@ -6,12 +6,12 @@ from dataclasses import replace
 from typing import Any
 
 from ..concurrency import fatal_error_boundary, settle_tasks
-from ..extractor.chapter.chapter import Chapter, Reference, TextFlowItem, narrative_texts, search_references_in_chapter
+from ..extractor.chapter.chapter import Chapter, Reference, TextFlowItem, DisplayFormula, narrative_texts, search_references_in_chapter
 from ..runtime import IO_DOMAIN, temporary_directory
 from .._failure_sources import page_sources
 from .._policy import Completion
 from .anchored_translation import _asset_slots, _translate_slots_async
-from .translation_coverage import NarrativeCoverage, AnchoredContentCoverage, paragraph_identity, accepted_translation
+from .translation_coverage import NarrativeCoverage, AnchoredContentCoverage, paragraph_identity, accepted_translation, formula_states
 from .ready_queue import ReadyQueue
 from .request_batch import MAX_BATCH_UNITS
 from .furniture_plan import FurniturePlan
@@ -102,15 +102,15 @@ class PCEXSchedule:
     async def narrative_result(self, source, target, payload):
         """Keep acceptance, title reuse and accounting independent of grouping."""
         states = []
-        from .package import _has_visible_content
         for original, translated in zip(narrative_texts(source), narrative_texts(target), strict=True):
             identity = paragraph_identity(source, original)
             if identity is not None:
                 states.append(NarrativeCoverage(*identity, 'translated' if
-                    _has_visible_content(translated) and accepted_translation(translated) else 'preserved'))
+                    accepted_translation(translated) else 'preserved'))
+        states.extend(formula_states(source, target, body_index=payload.index))
         if self.furniture is not None:
             await IO_DOMAIN.run(self.furniture.titles, target)
-        primary = isinstance(payload.value, Reference) or (isinstance(payload.value, TextFlowItem) and payload.value.role != 'heading')
+        primary = isinstance(payload.value, (Reference, DisplayFormula)) or (isinstance(payload.value, TextFlowItem) and payload.value.role != 'heading')
         if primary:
             self.completion.succeeded += sum(state.state == 'translated' for state in states)
             self.completion.degraded += sum(state.state == 'preserved' for state in states)

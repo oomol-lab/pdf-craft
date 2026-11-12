@@ -2,7 +2,6 @@
 
 from pdf_craft.common.whitespace import normalize_whitespace
 from pdf_craft.usage import UsageCollector, adopted_result
-from copy import deepcopy
 from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
@@ -16,7 +15,6 @@ from xml.etree.ElementTree import Element
 from pdf_craft.concurrency import AsyncExecutor
 
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
-from pdf_craft.language import is_han_char, is_latin_letter
 from pdf_craft.llm.loop import ProtocolRetry, ProtocolSuccess, RepairLoopOptions, run_repair_loop
 from pdf_craft.runtime import invoke_callback, IO_DOMAIN
 from pdf_craft.transformer.xml_translator.segment import (
@@ -34,13 +32,13 @@ from .fill_diagnostics import FillDiagnostics
 from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
 from .submitter import SubmitKind, submit
 from ...word_count import count_xml_words
-from ...source_view import SourceView
-from ...formula_source import MathProjectionError
 from ...progress import TranslationProgress, active_progress, selected_item, selected_assets
 from pdf_craft.progress import UnitOutcome
 from collections import Counter, deque
 import asyncio
 from pdf_craft._progress import DiskUnits, progress_directory
+
+from ...formula_source import FormatDeliveryError
 
 if TYPE_CHECKING:
     from ...structured_translation import StructuredTranslation
@@ -48,18 +46,19 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 SourceTextRenderer = Callable[[list[InlineSegment]], str]
 CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | None]
-CandidateProjector = Callable[[list[InlineSegmentMapping | None], str, Element], list[InlineSegmentMapping | None] | None]
+DeliveryFormatter = Callable[[list[InlineSegmentMapping | None], str, Element], list[InlineSegmentMapping | None] | None]
 
 
-def _already_in_target_language(text: str, target_language: str) -> bool:
-    normalized = target_language.strip().casefold().replace("_", "-")
-    if normalized not in {
-        "zh", "zh-cn", "zh-hans", "chinese", "simplified chinese", "中文", "简体中文",
-    }:
-        return False
-    han_count = sum(is_han_char(char) for char in text)
-    latin_count = sum(is_latin_letter(char) for char in text)
-    return han_count >= 2 and han_count >= latin_count
+@dataclass(frozen=True)
+class _RepairBaseline:
+    distance: int
+    xml: str
+    feedback: str
+    structure_valid: bool
+
+    @property
+    def rank(self) -> tuple[int, bool]:
+        return self.distance, not self.structure_valid
 
 
 @dataclass
@@ -521,7 +520,6 @@ class XMLTranslator:
             translation_protocol.context(primary)
             if translation_protocol is not None and translation_protocol.context else '',
             ''.join(self._render_source_text_parts(overlap))) if part)
-        source_view = translation_protocol.source_view(primary) if translation_protocol is not None else None
         result = await self._translate_inline_segment_group_async(
             inline_segments=primary,
             callbacks=callbacks,
@@ -529,16 +527,13 @@ class XMLTranslator:
                 immutable_elements_for_inline_segments(primary)
                 if immutable_elements_for_inline_segments is not None else []
             ),
-            source_text_renderer=((lambda segments, math=source_view: translation_protocol.render(segments, math))
-                                  if source_view is not None and translation_protocol is not None
-                                  else source_text_renderer),
+            source_text_renderer=source_text_renderer,
             canonical_text_validator=canonical_text_validator,
             source_context=context,
-            candidate_projector=(
+            delivery_formatter=(
                 (lambda mappings, canonical, response:
-                 translation_protocol.materialize_candidate(mappings, canonical, response, primary))
+                 translation_protocol.materialize_accepted(mappings, canonical, response, primary))
                 if translation_protocol is not None else None),
-            source_view=source_view,
             allow_direct_fill=(translation_protocol is not None
                                and translation_protocol.is_text_unit(translation_protocol.unit(primary[0]))),
         )
@@ -560,8 +555,7 @@ class XMLTranslator:
         source_text_renderer: SourceTextRenderer | None,
         canonical_text_validator: CanonicalTextValidator | None,
         source_context: str = '',
-        candidate_projector: CandidateProjector | None = None,
-        source_view: SourceView | None = None,
+        delivery_formatter: DeliveryFormatter | None = None,
         allow_direct_fill: bool = False,
     ) -> list[InlineSegmentMapping | None]:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
@@ -590,12 +584,8 @@ class XMLTranslator:
         )
         targets = segment_locations(primary)
         try:
-            if source_view is not None:
-                context = '\n\n'.join(value for value in (source_context, source_view.context) if value)
-                translated_text = await self._translate_text_async(source_text, context=context)
-            else:
-                translated_text = (await self._translate_text_async(source_text, context=source_context)
-                                   if source_context else await self._translate_text_async(source_text))
+            translated_text = (await self._translate_text_async(source_text, context=source_context)
+                               if source_context else await self._translate_text_async(source_text))
         except Exception as error:
             await recover(error, FailureCategory.TRANSLATION, 'text_translation',
                           'omit_translation', targets=targets, context_locations=context_targets,
@@ -610,11 +600,11 @@ class XMLTranslator:
                     (lambda element, canonical=translated_text: canonical_text_validator(inline_segments, canonical, element))
                     if canonical_text_validator is not None else None
                 ),
-                candidate_projector=candidate_projector,
+                delivery_formatter=delivery_formatter,
                 allow_direct_fill=allow_direct_fill,
             )
         except Exception as error:
-            await recover(error, FailureCategory.FILL, 'xml_fill', 'omit_translation',
+            await recover(error, FailureCategory.FILL, 'format_delivery' if isinstance(error, FormatDeliveryError) else 'xml_fill', 'omit_translation',
                           targets=targets, context_locations=context_targets, backend='llm', model=getattr(self._fill_llm, 'model', None))
             return [None] * len(inline_segments)
         if projected is not None:
@@ -640,7 +630,7 @@ class XMLTranslator:
                 yield text_segment.text
 
     async def _translate_text_async(self, text: str, *, context: str = "") -> str:
-        if not normalize_whitespace(text, trim=True) or _already_in_target_language(text, self._target_language):
+        if not normalize_whitespace(text, trim=True):
             return text
         template = await self._translation_runtime.template("translate")
         messages = [Message(MessageRole.SYSTEM, template.render(
@@ -658,58 +648,68 @@ class XMLTranslator:
         callbacks: Callbacks,
         canonical_text_validator: Callable[[Element, str], str | None] | None = None,
         failure_locations: tuple = (),
-        candidate_projector: CandidateProjector | None = None,
+        delivery_formatter: DeliveryFormatter | None = None,
         allow_direct_fill: bool = False,
     ) -> list[InlineSegmentMapping | None] | None:
-        from ...fill_text import plain_translation
+        from ...fill_text import comparison_distance, plain_translation
         original_artist_text = translated_text
         translated_text = plain_translation(translated_text)
         feedback_template = await self._fill_runtime.template("inline_feedback")
         repair_template = await self._fill_runtime.template("canonical_repair")
-        translation = Element('translation', {'xml:space': 'preserve'})
-        translation.text = translated_text
-
+        content_status_template = await self._fill_runtime.template("structure_content_feedback")
         def validate_candidate(element):
-            projected = None
             error = hill_climbing.validate(element)
             if error is not None:
                 blocks = hill_climbing.inline_feedback_blocks(element)
-                if blocks:
-                    error += '\n' + feedback_template.render(blocks=blocks)
-                return error, None
+                error += '\n' + feedback_template.render(blocks=blocks)
+                if canonical_text_validator is not None:
+                    raw_blocks = hill_climbing.candidate_blocks_for_diagnostics(element)
+                    if raw_blocks is not None:
+                        from ...fill_text import text_difference
+                        difference = text_difference(translated_text, ''.join(
+                            ''.join(block.itertext()) + (block.tail or '') for block in raw_blocks), raw_blocks)
+                        error += '\n' + content_status_template.render(difference=difference)
+                return error
             if canonical_text_validator is not None:
                 error = canonical_text_validator(element, translated_text)
-            if error is None and candidate_projector is not None:
-                try:
-                    projected = candidate_projector(
-                        hill_climbing.candidate_mappings(element), translated_text, element)
-                except MathProjectionError as failure:
-                    error = str(failure)
-            if error is None:
-                error = hill_climbing.submit(element)
-            elif canonical_text_validator is not None:
-                error += '\n\n' + repair_template.render(translation=encode_friendly(translation))
-            return error, projected
+            if error is not None and canonical_text_validator is not None:
+                error = repair_template.render() + '\n\n' + error
+            return error
+
+        def deliver(element):
+            try:
+                mappings = hill_climbing.candidate_mappings(element)
+                if delivery_formatter is not None:
+                    projected = delivery_formatter(mappings, translated_text, element)
+                    if projected is not None:
+                        return projected
+                return mappings
+            except FormatDeliveryError:
+                raise
+            except Exception as error:
+                raise FormatDeliveryError(f'Accepted fill could not be materialized: {error}') from error
 
         if allow_direct_fill and canonical_text_validator is not None:
             for candidate in self._direct_fill_candidates(hill_climbing, translated_text):
-                error, projected = validate_candidate(candidate)
+                error = validate_candidate(candidate)
                 if error is None:
-                    return projected
+                    return deliver(candidate)
 
         translation = Element('translation', {'xml:space': 'preserve'})
         translation.text = translated_text
-        source_xml = hill_climbing.request_element()
-        skeleton = deepcopy(source_xml)
-        for block in skeleton:
-            if block.get('id') is not None:
-                for node in block.iter():
-                    node.text = node.tail = None
+        source_xml = encode_friendly(hill_climbing.request_element())
         user_message = (await self._fill_runtime.template('fill_input')).render(
-            source_xml=encode_friendly(source_xml), xml_template=encode_friendly(skeleton),
+            source_xml=source_xml,
             translated_text=encode_friendly(translation))
         canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render()
                                   if canonical_text_validator is not None else '')
+        # Repeating editable source words during repairs encourages restoring
+        # their old content/occurrence count while adding required nodes. Keep
+        # the complete source contract and the actual rejected answer instead.
+        repair_source_xml = encode_friendly(hill_climbing.request_template())
+        repair_input = await self._fill_runtime.template('fill_repair_input')
+        progress_template = await self._fill_runtime.template("fill_repair_progress")
+        repair_system_template = await self._fill_runtime.template("fill_repair")
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render() + "\n\n" + canonical_instructions),
@@ -718,7 +718,7 @@ class XMLTranslator:
         # Budget a complete group XML including stable source IDs.
         # Source grouping remains bounded; retries share this same output allowance.
         encoding = await self._fill_runtime.encoding()
-        output_budget = max(4096, len(encoding.encode(encode_friendly(hill_climbing.request_element())))
+        output_budget = max(4096, len(encoding.encode(source_xml))
                             + 2 * len(encoding.encode(translated_text))
                             + 512)
         async with self._fill_runtime.context(
@@ -726,27 +726,50 @@ class XMLTranslator:
         ) as llm_context:
             translator = self
             last_error: str | None = None
+            # A repair baseline is an entire actual answer, never an adopted
+            # result or a tree assembled from multiple attempts.
+            best_repair: _RepairBaseline | None = None
+            last_distance: int | None = None
 
             class _XMLProtocol:
                 async def validate(self, response: str, state, attempt: int, max_attempts: int):
-                    nonlocal last_error
+                    nonlocal last_error, best_repair, last_distance
+                    last_distance = None
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
-                        error, projected = validated, None
-                        history = None
+                        error = validated
                     else:
-                        # Preserve the unmodified parsed answer in repair history.
-                        history = encode_friendly(validated)
-                        error, projected = validate_candidate(validated)
+                        error = validate_candidate(validated)
                     if error is None:
                         last_error = None
-                        return ProtocolSuccess(projected, state)
+                        return ProtocolSuccess(validated, state)
                     last_error = error
-                    return ProtocolRetry(error, state, include_response=history is not None,
-                                         response_for_history=history, reset_history=False)
+                    if canonical_text_validator is not None and not isinstance(validated, str):
+                        # Intact outer ownership/resources permit a read-only
+                        # text view even when a few inline nodes need repair.
+                        # Do not throw away good text to prefer a worse complete
+                        # tree. Structural failure still rejects this answer.
+                        raw_blocks = hill_climbing.candidate_blocks_for_diagnostics(validated)
+                        if raw_blocks is not None:
+                            distance = comparison_distance(translated_text, ''.join(
+                                ''.join(block.itertext()) + (block.tail or '') for block in raw_blocks))
+                            structure_valid = hill_climbing.validate(validated) is None
+                            rank = distance, not structure_valid
+                            last_distance = distance
+                            if best_repair is None or rank <= best_repair.rank:
+                                best_repair = _RepairBaseline(distance, encode_friendly(validated), error,
+                                                              structure_valid)
+                    # Preserve the actual answer even when content errors
+                    # repeat: releasing it loses an already-correct tree and
+                    # makes the engineer regenerate every required identity.
+                    return ProtocolRetry(error, state, include_response=not isinstance(validated, str),
+                                         response_for_history=(encode_friendly(validated)
+                                                               if not isinstance(validated, str) else None),
+                                         reset_history=False)
 
                 async def empty(self, state, attempt: int, max_attempts: int):
-                    nonlocal last_error
+                    nonlocal last_error, last_distance
+                    last_distance = None
                     error = "LLM returned an empty XML response. Please return one complete <xml> block."
                     last_error = error
                     return ProtocolRetry(error, state)
@@ -755,27 +778,55 @@ class XMLTranslator:
                     error = last_error or "XML fill exhausted retries; no usable response was produced."
                     raise XMLFillError(error, attempts=attempts)
 
-            return await run_repair_loop(RepairLoopOptions(
+            async def request(messages_for_attempt, index, maximum):
+                messages = messages_for_attempt
+                if index:
+                    # Revise one actual answer with its matching feedback and
+                    # complete canonical text. Without a working XML, retain
+                    # the original source reference for reconstruction.
+                    previous = next((message.message for message in reversed(messages_for_attempt)
+                                     if message.role == MessageRole.ASSISTANT), None)
+                    feedback = messages_for_attempt[-1].message
+                    if best_repair is not None:
+                        baseline, baseline_feedback = best_repair.xml, best_repair.feedback
+                        feedback = progress_template.render(
+                            reused=previous != baseline or feedback != baseline_feedback,
+                            attempt=index + 1, maximum=maximum + 1,
+                            last_distance=last_distance, distance=best_repair.distance,
+                            structure_valid=best_repair.structure_valid) + '\n\n' + baseline_feedback
+                        previous = baseline
+                    structure = (None if best_repair is not None and best_repair.structure_valid else
+                                 repair_source_xml if previous is not None else source_xml)
+                    user = repair_input.render(source_xml=structure,
+                        candidate_xml=previous,
+                        feedback=feedback, translated_text=encode_friendly(translation))
+                    system = (Message(MessageRole.SYSTEM, repair_system_template.render())
+                              if previous is not None else fixed_messages[0])
+                    messages = [system, Message(MessageRole.USER, user)]
+                return await request_model(llm_context, messages, retry_index=index, retry_max=maximum,
+                                           use_cache=False, max_tokens=output_budget)
+
+            accepted = await run_repair_loop(RepairLoopOptions(
                 messages=fixed_messages,
-                request=lambda current, index, maximum: request_model(
-                    llm_context, current, retry_index=index, retry_max=maximum, use_cache=False,
-                    max_tokens=output_budget,
-                ),
+                request=request,
                 protocol=_XMLProtocol(),
                 state=None,
                 max_attempts=current().retry.attempts(RetryScope.FILL),
-                history_limit=4,
+                history_limit=2,
                 failure_log_path=getattr(self._fill_llm, 'failure_log_path', None),
                 failure_log_context={'stage': 'xml_fill', 'model': self._fill_llm.model, 'artist_text': original_artist_text,
                     'targets': [asdict(location) for location in failure_locations]},
             ))
+            # Delivery failures belong to the engineering layer. The enclosing
+            # group diagnostic scope keeps the accepted conversation until submit.
+            return deliver(accepted)
 
     @staticmethod
     def _direct_fill_candidates(hill_climbing: HillClimbing, canonical: str) -> Iterable[Element]:
         candidate = hill_climbing.request_element()
         if (len(candidate) == 1 and not len(candidate[0])
                 and candidate[0].get('id') is not None
-                and candidate[0].tag not in ('expression', 'formula_context')):
+                and candidate[0].tag != 'expression'):
             candidate[0].text = canonical
             yield candidate
 

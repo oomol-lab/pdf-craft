@@ -1,0 +1,38 @@
+{% if source_xml is not none %}
+{% if candidate_xml %}
+Required source structure for this repair (editable words intentionally blank):
+{% else %}
+Required source structure and original wording reference for reconstruction:
+{% endif %}
+```XML
+{{ source_xml }}
+```
+Source words are background, not output text to restore.
+{% else %}
+The working XML already passed the required source structure checks. It carries
+all required identities, attributes, nesting and protected resources. Keep that
+structure; the complete translation still controls its editable text. It has NOT
+passed content validation and is not an accepted result.
+{% endif %}
+{% if candidate_xml %}
+Working candidate XML — an actual document you submitted in this loop, to edit:
+```XML
+{{ candidate_xml }}
+```
+{% else %}
+No parseable working XML is available. Reconstruct one complete XML using the
+required structure and the complete translation below.
+{% endif %}
+Complete authoritative translation for the ENTIRE group:
+{{ translated_text }}
+
+Validation feedback:
+{{ feedback }}
+
+Return the whole corrected XML, including every required identity and the
+complete translation above. When a working XML is supplied, edit it directly;
+preserve its correct
+passages instead of regenerating them from the source or the whole translation.
+The translation still determines the required words, occurrences and reading
+order. Correct the reported defects without restoring source wording. Do not output an
+intermediate plan or a partial patch.

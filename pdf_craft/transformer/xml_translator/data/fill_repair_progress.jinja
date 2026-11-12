@@ -1,0 +1,26 @@
+Repair attempt {{ attempt }} of {{ maximum }} within the SAME fixed request budget.
+{% if reused %}
+The last revision was rejected and did not improve the repair baseline. The
+working XML is the complete earlier answer from THIS loop with the smallest
+whole-text difference found so far (preferring valid structure for equal text
+scores).
+{% else %}
+The working XML is your last actual answer; it still has defects preventing
+acceptance.
+{% endif %}
+{% if structure_valid %}
+This working XML passed source structure checks, but has NOT passed content validation.
+{% else %}
+This working XML still has STRUCTURAL ERRORS. Use the required source template
+and feedback to repair them without undoing its correct text. Even zero text
+difference would NOT authorize accepting missing, extra or misplaced nodes.
+{% endif %}
+Working XML full-text difference (missing plus extra comparison characters): {{ distance }}.
+{% if last_distance is not none %}
+Last rejected revision full-text difference: {{ last_distance }}.
+{% endif %}
+The working XML is still REJECTED, not an accepted output. The following
+feedback describes THAT working XML. Correct its remaining errors without
+undoing its correct text or structure. Do not repeat a rejected regeneration
+or assume a missing occurrence is already supplied merely because its words
+appear elsewhere. Return one complete XML; the full unchanged validation applies.

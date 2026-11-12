@@ -1,0 +1,14 @@
+RAW CONTENT STATUS — the structure is still rejected.
+{% if difference %}
+{{ difference }}
+Repair both the structural error and the reported text difference. Fixing IDs
+or nesting does not authorize restoring source words or losing translation.
+{% else %}
+The text in your required blocks, read in required block order, ALREADY MATCHES
+the complete translation under the shared comparison. Keep that matching content
+and its order while fixing the reported IDs or nesting. Do not replace it with
+source wording, deduplicate it, or change its number of occurrences.
+{% endif %}
+The source template determines where required identities belong; the translation
+determines their text. Move misplaced required nodes instead of deleting them.
+Empty required containers may remain empty. Return the whole corrected XML.

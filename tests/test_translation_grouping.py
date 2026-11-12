@@ -167,15 +167,20 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
         original_invoke, original_answer = model.invoke, model.answer
         repairing, release, delivered = asyncio.Event(), asyncio.Event(), asyncio.Event()
         rejected = False
+        complete = None
         def answer(messages):
-            nonlocal rejected
+            nonlocal rejected, complete
+            if rejected and 'Validation feedback:\n' in messages[1]['content']:
+                assert complete is not None
+                return complete
             value = original_answer(messages)
             if 'XML template:' in messages[1]['content'] and 'Paragraph 1.' in value and not rejected:
                 rejected = True
+                complete = value
                 return value.replace('Paragraph 1.', 'wrong')
             return value
         async def invoke(messages, *args, **kwargs):
-            if rejected and any('XML template:' in message.message for message in messages):
+            if rejected and 'Validation feedback:\n' in messages[1].message:
                 repairing.set()
                 await release.wait()
             return await original_invoke(messages, *args, **kwargs)
@@ -367,7 +372,7 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
             return value
         async def invoke(messages, *args, **kwargs):
             text = '\n'.join(message.message for message in messages)
-            if rejected and len(messages) > 2 and 'Paragraph 0.' in text and 'XML template:' in text:
+            if rejected and 'Validation feedback:\n' in text and 'Paragraph 0.' in text:
                 repairing.set()
                 await release.wait()
             if 'Paragraph 200.' in text:

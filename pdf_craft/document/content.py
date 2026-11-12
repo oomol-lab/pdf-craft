@@ -26,7 +26,7 @@ class ContentItem:
     value: FlowItem | Reference | None  # None preserves an empty chapter.
     original: FlowItem | Reference | None = None
     asset_context: str = ""
-    narrative_states: dict[tuple[str, int, int], str] | None = None
+    narrative_states: dict[tuple[str, int | str, int | str], str] | None = None
     asset_children: frozenset[int] | None = None
 
 

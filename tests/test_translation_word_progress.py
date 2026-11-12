@@ -30,7 +30,7 @@ async def identity_fill(_self, hill_climbing, **_kwargs):
     error = hill_climbing.submit(hill_climbing.request_element())
     if error is not None:
         raise AssertionError(error)
-    projector = _kwargs.get('candidate_projector')
+    projector = _kwargs.get('delivery_formatter')
     if projector is not None and any(node.tag == 'expression' for node in hill_climbing.request_element().iter()):
         if 'translated_text' in _kwargs:
             return projector(hill_climbing.candidate_mappings(hill_climbing.request_element()),

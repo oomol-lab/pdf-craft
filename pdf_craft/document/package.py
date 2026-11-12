@@ -459,6 +459,9 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                 raise ValueError(f"{path.name} contains duplicate reference identity {identity}")
             reference_identities.add(identity)
         chapter_structures[path.name] = _chapter_structure(root)
+        from ..extractor.chapter.chapter import formula_items
+        for formula_path, _ in formula_items(chapter):
+            narrative_identities.add((str(chapter.id) if chapter.id is not None else 'head', 'formula', formula_path))
         for item in narrative_texts(chapter):
             if not isinstance(item, TextFlowItem) or item.role not in {"body", "heading"}:
                 continue
@@ -517,7 +520,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
         raise ChapterTocMismatch(tuple(sorted(missing)), tuple(sorted(unexpected)), tuple(sorted(pages)))
     if paths.translation.exists():
         _validate_translation(
-            paths.translation, paths.furnitures, narrative_identities, anchored_identities,
+            paths.translation, paths.furnitures, narrative_identities, anchored_identities, format_version=manifest['format_version'],
         )
     translations = _read_translation_index(paths.translations)
     if translations and manifest["format_version"] < 4:
@@ -539,7 +542,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict) or set(payload) - _MANIFEST_FIELDS:
         raise ValueError("manifest.json contains unsupported fields")
     format_version = payload.get("format_version")
-    if format_version not in {1, 2, 3, 4, 5, 6, FORMAT_VERSION}:
+    if format_version not in {1, 2, 3, 4, 5, 6, 7, 8, FORMAT_VERSION}:
         raise ValueError("unsupported PDFCraftExtraction format version")
     producer = payload.get("producer")
     if not isinstance(producer, dict) or set(producer) != {"name", "version"} or not all(
@@ -935,7 +938,7 @@ def _validate_translation_layer(
                 f"translation {translation.id} furniture does not preserve source structure"
             )
     _validate_translation(
-        coverage, furniture, narrative_identities, anchored_identities,
+        coverage, furniture, narrative_identities, anchored_identities, format_version=format_version,
     )
 
 
@@ -962,6 +965,7 @@ def _validate_translation(
     furnitures_path: Path,
     narrative_identities: set[tuple[str, str, str]],
     anchored_identities: set[tuple[str, int, int]],
+    *, format_version: int = FORMAT_VERSION,
 ) -> None:
     """Validate the optional translation coverage sidecar.
 
@@ -981,6 +985,15 @@ def _validate_translation(
     narrative = root.find("narrative")
     seen_narrative: set[tuple[str, str, str]] = set()
     for entry in narrative or []:
+        if entry.tag == 'formula':
+            if format_version < 8:
+                raise ValueError('Formula coverage requires PCEX v8')
+            identity = (entry.get('chapter_id', ''), 'formula', entry.get('path', ''))
+            if (set(entry.attrib) != {'chapter_id', 'path', 'state'} or identity not in narrative_identities
+                    or identity in seen_narrative or entry.get('state') not in {'translated', 'preserved'}):
+                raise ValueError('Invalid narrative formula coverage')
+            seen_narrative.add(identity)
+            continue
         if entry.tag != "paragraph" or set(entry.attrib) != {"chapter_id", "page_index", "order", "state"}:
             raise ValueError("translation.xml has invalid narrative paragraph")
         identity = (entry.get("chapter_id", ""), entry.get("page_index", ""), entry.get("order", ""))
