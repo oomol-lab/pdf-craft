@@ -11,6 +11,12 @@ invent nodes or IDs. For an EXTRA formatting wrapper, unwrap it while keeping
 its content in place; removing only its ID does not remove the extra structure.
 Preserve the authoritative translation and its final reading order throughout
 this structural repair. Return the whole corrected XML.
+A required identity under the wrong parent is MISPLACED, not disposable. Move
+that node to its required parent from the template; retain its ID and content.
+An unexpected tag count at one parent does not mean its children can be deleted.
+Keep exactly one instance of each required identity. Unwrap only extra wrappers
+while preserving their text and required descendants; do not discard translation
+to repair nesting or duplicate identities.
 Text after a closing inline tag belongs in that tag's tail, not a new wrapper.
 For example, use <code id="7">value</code> remaining words, not
 <code id="7">value</code><span id="8"> remaining words</span> if that span is

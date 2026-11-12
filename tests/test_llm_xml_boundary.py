@@ -19,6 +19,21 @@ def decoded(text, tag):
 
 class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
 
+    async def test_misplaced_required_identity_is_not_told_to_be_deleted(self):
+        translator, runtime = _repairing_translator([
+            '<xml><p id="1"><expression id="2">a<expression id="3">b</expression></expression></p></xml>',
+            '<xml><p id="1"><expression id="2">a</expression><expression id="3">b</expression></p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='ab')
+        result, _ = await StructuredTranslation().translate(translator, TranslationTask(fromstring(
+            '<body><p><expression id="2" display="inline">original</expression>'
+            '<expression id="3" display="inline">words</expression></p></body>'), SubmitKind.REPLACE, None),
+            error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(''.join(result.itertext()), 'ab')
+        self.assertEqual(runtime.context_value.calls, 2)
+        feedback = runtime.context_value.messages[1][0][-1].message
+        self.assertIn('MISPLACED, not disposable', feedback)
+        self.assertNotIn('Fix: Remove all', feedback)
+
     async def test_fill_input_output_and_repair_history_share_codec(self):
         raw = 'A & B; <span>; &lt;span&gt;.'
         wrong = '<xml><p id="1">wrong & text</p></xml>'

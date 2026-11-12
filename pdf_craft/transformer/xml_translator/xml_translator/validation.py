@@ -404,8 +404,7 @@ def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidID
             # 情况1: 不应该有，但发现了
             return (
                 f"Found unexpected `<{tag}>` elements at `{selector}`. "
-                f"There should be none, but {found} were found. "
-                f"Fix: Remove all `<{tag}>` elements from this location."
+                f"The required template has none at this parent, but {found} were found."
             )
         elif expected > 0 and found == 0:
             # 情况2: 应该有，但没找到
@@ -419,8 +418,7 @@ def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidID
             extra = found - expected
             return (
                 f"Too many `<{tag}>` elements at `{selector}`. "
-                f"Expected {expected}, but found {found} ({extra} extra). "
-                f"Fix: Remove {extra} `<{tag}>` element(s)."
+                f"Expected {expected}, but found {found} ({extra} extra at this parent)."
             )
         else:
             # 情况4: 数量过少
