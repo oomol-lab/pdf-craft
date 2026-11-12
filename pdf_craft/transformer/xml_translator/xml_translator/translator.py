@@ -689,10 +689,9 @@ class XMLTranslator:
 
         translation = Element('translation', {'xml:space': 'preserve'})
         translation.text = translated_text
-        source_xml = hill_climbing.request_element()
-        skeleton = hill_climbing.request_template()
+        source_xml = encode_friendly(hill_climbing.request_element())
         user_message = (await self._fill_runtime.template('fill_input')).render(
-            source_xml=encode_friendly(source_xml), xml_template=encode_friendly(skeleton),
+            source_xml=source_xml,
             translated_text=encode_friendly(translation))
         canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render()
                                   if canonical_text_validator is not None else '')
@@ -704,7 +703,7 @@ class XMLTranslator:
         # Budget a complete group XML including stable source IDs.
         # Source grouping remains bounded; retries share this same output allowance.
         encoding = await self._fill_runtime.encoding()
-        output_budget = max(4096, len(encoding.encode(encode_friendly(hill_climbing.request_element())))
+        output_budget = max(4096, len(encoding.encode(source_xml))
                             + 2 * len(encoding.encode(translated_text))
                             + 512)
         async with self._fill_runtime.context(

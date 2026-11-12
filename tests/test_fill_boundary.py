@@ -230,7 +230,7 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual([node.get('class') for node in target.iter('span')], ['a', 'b'])
         self.assertEqual(len(model.wire_calls), 3)
         self.assertIn('EXTRA formatting wrapper', model.wire_calls[-1][-1].message)
-        self.assertIn('Source block:', model.wire_calls[-1][-1].message)
+        self.assertIn('Required structure', model.wire_calls[-1][-1].message)
 
     async def test_formatting_does_not_authorize_removing_literal_punctuation(self):
         source = fromstring('<body><p>EUR<sup>2</sup></p></body>')

@@ -57,6 +57,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         for index, recorded in enumerate(runtime.context_value.messages):
             messages = recorded[0]
             self.assertIn('SOURCE_REFERENCE_ONLY', messages[1].message)
+            self.assertEqual(messages[1].message.count('```XML'), 1)
             payload = re.search(r'<translation\b.*?</translation>', messages[1].message, re.S)
             assert payload is not None
             self.assertEqual(''.join(decoded(payload[0], 'translation').itertext()), 'ab')
