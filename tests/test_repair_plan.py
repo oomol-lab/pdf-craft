@@ -21,6 +21,23 @@ class RepairPlanTests(TestCase):
             self.assertNotIn(key, observation)
         self.assertNotIn(observation['layout_id'], packet['initial_proposal'])
 
+    def test_unknown_initial_mark_is_not_an_observation_that_print_has_no_number(self):
+        from tests.test_source_range_repair import page, box
+        from pdf_craft.extractor.chapter.page_repair import build_page_repair_messages
+        source = page(box('1Main paragraph.'), box('1 Folio XLII, manuscript A.'))
+        for note in source.citations:
+            note.mark = None
+        packet = json.loads(build_page_repair_messages(
+            previous_page=None, target_page=source, next_page=None,
+            previous_pass_probability=None, next_pass_probability=None)[1].message)['target_page']
+        self.assertTrue(packet['initial_notes'])
+        self.assertTrue(all(note['mark'] is None for note in packet['initial_notes']))
+        self.assertIn('initial_references', packet)
+        self.assertNotIn('notes', packet)
+        self.assertNotIn('references', packet)
+        self.assertTrue(all('definition_mark' not in item for item in packet['layouts']))
+        self.assertEqual(packet['layouts'][-1]['text'], '1 Folio XLII, manuscript A.')
+
     def test_ignored_has_no_irrelevant_operations_and_retired_fields_are_rejected(self):
         minimal = dict(layouts=[dict(layout_id='s', destination=dict(kind='ignored'))])
         plan = RepairPlan.model_validate(minimal)

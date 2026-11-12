@@ -339,7 +339,8 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             if payload["target_page"]["initial_proposal"].get(layout["layout_id"],
                 dict(destination=dict(kind='body')))["destination"]["kind"] == "note"
         )
-        self.assertEqual(citation_layout["definition_mark"], "①")
+        self.assertNotIn("definition_mark", citation_layout)
+        self.assertEqual(payload["target_page"]["initial_proposal"][citation_layout["layout_id"]]["definition_mark"], "①")
         paragraph_layouts = [
             layout for layout in payload["target_page"]["layouts"]
             if payload["target_page"]["initial_proposal"].get(layout["layout_id"],

@@ -15,7 +15,7 @@ def expanded_packet(packet: dict):
             dict(destination=dict(kind='body', join=False)))['destination']))
         for item in packet['layouts']])
     plan = RepairPlan.model_validate(dict(layouts=[dict(layout_id=x['layout_id'], **x['initial_proposal'])
-                              for x in packet['layouts']], notes=packet['notes'], references=packet['references']))
+                              for x in packet['layouts']], notes=packet['initial_notes'], references=packet['initial_references']))
     resolved = materialize_plan(plan, packet['page_index']).model_dump()
     return dict(packet, citations=resolved['citations'], references=resolved['references'],
                 layouts=[dict(item, initial_proposal=record) for item, record in

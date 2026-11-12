@@ -78,7 +78,7 @@ OCR 不阻塞已具备直接邻页的任务。结果按序落盘交付时不再�
 不以重新运行初级分析为前置条件；重建不重放内容回调。
 JEV 数值评分只作送修准入，不提示 LLM。请求将原始观察与 `initial_proposal` 分开显示；模型可在 `reading` 简述阅读决定。
 原始 layouts 保留文字、坐标与实测 printed_lines，不在每个来源旁重复放置初级 body/note 标签。
-按来源身份索引的页级 initial_proposal 单独承载算法目的地及 OCR 流分类，供模型参考和撤销。
+按来源身份索引的页级 initial_proposal 单独承载算法目的地、OCR 流分类及已猜出的 definition_mark，供模型参考和撤销。原始观察不携带 definition_mark（包括 null）。初级脚注和引用分别明确标为 initial_notes、initial_references；它们不是印刷事实，null 只说明初级算法未识别，不证明原文无编号。
 普通 body/新段落默认值不重复作为建议下发；无特殊建议不是已确定的正文归属。
 不把面积/字数估算的 text_scale_estimate 当作实测字号并列呈现；它容易与实测墨迹高度矛盾。
 请求 schema 要求在每个来源的 destination 前写一条简短 `reason`，辅助先判断阅读归属再选择操作，

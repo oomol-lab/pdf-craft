@@ -338,7 +338,7 @@ class PDFExtractionEngine:
         from .extractor.refinement import PageResult
         from .progress import RefinementStatus
         runtime = runtime_for(options.llm, options.resolved_llm_executor(),
-                              protocol_version='current-page-refinement-plan-v2')
+                              protocol_version='current-page-refinement-plan-v3')
         async def request(messages, index, maximum):
             return await runtime.request(messages, max_tokens=options.max_output_tokens,
                                          retry_index=index, retry_max=maximum)

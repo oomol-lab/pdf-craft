@@ -171,7 +171,7 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
                 for messages in prompts:
                     self.assertIn('FOOTNOTE OUTPUT IS DISABLED', messages[0].message)
                     self.assertNotIn('ref 规则：', messages[0].message)
-                    self.assertEqual(json.loads(messages[1].message)['target_page']['notes'], [])
+                    self.assertEqual(json.loads(messages[1].message)['target_page']['initial_notes'], [])
 
     async def test_body_only_candidate_cannot_reintroduce_notes_or_references(self):
         raw = decode(fromstring('<page index="1"><body><layout ref="text" det="0,0,100,20">'

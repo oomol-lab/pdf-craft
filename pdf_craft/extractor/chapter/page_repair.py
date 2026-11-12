@@ -369,18 +369,22 @@ def _repair_packet(page):
         annotation = {key: layout.pop(key) for key in fields}
         destination = suggested_destination(annotation)
         ocr_stream = layout.pop('ocr_stream')
+        definition_mark = layout.pop('definition_mark')
         # Ordinary body/new-paragraph is the absence of a special suggestion,
         # not extra evidence that an unmarked source cannot belong to a note.
         if destination != dict(kind='body', join=False) or ocr_stream not in ('body', None):
             proposals[layout['layout_id']] = dict(destination=destination, ocr_stream=ocr_stream)
+        if definition_mark is not None:
+            proposals.setdefault(layout['layout_id'], dict(destination=destination, ocr_stream=ocr_stream))['definition_mark'] = definition_mark
     notes = sorted(packet.pop('citations'), key=lambda item: item['stream_order'])
     by_index = {item['index']: item['citation_id'] for item in notes if item['index'] is not None}
-    packet['notes'] = [dict(note_id=item['citation_id'], operation='continue')
+    packet['initial_notes'] = [dict(note_id=item['citation_id'], operation='continue')
                        if item['continues_previous'] else dict(
                            note_id=item['citation_id'], operation='define', mark=item['mark'])
                        for item in notes]
     for reference in packet['references']:
         reference['note_id'] = by_index[reference.pop('citation_index')]
+    packet['initial_references'] = packet.pop('references')
     text = [layout for layout in packet['layouts'] if layout['source_type'] == 'text']
     # Raw adjacency evidence, not approved paragraph/ownership decisions.
     # The model may reorder sources; no validator consumes this catalog.
