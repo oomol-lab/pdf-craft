@@ -746,12 +746,13 @@ class XMLTranslator:
             async def request(messages_for_attempt, index, maximum):
                 messages = messages_for_attempt
                 if index:
-                    # A rejected response is evidence to edit, not an assistant
-                    # commitment to continue. Keep its actual XML as data and
-                    # put the sole complete authoritative translation last.
+                    # Revise the latest parseable XML with the complete canonical
+                    # text and current feedback. Without a working XML, retain
+                    # the original source reference for reconstruction.
                     previous = next((message.message for message in reversed(messages_for_attempt)
                                      if message.role == MessageRole.ASSISTANT), None)
-                    user = repair_input.render(source_xml=repair_source_xml, candidate_xml=previous,
+                    user = repair_input.render(source_xml=repair_source_xml if previous is not None else source_xml,
+                        candidate_xml=previous,
                         feedback=messages_for_attempt[-1].message, translated_text=encode_friendly(translation))
                     messages = [fixed_messages[0], Message(MessageRole.USER, user)]
                 return await request_model(llm_context, messages, retry_index=index, retry_max=maximum,

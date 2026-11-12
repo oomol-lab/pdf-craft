@@ -1,4 +1,8 @@
+{% if candidate_xml %}
 Required source structure for this repair (editable words intentionally blank):
+{% else %}
+Required source structure and original wording reference for reconstruction:
+{% endif %}
 ```XML
 {{ source_xml }}
 ```
@@ -8,6 +12,9 @@ Working candidate XML — your previous submitted document to edit:
 ```XML
 {{ candidate_xml }}
 ```
+{% else %}
+No parseable working XML is available. Reconstruct one complete XML using the
+required structure and the complete translation below.
 {% endif %}
 Complete authoritative translation for the ENTIRE group:
 {{ translated_text }}
@@ -16,7 +23,8 @@ Validation feedback:
 {{ feedback }}
 
 Return the whole corrected XML, including every required identity and the
-complete translation above. Edit the working XML directly; preserve its correct
+complete translation above. When a working XML is supplied, edit it directly;
+preserve its correct
 passages instead of regenerating them from the source or the whole translation.
 The translation still determines the required words, occurrences and reading
 order. Correct the reported defects without restoring source wording. Do not output an

@@ -299,6 +299,10 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         retry = runtime.context_value.messages[1][0]
         self.assertTrue(all(message.role != MessageRole.ASSISTANT for message in retry))
         self.assertIn('No complete', retry[-1].message)
+        self.assertIn('No parseable working XML is available', retry[-1].message)
+        source_match = re.search(r'```XML\n(.*?)```', retry[-1].message, re.S)
+        assert source_match is not None
+        self.assertEqual(decoded(source_match[1], 'xml')[0].text, 'Original.')
 
     async def test_noncanonical_free_text_is_not_implicitly_xml(self):
         raw = '<arbitrary>A & B</arbitrary> &lt;literal&gt;'

@@ -33,8 +33,9 @@ Use appropriate existing inline formatting for the actual translated passages;
 formatting must serve those passages, not force additional text into them.
 Formula containers are editable: their source notation and delimiters are not
 mandatory translated content.
-On the FIRST attempt, use the COMPLETE TRANSLATION as your starting text and
-insert the required XML tags around its consecutive passages. Do not start from the source XML and
+On the FIRST attempt, or when no parseable working XML is supplied, use the
+COMPLETE TRANSLATION as your starting text and insert the required XML tags
+around its consecutive passages. Do not start from the source XML and
 rewrite its fields: doing that recreates source words and repetition counts.
 Copy the translation from START to END once. Prefer manageable consecutive
 passages in compatible existing containers rather than putting an entire long
@@ -49,8 +50,8 @@ Source length metadata does not limit how much translation a block can receive.
 A complete translated passage may occupy one earlier block while its later
 source fragments remain structurally present but empty.
 
-On a REPAIR attempt, revise the previous working XML instead of filling the
-source template afresh. The complete translation remains the content authority,
+On a REPAIR attempt WITH a working XML supplied, revise that document instead
+of filling the source template afresh. The complete translation remains the content authority,
 not a replacement to paste into every field being repaired. Carry forward the
 correct existing passages and structure. Apply the reported corrections without
 unnecessarily replanning or regenerating already-correct content. Reallocate
