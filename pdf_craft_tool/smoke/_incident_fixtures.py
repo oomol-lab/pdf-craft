@@ -5,6 +5,7 @@ from io import BytesIO
 import json
 import hashlib
 import re
+from typing import Any
 from zipfile import ZipFile
 from xml.etree.ElementTree import Element
 
@@ -47,7 +48,7 @@ EXTRA = ('47f9aeedb59c4337b01c215663ff73b1', '58e4c2f28a3747faaacdcda39dd39e2e',
          'b30754c5f4094773a12c8390462ab7ba')
 
 
-def read_case(base, key):
+def read_case(base, key) -> dict[str, Any]:
     path = base / 'text-cases' / f'{key}.json'
     if path.exists():
         return json.loads(path.read_text())
