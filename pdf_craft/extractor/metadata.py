@@ -362,7 +362,8 @@ def _read_front_pages(pages_path: Path) -> list[_OCRPage]:
 def _read_pages(numbered_paths):
     pages: list[_OCRPage] = []
     for index, path in numbered_paths:
-        element = ElementTree.parse(path).getroot()
+        from ..pdf.types import decode, encode
+        element = encode(decode(ElementTree.parse(path).getroot()))
         text = "\n".join(
             layout.text.strip() for layout in element.findall(".//layout")
             if layout.text and layout.text.strip()

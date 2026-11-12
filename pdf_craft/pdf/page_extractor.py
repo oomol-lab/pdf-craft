@@ -17,7 +17,7 @@ from ..ocr_config import (
     UnlimitedOCRLocalConfig,
     UnlimitedOCRVendorConfig,
 )
-from .ngrams import has_repetitive_ngrams
+from .repetition_tail import clean_page
 from .types import DeepSeekOCRSize, Page, PageLayout
 from .line_geometry import first_line_inset, has_vertical_columns, number_ink_bbox, printed_line_metrics
 from .ruled_forms import preserve_ruled_forms
@@ -329,14 +329,14 @@ class PageExtractorNode:
         if number_image is not None:
             body_layouts, footnotes_layouts = preserve_ruled_forms(
                 number_image, body_layouts, footnotes_layouts, asset_hub)
-        return Page(
+        return clean_page(Page(
             index=page_index,
             image=raw_image,
             body_layouts=body_layouts,
             footnotes_layouts=footnotes_layouts,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-        )
+        ))
     def _iter_page_layouts(
         self,
         image: Image,
@@ -368,21 +368,6 @@ class PageExtractorNode:
             det = self._normalize_layout_det(image.size, block.det)
             if det is None:
                 continue
-
-            # Repeated cells and markup are ordinary asset structure, not
-            # evidence of OCR hallucination. Keep the original crop as well.
-            if ref not in ASSET_TAGS:
-                # 检测短模式重复（如 "1.1.1.1."）
-                if has_repetitive_ngrams(
-                    text, min_ngram=2, max_ngram=5, repeat_threshold=16
-                ):
-                    continue
-
-                # 检测长模式重复（保守策略）
-                if has_repetitive_ngrams(
-                    text, min_ngram=6, max_ngram=20, repeat_threshold=8
-                ):
-                    continue
 
             if stage_index != 1 and ref in ASSET_TAGS:
                 continue
