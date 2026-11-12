@@ -37,13 +37,14 @@ On the FIRST attempt, or when no parseable working XML is supplied, use the
 COMPLETE TRANSLATION as your starting text and insert the required XML tags
 around its consecutive passages. Do not start from the source XML and
 rewrite its fields: doing that recreates source words and repetition counts.
-Copy the translation from START to END once. Prefer manageable consecutive
-passages in compatible existing containers rather than putting an entire long
-group into one field and leaving all other containers empty. This is a placement
-preference, NOT a field quota: never add text to fill containers, and keep nodes
-empty when appropriate. One existing field may hold several
-consecutive passages; one passage may span several fields. Keep unused nodes
-empty. Do not cross protected resource boundaries or change required nesting.
+Copy the translation from START to END once. Do not reconstruct a repeated
+passage by filling each source container and estimating how many more copies
+are needed. Prefer copying an uninterrupted repeated passage as one literal
+string into a compatible existing field; keep other required nodes present
+but empty when they have no remaining translation. This is placement guidance,
+not a quota: split passages where structure or protected resource boundaries
+require it. One field may hold several consecutive passages, and a passage may
+span several fields. Do not change required nesting or fixed resource positions.
 Complete all placements inside your one XML answer, not an intermediate plan.
 Read the final text in fixed output order before returning it.
 Source length metadata does not limit how much translation a block can receive.

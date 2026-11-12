@@ -1,8 +1,18 @@
+Repair attempt {{ attempt }} of {{ maximum }} within the SAME fixed request budget.
+{% if reused %}
 The last revision was rejected and did not improve the repair baseline. The
-working XML provided is the complete earlier answer from THIS loop with valid
-structure and the smallest whole-text difference found so far. It is still
-REJECTED, not an accepted output. The following feedback describes THAT working
-XML, not the discarded revision. Edit this working XML to correct its remaining
-errors without undoing its correct text or structure. Do not repeat the rejected
-regeneration or infer that any missing text has already been supplied. Return
-one complete XML; every answer still undergoes the full unchanged validation.
+working XML is the complete earlier answer from THIS loop with valid structure
+and the smallest whole-text difference found so far.
+{% else %}
+The working XML is your last actual answer. It has valid structure, but its
+remaining content errors still prevent acceptance.
+{% endif %}
+Working XML full-text difference (missing plus extra comparison characters): {{ distance }}.
+{% if last_distance is not none %}
+Last rejected revision full-text difference: {{ last_distance }}.
+{% endif %}
+The working XML is still REJECTED, not an accepted output. The following
+feedback describes THAT working XML. Correct its remaining errors without
+undoing its correct text or structure. Do not repeat a rejected regeneration
+or assume a missing occurrence is already supplied merely because its words
+appear elsewhere. Return one complete XML; the full unchanged validation applies.

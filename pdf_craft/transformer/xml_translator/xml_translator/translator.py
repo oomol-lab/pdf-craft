@@ -723,10 +723,12 @@ class XMLTranslator:
             # A repair baseline is an entire actual answer, never an adopted
             # result or a tree assembled from multiple attempts.
             best_repair: _RepairBaseline | None = None
+            last_distance: int | None = None
 
             class _XMLProtocol:
                 async def validate(self, response: str, state, attempt: int, max_attempts: int):
-                    nonlocal last_error, best_repair
+                    nonlocal last_error, best_repair, last_distance
+                    last_distance = None
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
                         error = validated
@@ -742,6 +744,7 @@ class XMLTranslator:
                         if raw_blocks is not None:
                             distance = comparison_distance(translated_text, ''.join(
                                 ''.join(block.itertext()) + (block.tail or '') for block in raw_blocks))
+                            last_distance = distance
                             if best_repair is None or distance <= best_repair.distance:
                                 best_repair = _RepairBaseline(distance, encode_friendly(validated), error)
                     # Preserve the actual answer even when content errors
@@ -753,7 +756,8 @@ class XMLTranslator:
                                          reset_history=False)
 
                 async def empty(self, state, attempt: int, max_attempts: int):
-                    nonlocal last_error
+                    nonlocal last_error, last_distance
+                    last_distance = None
                     error = "LLM returned an empty XML response. Please return one complete <xml> block."
                     last_error = error
                     return ProtocolRetry(error, state)
@@ -773,8 +777,10 @@ class XMLTranslator:
                     feedback = messages_for_attempt[-1].message
                     if best_repair is not None:
                         baseline, baseline_feedback = best_repair.xml, best_repair.feedback
-                        if previous != baseline or feedback != baseline_feedback:
-                            feedback = progress_template.render() + '\n\n' + baseline_feedback
+                        feedback = progress_template.render(
+                            reused=previous != baseline or feedback != baseline_feedback,
+                            attempt=index + 1, maximum=maximum + 1,
+                            last_distance=last_distance, distance=best_repair.distance) + '\n\n' + baseline_feedback
                         previous = baseline
                     user = repair_input.render(source_xml=repair_source_xml if previous is not None else source_xml,
                         candidate_xml=previous,
