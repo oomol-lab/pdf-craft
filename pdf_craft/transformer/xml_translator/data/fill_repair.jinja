@@ -23,6 +23,13 @@ one by one again or estimate a fresh global number of repetitions. Use the actua
 translation characters, never normalized diagnostic samples, repeat markers or
 count instructions as output. Returning a partial document loses required nodes.
 
+In this transport, a fragment is an output position, NOT a fixed sentence or
+one occurrence of its source text. An expression slot is editable too: it may
+hold several consecutive translated formulas or a portion of a translated
+passage. Do not force one formula per node. If you move all text out of a
+fragment, keep its required inline children present EMPTY; an empty parent does
+not replace those children. Required structure and occurrence totals are separate.
+
 For a very long repeated passage that keeps gaining or losing occurrences in
 one field, you MAY redistribute that uninterrupted passage among compatible
 EXISTING containers to keep track. Account for occurrences already present
@@ -49,10 +56,13 @@ fallback; this answer must still pass all structure and whole-text checks.
 Use friendly XML escapes for text <, > and &: &lt;, &gt;, &amp;. Literal spelling
 &lt; is written &amp;lt;. Do not use CDATA or invent identities.
 
-Placement example for a longer repeated passage (the source has only three
-compatible containers, and ALL ten translated occurrences are written):
-Translation: "Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo."
-One complete XML: <xml><p id="1">Echo. Echo. Echo. Echo.</p><p id="2">Echo. Echo. Echo.</p><p id="3">Echo. Echo. Echo.</p></xml>
-Other distributions are also valid. The example's numbers are not your task's
-counts. Use the actual translation and existing nodes; preserve correct text
-outside the passage. Never replace the artist's text with a counting scheme.
+Placement example with the transport's fragment and expression containers:
+Required structure: <xml><fragment id="1"/><fragment id="2"><expression/></fragment><fragment id="3"><expression/></fragment></xml>
+Translation: "\(x\) \(x\) \(x\) \(x\) \(x\) \(x\) \(x\) \(x\) \(x\) \(x\)"
+One complete XML: <xml><fragment id="1">\(x\) \(x\) \(x\) \(x\)</fragment><fragment id="2"><expression>\(x\) \(x\) \(x\)</expression></fragment><fragment id="3"><expression>\(x\) \(x\) \(x\)</expression></fragment></xml>
+Every actual occurrence is written, including multiple formulas inside one
+expression slot. Other distributions are also valid. If fragment 3 is unused,
+keep <fragment id="3"><expression/></fragment>, not <fragment id="3"/>.
+The example's counts and IDs are not your task's values. Use the actual translation
+and existing nodes, and preserve correct text outside the repeated passage.
+Never replace the artist's text with a counting scheme.
