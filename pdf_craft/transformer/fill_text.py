@@ -104,13 +104,9 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                 if kind == 'delete' and c == d and start <= c <= end and index not in located_missing:
                     boundary = 'BEGINNING' if c == start else 'END' if c == end else None
                     if boundary is not None:
-                        from xml.etree.ElementTree import Element
-                        from .xml_translator.xml import encode_friendly
-                        field_value = Element('field-value', {'xml:space': 'preserve'})
-                        field_value.text = expected[a:b]+value if boundary == 'BEGINNING' else value+expected[a:b]
                         locations.append(_FEEDBACK.get_template('missing_location.jinja').render(
                             path=path, boundary=boundary, missing=repr(expected[a:b][:6000]),
-                            current=repr(value), suggested=encode_friendly(field_value)).strip())
+                            current=repr(value)).strip())
                         located_missing.add(index)
             if any((start <= left < end) if left == right else (start < right and left < end)
                    for _, _, _, left, right in edits):

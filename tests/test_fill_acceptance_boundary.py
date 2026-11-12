@@ -37,7 +37,8 @@ class FillAcceptanceBoundaryTests(TestCase):
         assert error is not None
         self.assertIn('END', error)
         self.assertIn('p#9/i[0].text', error)
-        self.assertIn("'..'", error)
+        self.assertIn('NORMALIZED COMPARISON VIEW', error)
+        self.assertNotIn('literal candidate', error)
         self.assertEqual(tostring(block), before)
 
     def test_acceptance_is_read_only_even_when_a_tail_can_be_delivered(self):
