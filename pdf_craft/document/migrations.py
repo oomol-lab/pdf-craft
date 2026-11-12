@@ -1,8 +1,9 @@
 """PCEX version migrations, run on isolated input copies before business access.
 
-Only this module interprets historical image field shapes. Source chapters and
-all persisted translation layers are converted together, without renumbering
-flow identities, changing coverage or modifying the caller's archive.
+Only this module interprets historical field shapes and implicit adoption.
+Source chapters and all persisted translation layers are converted together,
+without renumbering flow identities, reinterpreting explicit coverage or
+modifying the caller's archive.
 """
 from copy import deepcopy
 from pathlib import Path
