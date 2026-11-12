@@ -43,7 +43,6 @@ def comparison_text(text: str) -> str:
 
 
 def text_difference(expected: str, actual: str, blocks=()) -> str | None:
-    raw_actual = actual
     # Optional mathematical interpretation cannot invalidate existing text equivalence.
     if _document_text(expected) == _document_text(actual):
         return None
@@ -64,13 +63,25 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
            for kind, a, b, _, _ in edits if kind in ('delete', 'replace')):
         details += '\n' + _FEEDBACK.get_template('repeated_missing.jinja').render().strip()
     message = f'Visible text differs from the canonical translation: Missing {missing}, added {added} characters.\n{details}'
-    if actual != _document_text(raw_actual):
-        # LaTeX normalization need not be compositional across XML fields.
-        # Keep the exact whole-string diff, not guessed raw-field offsets.
+    def fields(node, path):
+        yield path + '.text', node.text or ''
+        for index, child in enumerate(node):
+            child_path = f'{path}/{child.tag}[{index}]'
+            yield from fields(child, child_path)
+            yield child_path + '.tail', child.tail or ''
+
+    field_blocks = []
+    for block in blocks:
+        path = f'{block.tag}#{block.get("id")}'
+        values = [*fields(block, path), (path + '.tail', block.tail or '')]
+        field_blocks.append((block, [(path, value, comparison_text(value)) for path, value in values]))
+    if ''.join(normalized for _, values in field_blocks for _, _, normalized in values) != actual:
+        # Only report offsets when the complete comparison view is provably
+        # decomposable into these field views. Cross-field math may not be.
         return message
     cursor, locations = 0, []
-    for block in blocks:
-        end = cursor + len(comparison_text(''.join(block.itertext())))
+    for block, values in field_blocks:
+        end = cursor + sum(len(normalized) for _, _, normalized in values)
         if any((cursor <= start < end) if start == finish else (cursor < finish and start < end)
                for _, _, _, start, finish in edits):
             whole_extra = end > cursor and any(kind == 'insert' and start <= cursor and end <= finish
@@ -78,19 +89,12 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
             locations.append(f'block id={block.get("id")}: candidate[{cursor}:{end}], '
                              f'entire_block_extra={whole_extra}, text={"".join(block.itertext())[:200]!r}')
         cursor = end
-    prefix = ''
+    cursor = 0
     located_missing = set()
-    def fields(node, path):
-        yield path + '.text', node.text or ''
-        for index, child in enumerate(node):
-            child_path = f'{path}/{child.tag}[{index}]'
-            yield from fields(child, child_path)
-            yield child_path + '.tail', child.tail or ''
-    for block in blocks:
-        for path, value in fields(block, f'{block.tag}#{block.get("id")}'):
-            start = len(comparison_text(prefix))
-            prefix += value
-            end = len(comparison_text(prefix))
+    for _, values in field_blocks:
+        for path, value, normalized in values:
+            start, end = cursor, cursor + len(normalized)
+            cursor = end
             if end <= start:
                 continue
             for index, (kind, a, b, c, d) in enumerate(edits):

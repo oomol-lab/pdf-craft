@@ -53,6 +53,22 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertEqual(candidate[0].text, 'a')
         self.assertEqual(candidate[0].tail, 'b')
 
+    def test_math_comparison_reports_only_proven_field_offsets(self):
+        block = fromstring('<p id="4">Value<expression>$20$.</expression></p>')
+        before = tostring(block)
+        error = text_difference('Value20.20.', 'Value$20$.', [block])
+        assert error is not None
+        self.assertIn('p#4/expression[0].text', error)
+        self.assertIn('END', error)
+        self.assertEqual(tostring(block), before)
+
+    def test_cross_field_math_does_not_guess_normalized_field_offsets(self):
+        block = fromstring(r'<p id="4">Value<expression>$20</expression>$.</p>')
+        error = text_difference('Value20.20.', 'Value$20$.', [block])
+        assert error is not None
+        self.assertNotIn('field=', error)
+        self.assertNotIn('literal candidate', error)
+
     def test_formula_coverage_round_trips_and_controls_rendering(self):
         source = encode(Chapter(5, -1, [DisplayFormula(SourceAsset(1, 'formula', (0,0,10,10), content=['x+1']))]))
         target = deepcopy(source)
