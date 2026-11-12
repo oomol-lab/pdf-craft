@@ -96,7 +96,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         prior = next(m.message for m in requests[1] if m.role == MessageRole.ASSISTANT)
         self.assertEqual(decoded(prior, 'xml')[0][0].text, 'wrong')
 
-    async def test_identical_content_failure_releases_the_bad_answer_without_extra_calls(self):
+    async def test_identical_content_failure_retains_the_actual_structure_without_extra_calls(self):
         translator, runtime = _repairing_translator([
             '<xml><p id="1">wrong</p></xml>', '<xml><p id="1">wrong</p></xml>',
             '<xml><p id="1">ab</p></xml>'])
@@ -108,13 +108,12 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual(runtime.context_value.calls, 3)
         second, third = [recorded[0] for recorded in runtime.context_value.messages[1:]]
         self.assertTrue(any(m.role == MessageRole.ASSISTANT for m in second))
-        self.assertFalse(any(m.role == MessageRole.ASSISTANT for m in third))
+        self.assertTrue(any(m.role == MessageRole.ASSISTANT for m in third))
         self.assertNotIn('SOURCE_REFERENCE_ONLY', third[1].message)
-        template = re.search(r'```XML\n(.*?)\n```', third[1].message, re.S)
-        assert template is not None
-        required = decoded(template[1], 'xml')
-        self.assertEqual(required[0].get('id'), '1')
-        self.assertEqual(''.join(required.itertext()).strip(), '')
+        self.assertIn('passed the required structure checks', third[1].message)
+        previous = next(m.message for m in third if m.role == MessageRole.ASSISTANT)
+        self.assertEqual(decoded(previous, 'xml')[0].get('id'), '1')
+        self.assertEqual(decoded(previous, 'xml')[0].text, 'wrong')
         self.assertIn('Visible text differs', third[-1].message)
         for messages in (second, third):
             payload = re.search(r'<translation\b.*?</translation>', messages[1].message, re.S)

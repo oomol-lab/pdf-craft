@@ -136,6 +136,15 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                             path=path, boundary=boundary, missing=repr(expected[a:b][:6000]),
                             current=repr(value)).strip())
                         located_missing.add(index)
+                    elif index not in located_missing:
+                        offset = c - start
+                        raw_offset = None
+                        if unicodedata.normalize('NFC', value) == value and _document_text(value) == normalized:
+                            positions = [i for i, char in enumerate(value) if not is_whitespace(char)]
+                            raw_offset = positions[offset]
+                        field_locations.append(_FEEDBACK.get_template('interior_missing_location.jinja').render(
+                            path=path, offset=offset, raw_offset=raw_offset).strip())
+                        located_missing.add(index)
             if any((start <= left < end) if left == right else (start < right and left < end)
                    for _, _, _, left, right in edits):
                 extra = any(kind == 'insert' and left <= start and end <= right

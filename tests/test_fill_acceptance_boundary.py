@@ -125,6 +125,16 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertIn('entire_field_extra=True', error)
         self.assertEqual([tostring(block) for block in blocks], before)
 
+    def test_interior_missing_gap_reports_field_and_raw_offsets_without_editing(self):
+        block = fromstring('<p id="9">a\u200bc</p>')
+        before = tostring(block)
+        error = text_difference('abc', 'a\u200bc', [block])
+        assert error is not None
+        self.assertIn('inside p#9.text', error)
+        self.assertIn('VIEW offset 1', error)
+        self.assertIn('raw character offset 2', error)
+        self.assertEqual(tostring(block), before)
+
     def test_end_gap_feedback_points_to_existing_field_without_changing_it(self):
         block = fromstring('<p id="9"><i>.</i></p>')
         before = tostring(block)

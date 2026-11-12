@@ -721,7 +721,6 @@ class XMLTranslator:
         ) as llm_context:
             translator = self
             last_error: str | None = None
-            recent_content_errors: deque[str] = deque(maxlen=2)
 
             class _XMLProtocol:
                 async def validate(self, response: str, state, attempt: int, max_attempts: int):
@@ -735,17 +734,14 @@ class XMLTranslator:
                     if error is None:
                         last_error = None
                         return ProtocolSuccess(validated, state)
-                    stagnant = structure_valid and error in recent_content_errors
-                    if structure_valid:
-                        recent_content_errors.append(error)
                     last_error = error
-                    # Keep the actual answer for targeted edits, but release
-                    # a repeated bad baseline when the same content difference
-                    # cycles. Failure logs retain every unmodified response.
-                    return ProtocolRetry(error, state, include_response=not isinstance(validated, str) and not stagnant,
+                    # Preserve the actual answer even when content errors
+                    # repeat: releasing it loses an already-correct tree and
+                    # makes the engineer regenerate every required identity.
+                    return ProtocolRetry(error, state, include_response=not isinstance(validated, str),
                                          response_for_history=(encode_friendly(validated)
                                                                if not isinstance(validated, str) else None),
-                                         reset_history=stagnant)
+                                         reset_history=False)
 
                 async def empty(self, state, attempt: int, max_attempts: int):
                     nonlocal last_error, structure_valid
