@@ -10,6 +10,7 @@ from pdf_craft.llm import MessageRole
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask, SubmitKind
+from pdf_craft.transformer.xml_translator.xml_translator.translator import XMLFillError
 from tests.test_anchored_content_translation import _repairing_translator
 
 
@@ -119,6 +120,19 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
             payload = re.search(r'<translation\b.*?</translation>', messages[1].message, re.S)
             assert payload is not None
             self.assertEqual(''.join(decoded(payload[0], 'translation').itertext()), 'ab')
+
+    async def test_stagnant_history_does_not_extend_budget_or_adopt_missing_content(self):
+        translator, runtime = _repairing_translator(['<xml><p id="1">wrong</p></xml>'] * 13)
+        artist = AsyncMock(return_value='ab')
+        translator._translate_text_async = artist
+        source = fromstring('<body><p>SOURCE_REFERENCE_ONLY</p></body>')
+        with self.assertRaises(XMLFillError) as caught:
+            await StructuredTranslation().translate(translator, TranslationTask(source, SubmitKind.REPLACE, None),
+                error_policy=False, retry_policy=RetryPolicy(fill=12))
+        self.assertEqual(caught.exception.attempts, 13)
+        self.assertEqual(runtime.context_value.calls, 13)
+        self.assertEqual(artist.await_count, 1)
+        self.assertEqual(''.join(source.itertext()), 'SOURCE_REFERENCE_ONLY')
 
     async def test_duplicate_blocks_cannot_claim_content_is_already_complete(self):
         translator, runtime = _repairing_translator([
