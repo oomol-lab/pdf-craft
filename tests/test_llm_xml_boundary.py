@@ -163,6 +163,19 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual([child.get('id') for child in result[0]], ['source-b', 'source-c', 'source-a'])
         self.assertEqual(runtime.context_value.calls, 1)
 
+    async def test_duplicate_source_values_do_not_require_each_identity_to_be_nonempty(self):
+        translator, runtime = _repairing_translator([
+            '<xml><p id="1"><i id="2">Echo.</i><i id="3"/></p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='Echo.')
+        source = fromstring('<body><p><i id="source-a">Echo.</i>'
+                            '<i id="source-b">Echo.</i></p></body>')
+        result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+            source, SubmitKind.REPLACE, None), error_policy=False, retry_policy=RetryPolicy(fill=0))
+        self.assertEqual(''.join(result.itertext()), 'Echo.')
+        self.assertEqual([child.get('id') for child in result[0]], ['source-a', 'source-b'])
+        self.assertFalse(result[0][1].text)
+        self.assertEqual(runtime.context_value.calls, 1)
+
     async def test_identical_content_failure_retains_the_actual_structure_without_extra_calls(self):
         translator, runtime = _repairing_translator([
             '<xml><p id="1">wrong</p></xml>', '<xml><p id="1">wrong</p></xml>',

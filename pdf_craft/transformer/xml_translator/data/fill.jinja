@@ -23,33 +23,23 @@ text to its source sentence is NOT a requirement. These IDs address output
 positions, not sentences. Redistribute
 text across output blocks when necessary; preserve required inline identities,
 resources and nesting. Container boundaries do not justify adding characters,
-duplicating words or restoring source order. Required containers may remain
-empty when their content is absent or belongs elsewhere. Formula containers are editable: their source
-notation and delimiters are not mandatory translated content.
-Use required inline formatting and formula containers for the corresponding
-translated content. Keeping their IDs but moving all their content into plain
-text is not the aim. Empty containers are for content absent from the translation
-or merged into another required container, not a shortcut around placement.
+duplicating words or restoring source order.
+A required ID protects STRUCTURE; it is NOT a requirement for nonempty content.
+Any editable container may remain empty, including when identical source words
+or a formula value also occur elsewhere in the translation. Their presence in
+the translation does not require filling EVERY matching source container.
+Preserve all required identities, not the source number of visible occurrences.
+Use appropriate existing inline formatting for the actual translated passages;
+formatting must serve those passages, not force additional text into them.
+Formula containers are editable: their source notation and delimiters are not
+mandatory translated content.
 Use the COMPLETE TRANSLATION as your starting text and insert the required XML
 tags around its consecutive passages. Do not start from the source XML and
-rewrite its fields: doing that recreates the source's words and repetition count.
-Copy the translation from START to END once, without regenerating its repeated
-passages from memory or assigning one occurrence per source container. A long
-consecutive passage may span several suitable existing fields. Use equivalent
-existing containers as copying checkpoints: keep each consecutive passage short
-enough to track, and continue from exactly where the preceding passage ended.
-Do not regenerate a long repetitive run from memory in one field. These are
-copying checkpoints, not one-occurrence-per-container limits; some containers
-may hold several occurrences and others may remain empty. Do not cross resource
-boundaries or apply this to distinct links or references. Keep every required
-node, including unused empty nodes. Perform this inside your single XML answer; do not output
-an intermediate text or allocation plan.
-When an unused INLINE formatting node must remain empty, you may emit that
-empty node BEFORE its filled siblings inside the SAME required parent. An empty
-inline node has no translated characters: emitting it first avoids continuing a
-repetitive passage merely to reach its ID. Preserve its tag, ID and attributes.
-This does not permit moving blocks, links, references, opaque resource anchors
-or crossing their boundaries. Filled content must still read in translation order.
+rewrite its fields: doing that recreates source words and repetition counts.
+Copy the translation from START to END once. One existing field may hold several
+consecutive passages; one passage may span several fields. Keep unused nodes
+empty. Do not cross protected resource boundaries or change required nesting.
+Complete all placements inside your one XML answer, not an intermediate plan.
 Read the final text in fixed output order before returning it.
 Source length metadata does not limit how much translation a block can receive.
 A complete translated passage may occupy one earlier block while its later
