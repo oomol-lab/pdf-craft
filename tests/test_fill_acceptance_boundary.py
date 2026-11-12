@@ -173,6 +173,19 @@ class FillAcceptanceBoundaryTests(TestCase):
                 self.assertIn('Occurrences in your candidate: 5.', error)
                 self.assertIn('NOT a formula count', error)
 
+    def test_all_wholly_extra_fields_are_reported_by_actual_id_beyond_excerpt_limit(self):
+        block = fromstring('<p id="9">Kept.' + ''.join(
+            f'<i id="{100 + index}">Extra.</i>tail.' for index in range(20)) + '</p>')
+        before = tostring(block)
+        error = text_difference('Kept.', ''.join(block.itertext()), [block])
+        assert error is not None
+        for identifier in range(100, 120):
+            self.assertIn(f'- p#9/i#{identifier}.text', error)
+            self.assertIn(f'- p#9/i#{identifier}.tail', error)
+        self.assertIn('These 40 fields consist entirely of extra', error)
+        self.assertEqual(tostring(block), before)
+        self.assertIsNotNone(text_difference('Kept.', ''.join(block.itertext()), [block]))
+
     def test_long_diff_diagnostics_are_bounded_without_shortening_the_difference(self):
         block = fromstring('<p id="9">' + 'Echo.' * 100 + '</p>')
         before = tostring(block)

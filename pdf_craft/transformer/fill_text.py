@@ -141,7 +141,8 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     def fields(node, path):
         yield path + '.text', node.text or ''
         for index, child in enumerate(node):
-            child_path = f'{path}/{child.tag}[{index}]'
+            identity = f'#{child.get("id")}' if child.get('id') is not None else f'[{index}]'
+            child_path = f'{path}/{child.tag}{identity}'
             yield from fields(child, child_path)
             yield child_path + '.tail', child.tail or ''
 
@@ -170,6 +171,7 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     cursor = 0
     located_missing = set()
     field_locations = []
+    wholly_extra_fields = []
     for _, values in field_blocks:
         for path, value, normalized in values:
             start, end = cursor, cursor + len(normalized)
@@ -206,8 +208,13 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                    for _, _, _, left, right in edits):
                 extra = any(kind == 'insert' and left <= start and end <= right
                             for kind, _, _, left, right in edits)
+                if extra:
+                    wholly_extra_fields.append(path)
                 field_locations.append(f'field={path}, candidate[{start}:{end}], '
                                  f'entire_field_extra={extra}, value={value[:300]!r}')
+    if wholly_extra_fields:
+        details += '\n' + _FEEDBACK.get_template('extra_fields.jinja').render(
+            fields=wholly_extra_fields[:256], total=len(wholly_extra_fields)).strip()
     if locations or field_locations:
         details += '\n' + '\n'.join([*locations[:12], *field_locations[:12]])
     return f'Visible text differs from the canonical translation: Missing {missing}, added {added} characters.\n{details}'
