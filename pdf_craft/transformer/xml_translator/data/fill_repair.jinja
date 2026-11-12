@@ -21,6 +21,17 @@ one by one again or estimate a fresh global number of repetitions. Use the actua
 translation characters, never normalized diagnostic samples, repeat markers or
 count instructions as output. Returning a partial document loses required nodes.
 
+For a very long repeated passage that keeps gaining or losing occurrences in
+one field, you MAY redistribute that uninterrupted passage among compatible
+EXISTING containers to keep track. Account for occurrences already present
+outside that passage. Privately divide the remaining occurrence total among
+those existing positions: a base number in each, with one extra in the first
+few positions for the remainder. This is an optional bookkeeping technique,
+not a source-derived quota or a required distribution. Keep fixed block/resource
+boundaries and the translation's actual order. Write EVERY literal occurrence;
+do not return the calculation, counters, comments, repeat instructions or new IDs.
+Do not discard a long translated passage merely because it exceeds source length.
+
 Small repair examples (all literal occurrences are written, not encoded):
 Translation: "Echo. Echo."
 Working XML: <xml><p id="1">Echo. Echo. Echo.</p><p id="2"/></xml>
@@ -35,3 +46,11 @@ fallback; this answer must still pass all structure and whole-text checks.
 
 Use friendly XML escapes for text <, > and &: &lt;, &gt;, &amp;. Literal spelling
 &lt; is written &amp;lt;. Do not use CDATA or invent identities.
+
+Placement example for a longer repeated passage (the source has only three
+compatible containers, and ALL ten translated occurrences are written):
+Translation: "Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo."
+One complete XML: <xml><p id="1">Echo. Echo. Echo. Echo.</p><p id="2">Echo. Echo. Echo.</p><p id="3">Echo. Echo. Echo.</p></xml>
+Other distributions are also valid. The example's numbers are not your task's
+counts. Use the actual translation and existing nodes; preserve correct text
+outside the passage. Never replace the artist's text with a counting scheme.
