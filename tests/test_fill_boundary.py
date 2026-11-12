@@ -42,21 +42,6 @@ class ComparisonTests(TestCase):
                 self.assertEqual(comparison_distance(expected, actual), distance)
                 self.assertEqual(text_difference(expected, actual) is None, distance == 0)
 
-    def test_literal_repair_counts_include_content_already_in_other_fields(self):
-        blocks = [fromstring('<p id="1">Echo. Echo.</p>'), fromstring('<p id="2">Echo. Echo.</p>')]
-        feedback = text_difference('Echo. Echo. Echo.', ''.join(''.join(p.itertext()) for p in blocks), blocks)
-        assert feedback is not None
-        self.assertIn('Field p#2.text', feedback)
-        self.assertIn('Current matches in this field: 2; outside this field: 2.', feedback)
-        self.assertIn('this field needs 1 total', feedback)
-        self.assertEqual([p.text for p in blocks], ['Echo. Echo.', 'Echo. Echo.'])
-        # Several affected fields cannot be assigned a single-field correction.
-        blocks = [fromstring('<p id="1">wrong</p>'), fromstring('<p id="2">middle</p>'),
-                  fromstring('<p id="3">wrong</p>')]
-        feedback = text_difference('AmiddleB', 'wrongmiddlewrong', blocks)
-        assert feedback is not None
-        self.assertNotIn('LOCAL EDIT CHECK', feedback)
-
     def test_markdown_has_no_custom_formula_recognition(self):
         for raw, expected in [('**bold** and *emphasis*', 'bold and emphasis'),
                               ('# Heading\n\n[text](https://example.org)', 'Headingtext'),

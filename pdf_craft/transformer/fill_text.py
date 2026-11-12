@@ -142,7 +142,7 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                     from .xml_translator.xml import encode_friendly
                     literal = Element('literal', {'xml:space': 'preserve'})
                     literal.text = sample
-                    statistics.append(dict(sample=sample, literal=encode_friendly(literal), expected=expected_count, actual=actual_count))
+                    statistics.append(dict(literal=encode_friendly(literal), expected=expected_count, actual=actual_count))
     if statistics:
         details += '\n' + _FEEDBACK.get_template('literal_occurrences.jinja').render(
             statistics=statistics[:4]).strip()
@@ -184,7 +184,6 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     located_missing = set()
     field_locations = []
     wholly_extra_fields = []
-    localized_counts = []
     for _, values in field_blocks:
         for path, value, normalized in values:
             start, end = cursor, cursor + len(normalized)
@@ -217,22 +216,6 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                         field_locations.append(_FEEDBACK.get_template('interior_missing_location.jinja').render(
                             path=path, offset=offset, raw_offset=raw_offset).strip())
                         located_missing.add(index)
-            if not localized_counts and all(start <= c <= d <= end for _, _, _, c, d in edits):
-                for statistic in statistics[:4]:
-                    sample = statistic['sample']
-                    # Only offer local arithmetic when matches do not straddle
-                    # XML fields. This is a conditional diagnostic, not a quota
-                    # or a generated replacement field.
-                    contained = sum(_literal_occurrences(view, sample)
-                                    for _, fields_view in field_blocks for _, _, view in fields_view)
-                    if contained != statistic['actual']:
-                        continue
-                    field_count = _literal_occurrences(normalized, sample)
-                    outside = statistic['actual'] - field_count
-                    target = statistic['expected'] - outside
-                    if target >= 0:
-                        localized_counts.append(dict(path=path, literal=statistic['literal'],
-                            actual=field_count, outside=outside, target=target))
             if any((start <= left < end) if left == right else (start < right and left < end)
                    for _, _, _, left, right in edits):
                 extra = any(kind == 'insert' and left <= start and end <= right
@@ -241,9 +224,6 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                     wholly_extra_fields.append(path)
                 field_locations.append(f'field={path}, candidate[{start}:{end}], '
                                  f'entire_field_extra={extra}, value={value[:300]!r}')
-    if localized_counts:
-        details += '\n' + _FEEDBACK.get_template('field_literal_occurrences.jinja').render(
-            statistics=localized_counts).strip()
     if wholly_extra_fields:
         details += '\n' + _FEEDBACK.get_template('extra_fields.jinja').render(
             fields=wholly_extra_fields[:256], total=len(wholly_extra_fields)).strip()
