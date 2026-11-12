@@ -722,6 +722,7 @@ class XMLTranslator:
         ) as llm_context:
             translator = self
             last_error: str | None = None
+            recent_content_errors: deque[str] = deque(maxlen=2)
 
             class _XMLProtocol:
                 async def validate(self, response: str, state, attempt: int, max_attempts: int):
@@ -735,14 +736,17 @@ class XMLTranslator:
                     if error is None:
                         last_error = None
                         return ProtocolSuccess(validated, state)
+                    stagnant = structure_valid and error in recent_content_errors
+                    if structure_valid:
+                        recent_content_errors.append(error)
                     last_error = error
-                    # Field-level feedback refers to this exact answer. Keep
-                    # its unmodified content in the bounded repair history so
-                    # the engineer can edit it rather than restart from source.
-                    return ProtocolRetry(error, state, include_response=not isinstance(validated, str),
+                    # Keep the actual answer for targeted edits, but release
+                    # a repeated bad baseline when the same content difference
+                    # cycles. Failure logs retain every unmodified response.
+                    return ProtocolRetry(error, state, include_response=not isinstance(validated, str) and not stagnant,
                                          response_for_history=(encode_friendly(validated)
                                                                if not isinstance(validated, str) else None),
-                                         reset_history=False)
+                                         reset_history=stagnant)
 
                 async def empty(self, state, attempt: int, max_attempts: int):
                     nonlocal last_error, structure_valid
@@ -760,7 +764,8 @@ class XMLTranslator:
                 # Repairs use the actual preceding answer, not source words
                 # to restore. Structure errors also receive the required blank
                 # tree with all identities, attributes and opaque resources.
-                user = content_input if structure_valid else structure_input
+                has_answer = any(message.role == MessageRole.ASSISTANT for message in current[2:])
+                user = content_input if structure_valid and has_answer else structure_input
                 messages = ([current[0], Message(MessageRole.USER, user), *current[2:]]
                             if index else current)
                 return await request_model(llm_context, messages, retry_index=index, retry_max=maximum,
