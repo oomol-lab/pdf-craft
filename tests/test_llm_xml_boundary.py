@@ -80,7 +80,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 for old in values[:index-1]:
                     self.assertNotIn(old, previous_xml(messages))
                 self.assertNotIn('<translation xml:space="preserve">', repair_feedback(messages))
-                self.assertIn('LOCAL correction', repair_feedback(messages))
+                self.assertIn("expected[0:2]='ab'", repair_feedback(messages))
 
     async def test_repairs_keep_full_source_and_actual_candidate_for_all_error_types(self):
         translator, runtime = _repairing_translator([
