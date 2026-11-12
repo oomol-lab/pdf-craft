@@ -150,7 +150,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertIsNotNone(result)
         self.assertEqual(runtime.context_value.calls, 2)
         requests = [entry[0] for entry in runtime.context_value.messages]
-        first_match = re.search(r'```XML\n(.*?)```', requests[0][1].message, re.S)
+        first_match = re.search(r'Source XML reference.*?```XML\n(.*?)```', requests[0][1].message, re.S)
         repair_match = re.search(r'```XML\n(.*?)```', requests[1][1].message, re.S)
         assert first_match is not None and repair_match is not None
         first, repair = decoded(first_match[1], 'xml'), decoded(repair_match[1], 'xml')
