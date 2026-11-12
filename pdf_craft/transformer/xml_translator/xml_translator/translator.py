@@ -661,7 +661,7 @@ class XMLTranslator:
                     if raw_blocks is not None:
                         from ...fill_text import text_difference
                         difference = text_difference(translated_text, ''.join(
-                            ''.join(block.itertext()) + (block.tail or '') for block in raw_blocks))
+                            ''.join(block.itertext()) + (block.tail or '') for block in raw_blocks), raw_blocks)
                         error += '\n' + content_status_template.render(difference=difference)
                 return error
             if canonical_text_validator is not None:

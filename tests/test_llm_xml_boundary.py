@@ -136,10 +136,10 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual(''.join(source.itertext()), 'SOURCE_REFERENCE_ONLY')
 
     async def test_root_level_inline_identity_is_moved_instead_of_deleted(self):
-        for empty in (True, False):
-            with self.subTest(empty=empty):
-                outer = 'ab' if empty else ''
-                a, b = ('', '') if empty else ('a', 'b')
+        for kind in ('matched', 'different', 'outside'):
+            with self.subTest(kind=kind):
+                outer = {'matched': 'ab', 'different': 'abc', 'outside': ''}[kind]
+                a, b = ('a', 'b') if kind == 'outside' else ('', '')
                 translator, runtime = _repairing_translator([
                     f'<xml><p id="1">{outer}</p><expression id="2">{a}</expression><expression id="3">{b}</expression></xml>',
                     '<xml><p id="1"><expression id="2">a</expression><expression id="3">b</expression></p></xml>'])
@@ -153,7 +153,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertIn('MISPLACED required identity', feedback)
                 self.assertIn('under xml/p#1', feedback)
                 self.assertNotIn('Remove this unexpected block', feedback)
-                self.assertEqual('ALREADY MATCHES' in feedback, empty)
+                self.assertEqual('ALREADY MATCHES' in feedback, kind == 'matched')
+                self.assertEqual('Extra range in p#1.text' in feedback, kind == 'different')
 
     async def test_duplicate_blocks_cannot_claim_content_is_already_complete(self):
         translator, runtime = _repairing_translator([
