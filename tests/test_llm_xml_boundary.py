@@ -19,7 +19,7 @@ def decoded(text, tag):
 
 class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
 
-    async def test_fill_input_and_output_share_codec_without_echoing_rejected_answers(self):
+    async def test_fill_input_output_and_repair_history_share_codec(self):
         raw = 'A & B; <span>; &lt;span&gt;.'
         wrong = '<xml><p id="1">wrong & text</p></xml>'
         good = '<xml><p id="1">A &amp; B; &lt;span&gt;; &amp;lt;span&amp;gt;.</p></xml>'
@@ -43,7 +43,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
             assert payload is not None
             self.assertEqual(''.join(decoded(payload[0], 'translation').itertext()), raw)
         retry = runtime.context_value.messages[1][0]
-        self.assertTrue(all(message.role != MessageRole.ASSISTANT for message in retry))
+        previous = next(message.message for message in retry if message.role == MessageRole.ASSISTANT)
+        self.assertEqual(decoded(previous, 'xml')[0].text, 'wrong & text')
         self.assertIn('Visible text differs', retry[-1].message)
         self.assertNotIn(wrong, retry[-1].message)
 

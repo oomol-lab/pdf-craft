@@ -722,9 +722,13 @@ class XMLTranslator:
                         last_error = None
                         return ProtocolSuccess(validated, state)
                     last_error = error
-                    # Rejected XML remains in diagnostic logs, not as an answer
-                    # to imitate. Rebuild from the source and current feedback.
-                    return ProtocolRetry(error, state, include_response=False, reset_history=True)
+                    # Field-level feedback refers to this exact answer. Keep
+                    # its unmodified content in the bounded repair history so
+                    # the engineer can edit it rather than restart from source.
+                    return ProtocolRetry(error, state, include_response=not isinstance(validated, str),
+                                         response_for_history=(encode_friendly(validated)
+                                                               if not isinstance(validated, str) else None),
+                                         reset_history=False)
 
                 async def empty(self, state, attempt: int, max_attempts: int):
                     nonlocal last_error
