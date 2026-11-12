@@ -74,7 +74,10 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     for block in blocks:
         path = f'{block.tag}#{block.get("id")}'
         values = [*fields(block, path), (path + '.tail', block.tail or '')]
-        field_blocks.append((block, [(path, value, comparison_text(value)) for path, value in values]))
+        field_blocks.append((block, [(path, value, _document_text(value)) for path, value in values]))
+    if ''.join(normalized for _, values in field_blocks for _, _, normalized in values) != actual:
+        field_blocks = [(block, [(path, value, comparison_text(value)) for path, value, _ in values])
+                        for block, values in field_blocks]
     if ''.join(normalized for _, values in field_blocks for _, _, normalized in values) != actual:
         # Only report offsets when the complete comparison view is provably
         # decomposable into these field views. Cross-field math may not be.
