@@ -1,0 +1,14 @@
+LITERAL OCCURRENCE CHECK — same NORMALIZED COMPARISON VIEW as the diff:
+{% for item in statistics %}
+Literal sample (XML-escaped diagnostic text):
+{{ item.literal }}
+Occurrences in the complete translation: {{ item.expected }}.
+Occurrences in your candidate: {{ item.actual }}.
+{% endfor %}
+These count this literal substring, including overlapping matches. A sample may
+span several phrases: it is NOT a formula count, an XML-node count or a compressed
+replacement for the translation. Use the difference to check repeated content,
+its order and the surrounding words. Counts alone do not establish correctness.
+Use the original complete translation for spelling and spacing; do not paste
+normalized diagnostic samples or output count markers. Return the full XML with
+all actual characters and required nodes, not a repeat instruction.

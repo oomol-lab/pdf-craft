@@ -57,6 +57,15 @@ def _raw_excerpt(original: str, view: str, start: int, end: int, tag: str):
     return encode_friendly(excerpt), len(raw) > 6000
 
 
+def _literal_occurrences(text: str, literal: str) -> int:
+    """Count overlapping literal matches, never infer a repeated semantic unit."""
+    count, offset = 0, 0
+    while literal and (offset := text.find(literal, offset)) >= 0:
+        count += 1
+        offset += 1
+    return count
+
+
 def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     original, original_actual = expected, actual
     # Optional mathematical interpretation cannot invalidate existing text equivalence.
@@ -99,6 +108,26 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                 value, truncated = excerpt
                 details += '\n' + _FEEDBACK.get_template('original_extra_excerpt.jinja').render(
                     start=c, end=d, excerpt=value, truncated=truncated).strip()
+    # Bounded excerpts of the actual diff, not a run-length encoding or an
+    # allocation plan. Both complete texts remain in the request and the gate.
+    statistics = []
+    samples = set()
+    for _, a, b, c, d in edits[:10]:
+        for sample in (expected[a:b][:64], actual[c:d][:64]):
+            if not sample or sample in samples:
+                continue
+            samples.add(sample)
+            expected_count = _literal_occurrences(expected, sample)
+            actual_count = _literal_occurrences(actual, sample)
+            if expected_count and actual_count and max(expected_count, actual_count) > 1:
+                from xml.etree.ElementTree import Element
+                from .xml_translator.xml import encode_friendly
+                literal = Element('literal', {'xml:space': 'preserve'})
+                literal.text = sample
+                statistics.append(dict(literal=encode_friendly(literal), expected=expected_count, actual=actual_count))
+    if statistics:
+        details += '\n' + _FEEDBACK.get_template('literal_occurrences.jinja').render(
+            statistics=statistics[:4]).strip()
     if any(expected[a:b] and expected[a:b] in actual
            for kind, a, b, _, _ in edits if kind in ('delete', 'replace')):
         details += '\n' + _FEEDBACK.get_template('repeated_missing.jinja').render().strip()

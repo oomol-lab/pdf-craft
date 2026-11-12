@@ -10,7 +10,7 @@ from tiktoken import get_encoding
 from pdf_craft.document.migrations import _migrate_formula_coverage
 from pdf_craft.document.render import _compose_chapter, RenderMode
 from pdf_craft.extractor.chapter.chapter import Chapter, SourceAsset, DisplayFormula, encode
-from pdf_craft.transformer.fill_text import text_difference
+from pdf_craft.transformer.fill_text import text_difference, _literal_occurrences
 from pdf_craft.transformer.xml_translator.xml import decode_friendly
 from pdf_craft.transformer.word_count import count_xml_words
 from pdf_craft.transformer.structured_translation import StructuredTranslation
@@ -145,6 +145,20 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertIn('raw character range [2:4)', error)
         self.assertEqual(next(decode_friendly(error, tags='extra_excerpt')).text, 'bc')
         self.assertEqual(tostring(block), before)
+
+    def test_repeated_literal_statistics_are_generic_and_not_a_count_acceptance_gate(self):
+        for unit, wanted, found in [('Echo.', 3, 2), ('.', 16, 15), ('a', 5, 4), ('Echo.', 2, 3)]:
+            with self.subTest(unit=unit, wanted=wanted, found=found):
+                error = text_difference(unit * wanted, unit * found)
+                assert error is not None
+                self.assertIn(f'Occurrences in the complete translation: {wanted}.', error)
+                self.assertIn(f'Occurrences in your candidate: {found}.', error)
+                self.assertIn('Counts alone do not establish correctness', error)
+        self.assertEqual(_literal_occurrences('ababa', 'aba'), 2)
+        self.assertEqual(_literal_occurrences('abc', ''), 0)
+        self.assertIsNotNone(text_difference('Echo.A.Echo.B.', 'Echo.B.Echo.A.'))
+        self.assertIsNone(text_difference('Echo.Echo.', 'Echo.Echo.'))
+        self.assertIsNotNone(text_difference('Echo.' * 3, 'Repeat Echo. 3 times.'))
 
     def test_end_gap_feedback_points_to_existing_field_without_changing_it(self):
         block = fromstring('<p id="9"><i>.</i></p>')
