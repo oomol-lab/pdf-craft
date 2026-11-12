@@ -693,15 +693,15 @@ class XMLTranslator:
         translation = Element('translation', {'xml:space': 'preserve'})
         translation.text = translated_text
         source_xml = encode_friendly(hill_climbing.request_element())
+        repair_source_xml = encode_friendly(hill_climbing.request_template())
         user_message = (await self._fill_runtime.template('fill_input')).render(
-            source_xml=source_xml,
+            source_xml=source_xml, target_xml=repair_source_xml,
             translated_text=encode_friendly(translation))
         canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render()
                                   if canonical_text_validator is not None else '')
         # Repeating editable source words during repairs encourages restoring
         # their old content/occurrence count while adding required nodes. Keep
         # the complete source contract and the actual rejected answer instead.
-        repair_source_xml = encode_friendly(hill_climbing.request_template())
         repair_input = await self._fill_runtime.template('fill_repair_input')
         progress_template = await self._fill_runtime.template("fill_repair_progress")
         repair_system_template = await self._fill_runtime.template("fill_repair")
