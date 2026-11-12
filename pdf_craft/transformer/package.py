@@ -26,7 +26,7 @@ from pdf_craft.document.package import (
 )
 from pdf_craft.runtime import IO_DOMAIN
 from pdf_craft.extractor.chapter.chapter import (
-    SourceTextFragment, TextFlowItem, decode, encode, narrative_texts,
+    TextFlowItem, decode, encode, narrative_texts,
 )
 from .word_count import count_xml_words
 from .progress import translation_operation, active_progress, unit_context
@@ -40,7 +40,7 @@ from pdf_craft.transformer.furniture_translation import translate_furnitures_in_
 from pdf_craft.transformer.anchored_content import AnchoredContentTransformer
 from pdf_craft.transformer.anchored_translation import translate_anchored_contents_in_workspace_async
 from pdf_craft.transformer.translation_coverage import (
-    NarrativeCoverage, paragraph_identity, write_narrative_coverage, formula_states,
+    NarrativeCoverage, paragraph_identity, write_narrative_coverage, formula_states, accepted_translation,
 )
 
 
@@ -132,7 +132,6 @@ class ChapterExtractionTransformer:
                 identity: layout
                 for layout in narrative_texts(chapter)
                 if isinstance(layout, TextFlowItem)
-                and layout.role in {"body", "heading"}
                 and (identity := paragraph_identity(chapter, layout)) is not None
             }
             targets = {
@@ -146,7 +145,7 @@ class ChapterExtractionTransformer:
                 target = targets.get(identity)
                 state = (
                     "translated"
-                    if target is not None and _has_visible_content(target)
+                    if target is not None and accepted_translation(target)
                     else "preserved"
                 )
                 chapter_coverage.append(NarrativeCoverage(*identity, state))
@@ -422,13 +421,3 @@ def _apply_metadata_overlay_to_workspace(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8",
     )
     return PDFCraftExtraction._from_workspace(workspace)._validate()
-
-
-def _has_visible_content(layout: TextFlowItem) -> bool:
-    """Return whether a transformed PDF paragraph still has drawable content."""
-    return any(
-        bool(str(item).strip())
-        for fragment in layout.children
-        if isinstance(fragment, SourceTextFragment)
-        for item in fragment.content
-    )

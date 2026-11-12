@@ -102,12 +102,11 @@ class PCEXSchedule:
     async def narrative_result(self, source, target, payload):
         """Keep acceptance, title reuse and accounting independent of grouping."""
         states = []
-        from .package import _has_visible_content
         for original, translated in zip(narrative_texts(source), narrative_texts(target), strict=True):
             identity = paragraph_identity(source, original)
             if identity is not None:
                 states.append(NarrativeCoverage(*identity, 'translated' if
-                    _has_visible_content(translated) and accepted_translation(translated) else 'preserved'))
+                    accepted_translation(translated) else 'preserved'))
         states.extend(formula_states(source, target, body_index=payload.index))
         if self.furniture is not None:
             await IO_DOMAIN.run(self.furniture.titles, target)

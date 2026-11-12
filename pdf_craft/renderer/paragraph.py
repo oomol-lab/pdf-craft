@@ -34,9 +34,7 @@ def display_values(item, mode):
         if fragment is not None:
             identities.add((str(item.chapter_id) if item.chapter_id is not None else 'head',
                             int(fragment.get('page_index', '0')), int(fragment.get('fragment_id', '0'))))
-    preserved = set()
     if item.narrative_states is not None:
-        preserved = {identity for identity in identities if item.narrative_states.get(identity) == 'preserved'}
         identities = {identity for identity in identities if item.narrative_states.get(identity) == 'translated'}
     if isinstance(item.value, DisplayFormula):
         chapter_id = str(item.chapter_id) if item.chapter_id is not None else 'head'
@@ -49,7 +47,7 @@ def display_values(item, mode):
     else:
         children = item.asset_children
     assets = {(str(item.chapter_id) if item.chapter_id is not None else 'head', 0, index) for index in children}
-    _compose_chapter(source, target, identities, assets, mode, preserved)
+    _compose_chapter(source, target, identities, assets, mode)
     result = decode(source)
     return result.definitions if reference else result.flow_items
 

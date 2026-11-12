@@ -542,7 +542,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict) or set(payload) - _MANIFEST_FIELDS:
         raise ValueError("manifest.json contains unsupported fields")
     format_version = payload.get("format_version")
-    if format_version not in {1, 2, 3, 4, 5, 6, 7, FORMAT_VERSION}:
+    if format_version not in {1, 2, 3, 4, 5, 6, 7, 8, FORMAT_VERSION}:
         raise ValueError("unsupported PDFCraftExtraction format version")
     producer = payload.get("producer")
     if not isinstance(producer, dict) or set(producer) != {"name", "version"} or not all(

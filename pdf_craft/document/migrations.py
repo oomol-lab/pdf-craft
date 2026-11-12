@@ -12,7 +12,7 @@ from xml.etree import ElementTree
 
 from ..common import save_xml
 
-CURRENT_VERSION = 8
+CURRENT_VERSION = 9
 
 
 def migrate_workspace(root: Path) -> None:
@@ -37,7 +37,9 @@ def migrate_workspace(root: Path) -> None:
     # v7 permits adopted empty furniture in translation layers. Existing v6
     # fields, source identities and coverage already have their final meaning;
     # preserve every source/layer value rather than guessing missing text.
-    _migrate_formula_coverage(paths.chapters, paths.translations, root / 'translation.xml')
+    if version < 8:
+        _migrate_formula_coverage(paths.chapters, paths.translations, root / 'translation.xml')
+    _migrate_note_coverage(paths.chapters, paths.translations, root / 'translation.xml')
     manifest['format_version'] = CURRENT_VERSION
     paths.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     _validate_workspace(paths)
@@ -170,4 +172,35 @@ def _migrate_formula_coverage(chapters: Path, translations: Path, coverage: Path
             root.insert(0, narrative)
         for chapter, formula_path in identities:
             ElementTree.SubElement(narrative, 'formula', dict(chapter_id=chapter, path=formula_path, state='preserved'))
+        save_xml(root, path)
+
+
+def _migrate_note_coverage(chapters: Path, translations: Path, coverage: Path) -> None:
+    """Resolve pre-v9 implicit footnote availability once, preserving explicit states."""
+    for path in [coverage, *translations.glob('*/coverage.xml')]:
+        if not path.exists():
+            continue
+        root = ElementTree.parse(path).getroot()
+        narrative = root.find('narrative')
+        if narrative is None:
+            narrative = ElementTree.SubElement(root, 'narrative')
+        existing = {(node.get('chapter_id'), node.get('page_index'), node.get('order'))
+                    for node in narrative.findall('paragraph')}
+        target_chapters = chapters if path == coverage else path.parent / 'chapters'
+        for chapter_path in target_chapters.glob('chapter_*.xml'):
+            chapter = ElementTree.parse(chapter_path).getroot()
+            chapter_id = chapter.get('id', 'head')
+            for item in chapter.findall('references/ref/flow/text'):
+                fragment = item.find('fragment')
+                if fragment is None:
+                    continue
+                identity = chapter_id, fragment.get('page_index'), fragment.get('fragment_id')
+                if identity in existing:
+                    continue
+                # This exactly materializes the old reader's availability rule;
+                # it does not infer adoption for newly generated v9 layers.
+                state = 'translated' if ''.join(item.itertext()).strip() else 'preserved'
+                ElementTree.SubElement(narrative, 'paragraph', dict(chapter_id=chapter_id,
+                    page_index=fragment.attrib['page_index'], order=fragment.attrib['fragment_id'], state=state))
+                existing.add(identity)
         save_xml(root, path)

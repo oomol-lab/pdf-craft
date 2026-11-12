@@ -253,7 +253,7 @@ Variable folios are represented structurally rather than as the text of a reusab
 
 ```json
 {
-  "format_version": 8,
+  "format_version": 9,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -282,12 +282,12 @@ The top-level value must be a JSON object. Unlisted top-level fields are not all
 
 | Field | Type | Required | Meaning and constraints |
 | --- | --- | --- | --- |
-| `format_version` | integer | Yes | The canonical value is `8`; v1–v7 inputs are migrated before business access. |
+| `format_version` | integer | Yes | The canonical value is `9`; v1–v8 inputs are migrated before business access. |
 | `producer` | object | Yes | Identifies the software that created the archive; must contain exactly `name` and `version` |
 | `created_at` | string or null | No | Archive creation time; a string must be a parseable ISO 8601 datetime |
 | `document` | object | Yes | Document-level metadata; must contain exactly the fields in the next section |
 
-The canonical `format_version` is the JSON number `8`. Readers validate and migrate v1–v7 inputs on private copies before translation or rendering; unknown versions are rejected.
+The canonical `format_version` is the JSON number `9`. Readers validate and migrate v1–v8 inputs on private copies before translation or rendering; unknown versions are rejected.
 
 When pdf-craft writes an archive, `producer.name` is always `pdf-craft`, and `producer.version` is the installed pdf-craft package version. It falls back to `unknown` when the installed version cannot be determined. The current validator permits other producers, but both `name` and `version` must be non-empty strings.
 
@@ -725,7 +725,7 @@ It cannot prove that the input PDF and extraction came from the same source file
 
 ## Version compatibility
 
-The current format version is `8`. Input migrations normalize v1–v7 archives, including source chapters and existing translation layers, before any business operation. Exports always use v8; original archives are never rewritten.
+The current format version is `9`. Input migrations normalize v1–v8 archives, including source chapters and existing translation layers, before any business operation. Exports always use v9; original archives are never rewritten.
 
 Applications that only need downstream rendering or translation should open the archive through a Craft façade so version and integrity checks run. A ZIP that can merely be extracted is not necessarily a usable PDFCraftExtraction.
 
@@ -789,3 +789,13 @@ translation layer's coverage.xml, narrative may contain
 Paths address source flow positions; they never derive identity from geometry.
 Older layers retained frozen source equations. Migration records them explicitly
 as preserved, without changing source or translated formula content or resources.
+
+
+### Explicit note adoption (v9)
+
+Body and footnote coverage uses the adoption state, including accepted empty
+allocations. A selected translation layer must retain an adopted empty value
+rather than restore source text. Migration materializes the old implicit note
+availability only for missing historical entries, preserves explicit coverage,
+and never rewrites source or translated words. Runtime does not guess adoption
+from text presence.
