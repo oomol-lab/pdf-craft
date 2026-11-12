@@ -170,7 +170,7 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
         complete = None
         def answer(messages):
             nonlocal rejected, complete
-            if rejected and messages[1]['content'].startswith('The immediately preceding XML answer'):
+            if rejected and 'Validation feedback:\n' in messages[1]['content']:
                 assert complete is not None
                 return complete
             value = original_answer(messages)
@@ -372,7 +372,7 @@ class TranslationGroupingTests(IsolatedAsyncioTestCase):
             return value
         async def invoke(messages, *args, **kwargs):
             text = '\n'.join(message.message for message in messages)
-            if rejected and len(messages) > 2 and 'Paragraph 0.' in text and 'XML template:' in text:
+            if rejected and 'Validation feedback:\n' in text and 'Paragraph 0.' in text:
                 repairing.set()
                 await release.wait()
             if 'Paragraph 200.' in text:

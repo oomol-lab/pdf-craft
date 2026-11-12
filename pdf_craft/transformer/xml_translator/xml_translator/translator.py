@@ -645,14 +645,8 @@ class XMLTranslator:
         feedback_template = await self._fill_runtime.template("inline_feedback")
         repair_template = await self._fill_runtime.template("canonical_repair")
         content_status_template = await self._fill_runtime.template("structure_content_feedback")
-        translation = Element('translation', {'xml:space': 'preserve'})
-        translation.text = translated_text
-        structure_valid = False
-
         def validate_candidate(element):
-            nonlocal structure_valid
             error = hill_climbing.validate(element)
-            structure_valid = error is None
             if error is not None:
                 blocks = hill_climbing.inline_feedback_blocks(element)
                 error += '\n' + feedback_template.render(blocks=blocks)
@@ -666,9 +660,6 @@ class XMLTranslator:
                 return error
             if canonical_text_validator is not None:
                 error = canonical_text_validator(element, translated_text)
-                # Format-specific ownership checks can also reject this tree.
-                # Only the known full-text difference allows source-free repair.
-                structure_valid = error is None or error.startswith('Visible text differs from the canonical translation:')
             if error is not None and canonical_text_validator is not None:
                 error += '\n\n' + repair_template.render()
             return error
@@ -700,11 +691,7 @@ class XMLTranslator:
             translated_text=encode_friendly(translation))
         canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render()
                                   if canonical_text_validator is not None else '')
-        content_input = (await self._fill_runtime.template('content_repair_input')).render(
-            translated_text=encode_friendly(translation))
-        structure_input = (await self._fill_runtime.template('fill_input')).render(
-            source_xml=encode_friendly(hill_climbing.request_template(), preserve_whitespace=True),
-            translated_text=encode_friendly(translation))
+        repair_input = await self._fill_runtime.template('fill_repair_input')
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render() + "\n\n" + canonical_instructions),
@@ -724,10 +711,9 @@ class XMLTranslator:
 
             class _XMLProtocol:
                 async def validate(self, response: str, state, attempt: int, max_attempts: int):
-                    nonlocal last_error, structure_valid
+                    nonlocal last_error
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
-                        structure_valid = False
                         error = validated
                     else:
                         error = validate_candidate(validated)
@@ -744,8 +730,7 @@ class XMLTranslator:
                                          reset_history=False)
 
                 async def empty(self, state, attempt: int, max_attempts: int):
-                    nonlocal last_error, structure_valid
-                    structure_valid = False
+                    nonlocal last_error
                     error = "LLM returned an empty XML response. Please return one complete <xml> block."
                     last_error = error
                     return ProtocolRetry(error, state)
@@ -755,14 +740,16 @@ class XMLTranslator:
                     raise XMLFillError(error, attempts=attempts)
 
             async def request(messages_for_attempt, index, maximum):
-                # Keep the full original reference in the first request/log.
-                # Repairs use the actual preceding answer, not source words
-                # to restore. Structure errors also receive the required blank
-                # tree with all identities, attributes and opaque resources.
-                has_answer = any(message.role == MessageRole.ASSISTANT for message in messages_for_attempt[2:])
-                user = content_input if structure_valid and has_answer else structure_input
-                messages = ([messages_for_attempt[0], Message(MessageRole.USER, user), *messages_for_attempt[2:]]
-                            if index else messages_for_attempt)
+                messages = messages_for_attempt
+                if index:
+                    # A rejected response is evidence to edit, not an assistant
+                    # commitment to continue. Keep its actual XML as data and
+                    # put the sole complete authoritative translation last.
+                    previous = next((message.message for message in reversed(messages_for_attempt)
+                                     if message.role == MessageRole.ASSISTANT), None)
+                    user = repair_input.render(source_xml=source_xml, candidate_xml=previous,
+                        feedback=messages_for_attempt[-1].message, translated_text=encode_friendly(translation))
+                    messages = [fixed_messages[0], Message(MessageRole.USER, user)]
                 return await request_model(llm_context, messages, retry_index=index, retry_max=maximum,
                                            use_cache=False, max_tokens=output_budget)
 
