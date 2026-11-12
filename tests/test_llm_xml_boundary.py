@@ -81,7 +81,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertIn('SOURCE_REFERENCE_ONLY', messages[1].message)
             else:
                 self.assertNotIn('SOURCE_REFERENCE_ONLY', messages[1].message)
-            self.assertEqual(messages[1].message.count('```XML'), 1 + int(index > 0))
+            self.assertEqual(messages[1].message.count('```XML'), 1)
             payload = re.search(r'<translation\b.*?</translation>', messages[1].message, re.S)
             assert payload is not None
             self.assertEqual(''.join(decoded(payload[0], 'translation').itertext()), 'ab')
@@ -145,7 +145,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual([(node.tag, node.get('id')) for node in first.iter()],
                          [(node.tag, node.get('id')) for node in repair.iter()])
         self.assertIn('ORIGINAL', ''.join(first[1].itertext()))
-        self.assertEqual(''.join(repair[1].itertext()).strip(), '')
+        self.assertEqual(''.join(repair[1].itertext()).strip(), 'wrong')
         self.assertEqual(decoded(previous_xml(requests[1]), 'xml')[1].text, 'wrong')
         self.assertEqual(tostring(source), before)
 
@@ -217,6 +217,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertEqual(''.join(decoded(previous_xml(third), 'xml')[0].itertext()), 'Echo. Echo.')
                 self.assertIn('Missing 5, added 0', repair_feedback(third))
                 self.assertIn('complete earlier answer from THIS loop', repair_feedback(third))
+                self.assertIn('already passed the required source structure checks', third[1].message)
+                self.assertEqual(third[1].message.count('```XML'), 1)
                 self.assertIn('revising one rejected XML document', third[0].message)
                 self.assertNotIn('unterminated', previous_xml(third))
 

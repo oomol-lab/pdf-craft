@@ -783,7 +783,9 @@ class XMLTranslator:
                             attempt=index + 1, maximum=maximum + 1,
                             last_distance=last_distance, distance=best_repair.distance) + '\n\n' + baseline_feedback
                         previous = baseline
-                    user = repair_input.render(source_xml=repair_source_xml if previous is not None else source_xml,
+                    structure = (None if best_repair is not None else
+                                 repair_source_xml if previous is not None else source_xml)
+                    user = repair_input.render(source_xml=structure,
                         candidate_xml=previous,
                         feedback=feedback, translated_text=encode_friendly(translation))
                     system = (Message(MessageRole.SYSTEM, repair_system_template.render())
