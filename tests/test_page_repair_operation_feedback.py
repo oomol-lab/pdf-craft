@@ -1,7 +1,7 @@
 """Feedback explains executable repairs without changing the acceptance rules."""
 # pylint: disable=protected-access
+from tests.repair_plan_fixtures import serialize_plan
 from copy import deepcopy
-import json
 from unittest import IsolatedAsyncioTestCase, TestCase
 
 from pdf_craft import RetryPolicy
@@ -20,7 +20,7 @@ class OperationFeedbackTests(TestCase):
         with self.assertRaises(ValueError) as caught:
             compile_page(source, data)
         feedback = str(caught.exception)
-        for value in ('[GRAPHIC_SOURCE]', 'source_type=image', 'preserve_as_image=false',
+        for value in ('[GRAPHIC_SOURCE]', 'source_type=image', 'as_image flag',
                       'ALREADY an asset'):
             self.assertIn(value, feedback)
         data['layouts'][0]['preserve_as_image'] = False
@@ -90,7 +90,7 @@ class OperationFeedbackTests(TestCase):
         self.assertIn(mixed['layout_id'], feedback)
         self.assertIn('Unassigned range [6, 18)', feedback)
         self.assertIn('8 Note text.', feedback)
-        self.assertIn('ownership=ignored', feedback)
+        self.assertIn('destination={"kind":"ignored"}', feedback)
         ignored = dict(mixed, ownership='ignored', paragraph_role=None,
                        paragraph_level=None, citation_id=None, citation_index=None,
                        source_range=dict(start=cut, end='source_end'))
@@ -122,7 +122,7 @@ class OperationFeedbackTests(TestCase):
             compiled(source, data)
         feedback = str(caught.exception)
         for value in ('[REF_EXPRESSION]', "Selected source text='^{8}'",
-                      "printed mark='9'", "Expected selection='^{9}'", 'citation_index=1'):
+                      "printed mark='9'", "Expected selection='^{9}'", 'note_id=note'):
             self.assertIn(value, feedback)
         # A semantic mistake is not automatically reclassified by the program.
         self.assertEqual(data['citations'][0]['mark'], '9')
@@ -138,7 +138,7 @@ class OperationFeedbackTests(TestCase):
         with self.assertRaises(ValueError) as caught:
             compiled(source, data)
         feedback = str(caught.exception)
-        for value in ('[LAYOUT_CITATION]', 'citation_index=None', 'index=1', "printed mark='8'"):
+        for value in ('[LAYOUT_CITATION]', 'ordinal=None', 'ordinal=1', "printed mark='8'"):
             self.assertIn(value, feedback)
         member['citation_index'] = 1
         result = compiled(source, data)
@@ -152,7 +152,7 @@ class OperationLoopTests(IsolatedAsyncioTestCase):
                        ('text', (0, 45, 100, 60), 'continues the body.'))
         initial = candidate(source)
         initial['layouts'][2]['continues_from_previous'] = True
-        initial['layouts'][1]['continues_to_next'] = False
+        initial['layouts'][1]['asset_attachment'] = dict(asset_id='missing-asset', slot='caption')
         before = deepcopy(source)
         attempts = []
 
@@ -163,12 +163,11 @@ class OperationLoopTests(IsolatedAsyncioTestCase):
                 self.assertEqual(len(messages), 3)
                 self.assertTrue(all(message.role.name != 'ASSISTANT' for message in messages))
                 feedback = messages[-1].message
-                for value in ('[GAP_MISMATCH]', 'Note: explanation.', 'continues the body.',
-                              'asset_attachment', 'independent_stream', 'First reconsider their destinations'):
+                for value in ('[REPAIR_TARGET]', 'missing-asset', 'retained local image/table'):
                     self.assertIn(value, feedback)
                 data['layouts'][1]['asset_attachment'] = dict(
                     asset_id=data['layouts'][0]['layout_id'], slot='caption')
-            return json.dumps(data)
+            return serialize_plan(data)
 
         repaired = await repair_page_with_llm(
             previous_page=None, target_page=source, next_page=None,
@@ -179,5 +178,5 @@ class OperationLoopTests(IsolatedAsyncioTestCase):
         self.assertTrue(repaired.layouts[2].continues_from_previous)
         self.assertEqual(assets(roundtrip(repaired))[0].caption, ['Note: explanation.'])
         # Still reject the unchanged bad candidate; no auto-attachment heuristic.
-        with self.assertRaisesRegex(ValueError, 'GAP_MISMATCH'):
+        with self.assertRaisesRegex(ValueError, 'ASSET_TEXT'):
             compile_page(source, initial)

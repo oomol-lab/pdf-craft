@@ -1,4 +1,6 @@
+from tests.repair_plan_fixtures import expanded_packet
 
+from tests.repair_plan_fixtures import serialize_plan
 from pdf_craft import RetryPolicy
 import json
 import asyncio
@@ -33,7 +35,7 @@ def _fragment(page_index, order, *content):
 
 
 def _response_from_message(message):
-    target = json.loads(message.message)["target_page"]
+    target = expanded_packet(json.loads(message.message)["target_page"])
     layout_fields = {
         "layout_id", "ownership", "continues_from_previous",
         "continues_to_next", "paragraph_role", "paragraph_level",
@@ -69,7 +71,7 @@ def _page_with_reference(text_before="Body", text_after=" end"):
 
 
 class PageRepairTests(unittest.IsolatedAsyncioTestCase):
-    async def test_continuation_feedback_repairs_definition_fields_not_the_reading_operation(self):
+    async def test_continuation_operation_derives_definition_fields(self):
         page = _page_with_reference()
         attempts = []
         async def request(messages, index, _maximum):
@@ -88,15 +90,15 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             # against original/neighbor semantic evidence.
             for layout in data['layouts']:
                 layout['ownership_evidence'] = 'Opaque submitted reading finding.'
-            return json.dumps(data)
+            return serialize_plan(data)
         result = await repair_page_with_llm(previous_page=None, target_page=page, next_page=None,
             previous_pass_probability=None, next_pass_probability=None, request=request)
-        self.assertEqual(attempts, [0, 1])
+        self.assertEqual(attempts, [0])
         self.assertTrue(result.citations[0].continues_previous)
         self.assertIsNone(result.citations[0].index)
         self.assertIsNone(result.citations[0].mark)
 
-    async def test_missing_local_boundary_evidence_repairs_shape_without_semantic_audit(self):
+    async def test_explanations_are_not_required_operation_fields(self):
         page = _page_with_reference()
         attempts = []
         async def request(messages, index, _maximum):
@@ -109,10 +111,10 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
                     # The program must not approve/reject semantic reasoning
                     # by rereading old pages or neighboring source evidence.
                     layout['paragraph_evidence'] = 'An uninterpreted model boundary finding.'
-            return json.dumps(data)
+            return serialize_plan(data)
         repaired = await repair_page_with_llm(previous_page=None, target_page=page, next_page=None,
             previous_pass_probability=None, next_pass_probability=None, request=request)
-        self.assertEqual(attempts, [0, 1])
+        self.assertEqual(attempts, [0])
         self.assertEqual(repaired.page_index, page.page_index)
 
 
@@ -131,7 +133,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
 
         async def request(messages, _index, _maximum):
             payloads.append(json.loads(messages[1].message))
-            return json.dumps(_response_from_message(messages[1]))
+            return serialize_plan(_response_from_message(messages[1]))
 
         processor = AllPageLlmRepairProcessor(request)
         repaired = await processor(source_pages, analyses, {})
@@ -160,7 +162,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
 
         async def request(messages, _index, _maximum):
             payloads.append(json.loads(messages[1].message))
-            return json.dumps(_response_from_message(messages[1]))
+            return serialize_plan(_response_from_message(messages[1]))
 
         processor = AllPageLlmRepairProcessor(request, page_indexes=(1, 3))
         await processor(source_pages, analyses, {})
@@ -205,7 +207,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             except asyncio.CancelledError:
                 sibling_cancelled.set()
                 raise
-            return json.dumps(_response_from_message(messages[1]))
+            return serialize_plan(_response_from_message(messages[1]))
 
         processor = AllPageLlmRepairProcessor(request, retry_policy=RetryPolicy(analysis=0))
         with self.assertRaises(NonContinuableError):
@@ -253,7 +255,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
                 "citation_id": None,
                 "citation_index": None,
             })
-            return json.dumps(response)
+            return serialize_plan(response)
 
         repaired = await repair_page_with_llm(
             previous_page=None,
@@ -285,7 +287,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             llm_payloads.append(json.loads(messages[1].message))
             response = _response_from_message(messages[1])
             response["layouts"][0]["continues_from_previous"] = True
-            return json.dumps(response)
+            return serialize_plan(response)
 
         async def evaluate(page_index, _request):
             alias = next(iter(_request["questions"]))
@@ -334,12 +336,12 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("jev_p_pass", payload["target_page"])
         citation_layout = next(
             layout for layout in payload["target_page"]["layouts"]
-            if layout["initial_proposal"]["ownership"] == "citation"
+            if layout["initial_proposal"]["destination"]["kind"] == "note"
         )
         self.assertEqual(citation_layout["definition_mark"], "①")
         paragraph_layouts = [
             layout for layout in payload["target_page"]["layouts"]
-            if layout["initial_proposal"]["ownership"] == "paragraph"
+            if layout["initial_proposal"]["destination"]["kind"] == "body"
         ]
         self.assertIsNone(
             paragraph_layouts[0]["initial_stream_boundary_from_previous"]
@@ -349,7 +351,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
         page = _page_with_reference()
 
         async def request(messages, _index, _maximum):
-            return json.dumps(_response_from_message(messages[1]))
+            return serialize_plan(_response_from_message(messages[1]))
 
         repaired = await repair_page_with_llm(
             previous_page=None,
@@ -378,7 +380,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
                 if index == 0
                 else {"before": "middle Alpha", "mark": "①", "after": ""}
             )
-            return json.dumps(response)
+            return serialize_plan(response)
 
         repaired = await repair_page_with_llm(
             previous_page=None,
@@ -405,7 +407,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
                 "mark": "①",
                 "after": "",
             }
-            return json.dumps(response)
+            return serialize_plan(response)
 
         repaired = await repair_page_with_llm(
             previous_page=None,

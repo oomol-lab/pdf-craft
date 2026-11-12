@@ -1,12 +1,12 @@
 """The real Figure 4 failure shape, through projection, repair and recovery."""
 # pylint: disable=protected-access,unused-argument
+from tests.repair_plan_fixtures import serialize_plan
 from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
 from xml.etree.ElementTree import parse, fromstring
-import json
 
 from PIL import Image
 
@@ -44,7 +44,7 @@ class AnchoredPageTests(IsolatedAsyncioTestCase):
         pages = source_pages()
         analysed = project(pages)
         async def request(messages, _index, _maximum):
-            return json.dumps(_response_from_message(messages[1]))
+            return serialize_plan(_response_from_message(messages[1]))
         repaired = await AllPageLlmRepairProcessor(request)(pages, analysed, {})
         chapters = list(_generate_chapters(Path('/unused'), TocInfo([], []), repaired))
         reopened = decode_chapter(encode(chapters[0]))

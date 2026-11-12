@@ -15,7 +15,7 @@ from pdf_craft.extractor.chapter.asset_text import (
 from pdf_craft.extractor.chapter.page_analysis import restore_streams
 from pdf_craft.extractor.chapter.analysis_types import LayoutAnnotations, AnalysedCitation, _AnalysedAssetSource
 from pdf_craft.extractor.chapter.assembly import PageAssembly
-from pdf_craft.extractor.chapter.page_repair import RepairedAssetAttachment, RepairedLayout, RepairedPage, _compile_repaired_page, build_page_repair_messages
+from pdf_craft.extractor.chapter.page_repair import AssetAttachmentCandidate, LayoutCandidate, PageCandidate, _compile_repaired_page, build_page_repair_messages
 from pdf_craft.extractor.chapter.page_review import build_jev_review_states
 from pdf_craft.extractor.chapter.primary import project_window
 from pdf_craft.extractor.chapter.asset_editing import editable_asset_sources
@@ -101,14 +101,14 @@ class AssetSourceIntegrityTests(unittest.TestCase):
         original, = project_window((raw,), False)
         assert original is not None
         original = editable_asset_sources(original)
-        proposed = [RepairedLayout(ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.", layout_id=x.source_id or f'layout-{x.document_order}',
+        proposed = [LayoutCandidate(ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.", layout_id=x.source_id or f'layout-{x.document_order}',
                     ownership=x.ownership, continues_from_previous=False,
                     paragraph_role='body' if x.source_order is not None else None,
                     paragraph_level=-1 if x.source_order is not None else None,
-                    citation_id=None, asset_attachment=(RepairedAssetAttachment(asset_id=x.annotations.asset_attachment.asset_id,
+                    citation_id=None, asset_attachment=(AssetAttachmentCandidate(asset_id=x.annotations.asset_attachment.asset_id,
                          slot=x.annotations.asset_attachment.slot) if x.annotations.asset_attachment and x.source_order != 1 else None))
                     for x in original.layouts]
-        repaired = _compile_repaired_page(original, RepairedPage(
+        repaired = _compile_repaired_page(original, PageCandidate(
             page_index=1, layouts=proposed, citations=[], references=[]))
         self.assertEqual(len(repaired.layouts), len(original.layouts))
         restored = restore_streams([repaired])
@@ -155,14 +155,14 @@ class AssetSourceIntegrityTests(unittest.TestCase):
         original, = project_window((raw,), False)
         assert original is not None
         original = editable_asset_sources(original)
-        proposed = [RepairedLayout(ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.", layout_id=x.source_id or f'layout-{x.document_order}', ownership=x.ownership,
+        proposed = [LayoutCandidate(ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.", layout_id=x.source_id or f'layout-{x.document_order}', ownership=x.ownership,
                     continues_from_previous=x.continues_from_previous,
                     paragraph_role='body' if x.source_order is not None else None,
                     paragraph_level=-1 if x.source_order is not None else None, citation_id=None,
-                    asset_attachment=(RepairedAssetAttachment(asset_id=x.annotations.asset_attachment.asset_id,
+                    asset_attachment=(AssetAttachmentCandidate(asset_id=x.annotations.asset_attachment.asset_id,
                         slot=x.annotations.asset_attachment.slot) if x.annotations.asset_attachment else None))
                     for x in original.layouts]
-        repaired = _compile_repaired_page(original, RepairedPage(
+        repaired = _compile_repaired_page(original, PageCandidate(
             page_index=1, layouts=proposed, citations=[], references=[]))
         asset = next(x for x in restore_streams([repaired]).paragraphs if isinstance(x, SourceAsset))
         self.assertEqual(asset.title, ['Table 1. Results'])
@@ -178,8 +178,9 @@ class AssetSourceIntegrityTests(unittest.TestCase):
                 next_page=None, previous_pass_probability=None, next_pass_probability=None,
                 includes_footnotes=False)
             data = json.loads(messages[1].message)
-            properties = data['output_contract']['$defs']['RepairedLayout']['properties']
-            self.assertIn('asset_attachment', properties)
+            properties = data['output_contract']['$defs']['AssetDestination']['properties']
+            self.assertIn('asset_id', properties)
+            self.assertIn('slot', properties)
             self.assertNotIn('keep_asset_attachment', properties)
 
 
@@ -227,11 +228,11 @@ class AssetSourceIntegrityTests(unittest.TestCase):
         original, = project_window((raw,), False)
         assert original is not None
         source = original.layouts[0]
-        proposed = RepairedLayout(ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.", layout_id=f'layout-{source.document_order}',
+        proposed = LayoutCandidate(ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.", layout_id=f'layout-{source.document_order}',
             ownership='paragraph', continues_from_previous=False, paragraph_role='body',
-            paragraph_level=-1, citation_id=None, asset_attachment=RepairedAssetAttachment(asset_id='missing-image', slot='caption'))
+            paragraph_level=-1, citation_id=None, asset_attachment=AssetAttachmentCandidate(asset_id='missing-image', slot='caption'))
         with self.assertRaisesRegex(ValueError, r'\[ASSET_TEXT\].*existing local image/table identity'):
-            _compile_repaired_page(original, RepairedPage(
+            _compile_repaired_page(original, PageCandidate(
                 page_index=1, layouts=[proposed], citations=[], references=[]))
 
     def test_unrefined_title_candidate_still_precedes_intrinsic_table_title(self):

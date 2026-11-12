@@ -1,5 +1,6 @@
 """Whole-path contracts for complete sources, assembly and PDF translation."""
 
+from tests.repair_plan_fixtures import serialize_plan
 from pdf_craft import RetryPolicy
 # pylint: disable=protected-access
 from copy import deepcopy
@@ -21,7 +22,7 @@ from pdf_craft.extractor.chapter.chapter import (
 from pdf_craft.extractor.chapter.generation import _generate_chapters, _resolve_pages
 from pdf_craft.extractor.chapter.page_analysis import analyse_pages, restore_streams
 from pdf_craft.extractor.chapter.page_repair import (
-    AllPageLlmRepairProcessor, RepairedPage, _compile_repaired_page, _page_packet,
+    AllPageLlmRepairProcessor, PageCandidate, _compile_repaired_page, _page_packet,
 )
 from pdf_craft.extractor.chapter.page_review import build_jev_review_requests
 from pdf_craft.extractor.toc.types import TocInfo
@@ -97,7 +98,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
         for layout in proposed['layouts']:
             layout.update(ownership='paragraph', citation_id=None, citation_index=None,
                           continues_from_previous=False, continues_to_next=False)
-        repaired = _compile_repaired_page(page, RepairedPage.model_validate(proposed))
+        repaired = _compile_repaired_page(page, PageCandidate.model_validate(proposed))
         restored = restore_streams([repaired])
         sources = [child for item in restored.paragraphs if isinstance(item, TextFlowItem)
                    for child in item.children if isinstance(child, SourceTextFragment)]
@@ -129,7 +130,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
         for layout in proposed['layouts']:
             layout.update(ownership='paragraph', citation_id=None, citation_index=None,
                           continues_from_previous=False, continues_to_next=False)
-        repaired = _compile_repaired_page(analysis, RepairedPage.model_validate(proposed))
+        repaired = _compile_repaired_page(analysis, PageCandidate.model_validate(proposed))
         texts = [child.content for item in restore_streams([repaired]).paragraphs
                  if isinstance(item, TextFlowItem) for child in item.children]
         self.assertEqual(texts, [['Left above.'], ['Right above.'], ['① Spanning.'],
@@ -147,7 +148,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
         proposed['layouts'][1].update(ownership='citation', citation_id='new-1-1', citation_index=1)
         proposed['references'] = [dict(layout_id=proposed['layouts'][0]['layout_id'],
                                        citation_index=1, anchor=dict(before='Body', mark='①', after='.'))]
-        repaired = _compile_repaired_page(analysis, RepairedPage.model_validate(proposed))
+        repaired = _compile_repaired_page(analysis, PageCandidate.model_validate(proposed))
         restored = restore_streams([repaired])
         text = restored.citations[0].flow_items[0]
         assert isinstance(text, TextFlowItem)
@@ -172,7 +173,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
                 for layout in proposed['layouts']:
                     layout.update(ownership='paragraph', citation_id=None, citation_index=None,
                                   continues_from_previous=False, continues_to_next=False)
-            return json.dumps(proposed)
+            return serialize_plan(proposed)
 
         result = await AllPageLlmRepairProcessor(request, page_indexes=[1], retry_policy=RetryPolicy(analysis=1))([], pages, {})
         self.assertEqual(attempts, [0])
@@ -192,7 +193,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
             layout.pop('continues_to_next')
             layout.update(ownership='ignored', continues_from_previous=False,
                           paragraph_role=None, paragraph_level=None)
-            return json.dumps(proposed)
+            return serialize_plan(proposed)
 
         result = await AllPageLlmRepairProcessor(
             request, page_indexes=[1], retry_policy=RetryPolicy(analysis=0))([], pages, {})
@@ -210,7 +211,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
             layout.update(ownership='ignored', continues_from_previous=False,
                           paragraph_role=None, paragraph_level=None)
             proposed['layouts'][1]['continues_from_previous'] = False
-            return json.dumps(proposed)
+            return serialize_plan(proposed)
 
         repaired = await AllPageLlmRepairProcessor(request, retry_policy=RetryPolicy(analysis=0))([], [page], {})
         self.assertFalse(repaired[0].layouts[0].continues_to_next)
@@ -250,14 +251,14 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
         proposed['citations'] = proposed['citations'][:1]
         proposed['layouts'][1].update(citation_id=proposed['citations'][0]['citation_id'],
                                       citation_index=1)
-        merged = _compile_repaired_page(page, RepairedPage.model_validate(proposed))
+        merged = _compile_repaired_page(page, PageCandidate.model_validate(proposed))
         texts = [child.content for item in restore_streams([merged]).citations[0].flow_items
                  if isinstance(item, TextFlowItem) for child in item.children]
         self.assertEqual(texts, [['First.'], ['② Second.']])
         split = response(merged)
         split['citations'].append(dict(citation_id='new-1-2', index=2, mark='②', stream_order=1))
         split['layouts'][1].update(citation_id='new-1-2', citation_index=2)
-        restored = restore_streams([_compile_repaired_page(merged, RepairedPage.model_validate(split))])
+        restored = restore_streams([_compile_repaired_page(merged, PageCandidate.model_validate(split))])
         self.assertEqual([child.content for note in restored.citations for item in note.flow_items
                           if isinstance(item, TextFlowItem) for child in item.children],
                          [['First.'], ['Second.']])
@@ -275,7 +276,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
             proposed['citations'][0].update(citation_id=previous_id, continues_previous=True)
             proposed['layouts'][0].update(citation_id=previous_id, continues_from_previous=True)
             proposed['layouts'][0].pop('continues_to_next')
-            return json.dumps(proposed)
+            return serialize_plan(proposed)
 
         repaired = await AllPageLlmRepairProcessor(request, page_indexes=[2], retry_policy=RetryPolicy(analysis=0))([], pages, {})
         restored = restore_streams(repaired)

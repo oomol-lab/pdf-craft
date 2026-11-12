@@ -1,5 +1,7 @@
 """Heuristics propose before review; adoption only materializes declarations."""
+from tests.repair_plan_fixtures import expanded_packet
 # pylint: disable=protected-access
+from tests.repair_plan_fixtures import serialize_plan
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -153,7 +155,7 @@ class ModelTextOperationsTests(IsolatedAsyncioTestCase):
 
         async def request(messages, _index, _maximum):
             messages_seen.append(messages)
-            packet = json.loads(messages[1].message)['target_page']
+            packet = expanded_packet(json.loads(messages[1].message)['target_page'])
             self.assertEqual(packet['layouts'][0]['text'], 'Well‐')
             self.assertEqual(packet['layouts'][0]['projected_text'], 'Well')
             self.assertTrue(packet['layouts'][0]['initial_proposal']['text_removals'])
@@ -161,7 +163,7 @@ class ModelTextOperationsTests(IsolatedAsyncioTestCase):
             for item in data['layouts']:
                 item['text_removals'] = []
             data['layouts'][1]['continues_from_previous'] = True
-            return json.dumps(data)
+            return serialize_plan(data)
 
         result = await repair_page_with_llm(previous_page=None, target_page=source, next_page=None,
             previous_pass_probability=None, next_pass_probability=None, request=request)

@@ -1,5 +1,6 @@
 """Independent extraction capabilities share one incremental refinement pipeline."""
 # pylint: disable=protected-access,cell-var-from-loop
+from tests.repair_plan_fixtures import serialize_plan
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -102,7 +103,7 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
                     # A visible body change proves this is real refinement,
                     # not a no-op body-only route that merely reports calls.
                     result['layouts'][1].update(ownership='ignored', paragraph_role=None, paragraph_level=None)
-                return json.dumps(result)
+                return serialize_plan(result)
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -168,30 +169,26 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
                         self.assertNotIn('citation_standard', question)
                         self.assertNotIn('reference_standard', question)
                 for messages in prompts:
-                    self.assertIn('Footnote output is disabled', messages[0].message)
+                    self.assertIn('FOOTNOTE OUTPUT IS DISABLED', messages[0].message)
                     self.assertNotIn('ref 规则：', messages[0].message)
-                    self.assertEqual(json.loads(messages[1].message)['target_page']['citations'], [])
+                    self.assertEqual(json.loads(messages[1].message)['target_page']['notes'], [])
 
     async def test_body_only_candidate_cannot_reintroduce_notes_or_references(self):
         raw = decode(fromstring('<page index="1"><body><layout ref="text" det="0,0,100,20">'
                                 'Body.</layout></body><footnotes/></page>'))
         page = PrimaryPages().append(project_page(raw, False))
-        for kind in ('citation', 'reference', 'ownership', 'citation_id', 'citation_index'):
+        for kind in ('note', 'reference', 'destination'):
             with self.subTest(kind=kind):
                 async def request(messages, _index, _maximum):
-                    result = _response_from_message(messages[1])
-                    if kind == 'citation':
-                        result['citations'] = [dict(citation_id='new-1-1', index=1, mark='1', stream_order=0)]
+                    result = json.loads(serialize_plan(_response_from_message(messages[1])))
+                    if kind == 'note':
+                        result['notes'] = [dict(operation='define', note_id='n', mark='1')]
                     elif kind == 'reference':
-                        result['references'] = [dict(layout_id=result['layouts'][0]['layout_id'], citation_index=1,
+                        result['references'] = [dict(layout_id=result['layouts'][0]['layout_id'], note_id='n',
                                                     anchor=dict(before='', mark='B', after='ody.'))]
-                    elif kind == 'ownership':
-                        result['layouts'][0]['ownership'] = 'citation'
-                    elif kind == 'citation_id':
-                        result['layouts'][0]['citation_id'] = 'new-1-1'
                     else:
-                        result['layouts'][0]['citation_index'] = 1
-                    return json.dumps(result)
+                        result['layouts'][0]['destination'] = dict(kind='note', note_id='n')
+                    return serialize_plan(result)
                 with self.assertRaises(GuaranteedBusinessError) as caught:
                     await repair_page_with_llm(
                         previous_page=None, target_page=page, next_page=None,

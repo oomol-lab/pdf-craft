@@ -1,5 +1,6 @@
 """Explicit JEV input rejection retains the existing bounded repair route."""
 # pylint: disable=protected-access,cell-var-from-loop
+from tests.repair_plan_fixtures import serialize_plan
 from collections import Counter
 from dataclasses import replace
 import json
@@ -105,7 +106,7 @@ class JEVInputLimitTests(IsolatedAsyncioTestCase):
                         result['layouts'][1].update(ownership='ignored', paragraph_role=None, paragraph_level=None)
                 if attempt is not None:
                     attempt.accept()
-                return json.dumps(result)
+                return serialize_plan(result)
 
         validate = PageAssembly.validate
         def validate_candidate(page):

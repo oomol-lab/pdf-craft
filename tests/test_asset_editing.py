@@ -1,4 +1,5 @@
 """Final asset ownership decisions must be executable, lossless and source-local."""
+from tests.repair_plan_fixtures import expanded_packet
 # pylint: disable=protected-access
 from copy import deepcopy
 from dataclasses import replace
@@ -13,7 +14,7 @@ from pdf_craft.extractor.chapter.chapter import (
     Chapter, SourceAsset, StandaloneAsset, TextFlowItem, encode, decode,
 )
 from pdf_craft.extractor.chapter.page_repair import (
-    RepairedPage, RepairedLayout, build_page_repair_messages, _compile_repaired_page,
+    PageCandidate, LayoutCandidate, build_page_repair_messages, _compile_repaired_page,
 )
 from pdf_craft.extractor.chapter.page_analysis import restore_streams
 from pdf_craft.extractor.chapter.primary import project_window
@@ -34,8 +35,8 @@ def scene(*items):
 def candidate(source) -> dict[str, Any]:
     messages = build_page_repair_messages(previous_page=None, target_page=source, next_page=None,
                                          previous_pass_probability=None, next_pass_probability=None)
-    packet = json.loads(messages[1].message)['target_page']
-    fields = set(RepairedLayout.model_fields)
+    packet = expanded_packet(json.loads(messages[1].message)['target_page'])
+    fields = set(LayoutCandidate.model_fields)
     entries = []
     for item in packet['layouts']:
         data = {key: value for key, value in {**item, **item['initial_proposal']}.items() if key in fields}
@@ -47,7 +48,7 @@ def candidate(source) -> dict[str, Any]:
 
 
 def compile_page(source, data):
-    return _compile_repaired_page(source, RepairedPage.model_validate(data))
+    return _compile_repaired_page(source, PageCandidate.model_validate(data))
 
 
 def roundtrip(page):

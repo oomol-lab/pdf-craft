@@ -1,5 +1,6 @@
 """Business regressions recorded before the footnote contract migration."""
 
+from tests.repair_plan_fixtures import serialize_plan
 from pdf_craft import RetryPolicy
 # pylint: disable=protected-access
 import json
@@ -16,7 +17,7 @@ from pdf_craft.extractor.chapter.generation import _resolve_pages, _assemble_flo
 from pdf_craft.extractor.chapter.mark import transform2mark
 from pdf_craft.extractor.chapter.page_analysis import analyse_pages, restore_streams
 from pdf_craft.extractor.chapter.page_repair import (
-    RepairedPage, _compile_repaired_page, _page_packet,
+    PageCandidate, _compile_repaired_page, _page_packet,
     repair_page_with_llm,
 )
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
@@ -71,7 +72,7 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
                 for layout in proposed['layouts']:
                     if layout['ownership'] == 'citation':
                         layout['citation_id'] = 'arbitrary-rename'
-            return json.dumps(proposed)
+            return serialize_plan(proposed)
 
         pages[0] = await repair_page_with_llm(
             previous_page=None, target_page=pages[0], next_page=pages[1],
@@ -99,7 +100,7 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
         for layout in proposed['layouts']:
             if layout['ownership'] == 'citation':
                 layout.update(ownership='paragraph', citation_id=None, citation_index=None)
-        repaired = _compile_repaired_page(page, RepairedPage.model_validate(proposed))
+        repaired = _compile_repaired_page(page, PageCandidate.model_validate(proposed))
         texts = [f.content for t in restore_streams([repaired]).paragraphs if isinstance(t, TextFlowItem) for f in t.children]
         self.assertEqual(''.join(str(part) for part in texts[-1]), '① Footnote.')
 
@@ -116,7 +117,7 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
         for layout in proposed['layouts']:
             if layout['ownership'] == 'citation':
                 layout.update(ownership='paragraph', citation_id=None, citation_index=None)
-        repaired = _compile_repaired_page(analysis, RepairedPage.model_validate(proposed))
+        repaired = _compile_repaired_page(analysis, PageCandidate.model_validate(proposed))
         self.assertEqual([f.bbox[1] for t in restore_streams([repaired]).paragraphs
                           if isinstance(t, TextFlowItem) if isinstance(t, TextFlowItem) for f in t.children], [0, 35, 70])
 
@@ -127,7 +128,7 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
         paragraph = TextFlowItem('body', -1, [
             SourceTextFragment(1, 0, (0, 0, 100, 20), ['A', note, 'B', note])])
         page = analyse_pages([1], [paragraph], [note])[0]
-        repaired = _compile_repaired_page(page, RepairedPage.model_validate(response(page)))
+        repaired = _compile_repaired_page(page, PageCandidate.model_validate(response(page)))
         restored = restore_streams([repaired])
         paragraph = restored.paragraphs[0]
         assert isinstance(paragraph, TextFlowItem)
@@ -137,9 +138,7 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(occurrences[0], occurrences[1])
 
     async def test_f7_missing_metadata_is_repaired_inside_guaranteed_json(self):
-        for field, value in (('paragraph_role', None), ('paragraph_level', None),
-                             ('paragraph_role', ''), ('paragraph_role', 'unknown'),
-                             ('paragraph_level', -2), ('paragraph_level', 'bad')):
+        for field, value in (('heading_level', -2), ('heading_level', 'bad')):
             with self.subTest(field=field, value=value):
                 await self._check_missing_metadata(field, value)
 
@@ -149,10 +148,10 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
 
         async def request(_messages, index, _maximum):
             attempts.append(index)
-            proposed = response(page)
+            proposed = json.loads(serialize_plan(response(page)))
             if index == 0:
-                proposed['layouts'][0][field] = value
-            return json.dumps(proposed)
+                proposed['layouts'][0]['destination'][field] = value
+            return serialize_plan(proposed)
 
         repaired = await repair_page_with_llm(
             previous_page=None, target_page=page, next_page=None,

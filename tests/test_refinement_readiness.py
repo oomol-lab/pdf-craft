@@ -1,7 +1,7 @@
 """Real extraction entry must not serialize independent OCR neighborhoods."""
 # pylint: disable=protected-access,dangerous-default-value
+from tests.repair_plan_fixtures import serialize_plan
 import asyncio
-import json
 import threading
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -52,7 +52,7 @@ class RefinementReadinessTests(IsolatedAsyncioTestCase):
                 data = _response_from_message(messages[1])
                 if data['page_index'] == 3:
                     refined.set()
-                return json.dumps(data)
+                return serialize_plan(data)
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -127,7 +127,7 @@ class RefinementReadinessTests(IsolatedAsyncioTestCase):
                         if target.page_index == 3:
                             entered.set()
                         async def request(messages, _index, _maximum):
-                            return json.dumps(_response_from_message(messages[1]))
+                            return serialize_plan(_response_from_message(messages[1]))
                         return await repair_page_with_llm(
                             previous_page=previous, target_page=target, next_page=following,
                             previous_pass_probability=None, next_pass_probability=None, request=request)

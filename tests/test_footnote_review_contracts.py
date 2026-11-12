@@ -1,9 +1,9 @@
 """Review counterexamples exercised through source projection and LLM repair."""
 
+from tests.repair_plan_fixtures import serialize_plan
 from pdf_craft import RetryPolicy
 # pylint: disable=protected-access
 from copy import deepcopy
-import json
 import unittest
 from xml.etree.ElementTree import fromstring
 
@@ -11,7 +11,7 @@ from pdf_craft.extractor.chapter.chapter import Reference, SourceTextFragment, T
 from pdf_craft.extractor.chapter.generation import _resolve_pages
 from pdf_craft.extractor.chapter.page_analysis import analyse_pages, restore_streams
 from pdf_craft.extractor.chapter.page_repair import (
-    AllPageLlmRepairProcessor, RepairedPage, _compile_repaired_page,
+    AllPageLlmRepairProcessor, PageCandidate, _compile_repaired_page,
 )
 from pdf_craft.pdf import decode
 from tests.test_footnote_contracts import fragment, response
@@ -33,7 +33,7 @@ def reclassify_sources(footnotes: str, *, footer: str = '') -> list[SourceTextFr
     for layout in proposed['layouts']:
         layout.update(ownership='paragraph', citation_id=None, citation_index=None,
                       continues_from_previous=False, continues_to_next=False)
-    repaired = _compile_repaired_page(page, RepairedPage.model_validate(proposed))
+    repaired = _compile_repaired_page(page, PageCandidate.model_validate(proposed))
     return [child for item in restore_streams([repaired]).paragraphs
             if isinstance(item, TextFlowItem) for child in item.children
             if isinstance(child, SourceTextFragment)]
@@ -101,7 +101,7 @@ class FootnoteReviewContractsTests(unittest.IsolatedAsyncioTestCase):
                 attempts = []
                 async def request(_messages, index, _maximum, attempts=attempts, pages=pages, ownership=ownership):  # pylint: disable=dangerous-default-value
                     attempts.append(index)
-                    return json.dumps(move_shared_member(pages[0], ownership))
+                    return serialize_plan(move_shared_member(pages[0], ownership))
                 repaired = await AllPageLlmRepairProcessor(
                     request, page_indexes=[1], retry_policy=RetryPolicy(analysis=0))([], pages, {})
                 self.assertEqual(attempts, [0])
@@ -118,7 +118,7 @@ class FootnoteReviewContractsTests(unittest.IsolatedAsyncioTestCase):
             for layout in proposed['layouts']:
                 layout.pop('continues_to_next')
             proposed['layouts'][1]['continues_from_previous'] = False
-            return json.dumps(proposed)
+            return serialize_plan(proposed)
 
         repaired = await AllPageLlmRepairProcessor(request, page_indexes=[1], retry_policy=RetryPolicy(analysis=0))(
             [], pages, {})

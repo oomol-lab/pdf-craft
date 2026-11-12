@@ -1,6 +1,6 @@
 """Deterministic TOC/chapter identity gates; no provider or model requests."""
 # pylint: disable=protected-access,unused-argument,super-init-not-called
-import json
+from tests.repair_plan_fixtures import serialize_plan
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -31,7 +31,7 @@ class IdentityOCR(RecoveryOCR):
     def recognize(self, **kwargs):
         folder = kwargs['ocr_path']
         folder.mkdir(parents=True, exist_ok=True)
-        (folder / 'page_pixel_sizes.json').write_text(json.dumps(self.last_page_pixel_sizes))
+        (folder / 'page_pixel_sizes.json').write_text(serialize_plan(self.last_page_pixel_sizes))
         for index in range(1, 7):
             yield OCREvent(OCREventKind.START, index, 6)
             titles = ('<layout ref="title" det="1,1,190,20">First chapter</layout>'
@@ -67,7 +67,7 @@ class RefinedEngine(PDFExtractionEngine):
                     first['continues_to_next'] = True
                     second['continues_from_previous'] = True
                     second['paragraph_level'] = first['paragraph_level']
-            return json.dumps(result)
+            return serialize_plan(result)
         from pdf_craft.extractor.chapter.page_repair import repair_page_with_llm
         from pdf_craft.extractor.refinement import PageResult
         async def process(previous, target, following):
