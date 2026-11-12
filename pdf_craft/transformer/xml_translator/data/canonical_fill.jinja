@@ -39,13 +39,13 @@ accidental. Do not deduplicate them or infer their count from source blocks.
 For source <xml><p id="1">Echo.</p><p id="2">Echo.</p><p id="3">Echo.</p></xml>
 and the complete translation
 "Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo.", a complete fill is
-<xml><p id="1">Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo. Echo.</p><p id="2"/><p id="3"/></xml>.
-This copies the complete literal passage once, without dividing repetitions by
-source containers or reconstructing a count. Every actual passage must be
-written; no repeat marker or count stands in for text. Other distributions are
-valid too. An existing container can carry the complete uninterrupted passage
-while unused required nodes stay empty. The same applies to repeated punctuation.
-Keep source structure, not source lengths or repetition counts.
+<xml><p id="1">Echo. Echo. Echo. Echo.</p><p id="2">Echo. Echo. Echo.</p><p id="3">Echo. Echo. Echo.</p></xml>.
+The exact distribution is optional; all ten actual passages must be written.
+One phrase per source container would lose content. Several consecutive passages
+can share a container; manageable batches across existing containers help keep
+track of a long repeated passage. This is not a per-container quota and does not
+require filling unused nodes. The same applies to repeated punctuation. Keep the
+source containers, not their original lengths.
 
 The number of translated formulas is not the number of source expression nodes.
 For required IDs 2 and 3 and translation "$x$ $x$ $x$", this preserves all content:
