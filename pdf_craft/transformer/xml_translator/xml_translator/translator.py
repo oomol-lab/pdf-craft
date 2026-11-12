@@ -639,7 +639,7 @@ class XMLTranslator:
         delivery_formatter: DeliveryFormatter | None = None,
         allow_direct_fill: bool = False,
     ) -> list[InlineSegmentMapping | None] | None:
-        from ...fill_text import plain_translation
+        from ...fill_text import comparison_distance, plain_translation
         original_artist_text = translated_text
         translated_text = plain_translation(translated_text)
         feedback_template = await self._fill_runtime.template("inline_feedback")
@@ -696,6 +696,7 @@ class XMLTranslator:
         # the complete source contract and the actual rejected answer instead.
         repair_source_xml = encode_friendly(hill_climbing.request_template())
         repair_input = await self._fill_runtime.template('fill_repair_input')
+        progress_template = await self._fill_runtime.template("fill_repair_progress")
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render() + "\n\n" + canonical_instructions),
@@ -712,10 +713,13 @@ class XMLTranslator:
         ) as llm_context:
             translator = self
             last_error: str | None = None
+            # A repair baseline is an entire actual answer, never an adopted
+            # result or a tree assembled from multiple attempts.
+            best_repair: tuple[int, str, str] | None = None
 
             class _XMLProtocol:
                 async def validate(self, response: str, state, attempt: int, max_attempts: int):
-                    nonlocal last_error
+                    nonlocal last_error, best_repair
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
                         error = validated
@@ -725,6 +729,14 @@ class XMLTranslator:
                         last_error = None
                         return ProtocolSuccess(validated, state)
                     last_error = error
+                    if (canonical_text_validator is not None and not isinstance(validated, str)
+                            and hill_climbing.validate(validated) is None):
+                        raw_blocks = hill_climbing.candidate_blocks_for_diagnostics(validated)
+                        if raw_blocks is not None:
+                            distance = comparison_distance(translated_text, ''.join(
+                                ''.join(block.itertext()) + (block.tail or '') for block in raw_blocks))
+                            if best_repair is None or distance <= best_repair[0]:
+                                best_repair = distance, encode_friendly(validated), error
                     # Preserve the actual answer even when content errors
                     # repeat: releasing it loses an already-correct tree and
                     # makes the engineer regenerate every required identity.
@@ -751,9 +763,15 @@ class XMLTranslator:
                     # the original source reference for reconstruction.
                     previous = next((message.message for message in reversed(messages_for_attempt)
                                      if message.role == MessageRole.ASSISTANT), None)
+                    feedback = messages_for_attempt[-1].message
+                    if best_repair is not None:
+                        _, baseline, baseline_feedback = best_repair
+                        if previous != baseline or feedback != baseline_feedback:
+                            feedback = progress_template.render() + '\n\n' + baseline_feedback
+                        previous = baseline
                     user = repair_input.render(source_xml=repair_source_xml if previous is not None else source_xml,
                         candidate_xml=previous,
-                        feedback=messages_for_attempt[-1].message, translated_text=encode_friendly(translation))
+                        feedback=feedback, translated_text=encode_friendly(translation))
                     messages = [fixed_messages[0], Message(MessageRole.USER, user)]
                 return await request_model(llm_context, messages, retry_index=index, retry_max=maximum,
                                            use_cache=False, max_tokens=output_budget)

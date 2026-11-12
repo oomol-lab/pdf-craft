@@ -9,7 +9,7 @@ from zipfile import ZipFile
 
 from pdf_craft import AsyncPDFCraft, SubmitKind, RetryPolicy
 from pdf_craft.llm.runtime import LLMRuntime
-from pdf_craft.transformer.fill_text import plain_translation, comparison_text, text_difference
+from pdf_craft.transformer.fill_text import plain_translation, comparison_text, text_difference, comparison_distance
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
@@ -32,6 +32,15 @@ class ComparisonTests(TestCase):
                             ('a\u200db', 'ab'), ('a\u200cb', 'ab'), ('ё', 'е')]:
             with self.subTest(left=left):
                 self.assertNotEqual(comparison_text(left), comparison_text(right))
+
+    def test_repair_distance_uses_the_same_full_comparison_as_feedback(self):
+        for expected, actual, distance in [('Echo. ' * 3, 'Echo. ' * 2, 5),
+                                           ('Echo. ' * 2, 'Echo. ' * 3, 5),
+                                           ('ab', 'ac', 2), ('a\u200b b', 'ab', 0),
+                                           (r'$20$', r'\( 20 \)', 0)]:
+            with self.subTest(expected=expected, actual=actual):
+                self.assertEqual(comparison_distance(expected, actual), distance)
+                self.assertEqual(text_difference(expected, actual) is None, distance == 0)
 
     def test_markdown_has_no_custom_formula_recognition(self):
         for raw, expected in [('**bold** and *emphasis*', 'bold and emphasis'),

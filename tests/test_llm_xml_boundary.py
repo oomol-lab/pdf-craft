@@ -199,6 +199,38 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
             assert payload is not None
             self.assertEqual(''.join(decoded(payload[0], 'translation').itertext()), 'ab')
 
+    async def test_repair_uses_closest_actual_answer_with_its_own_feedback(self):
+        for regression in ('<xml><p id="1">Echo.</p></xml>',
+                           '<xml><p id="wrong">Echo. Echo. Echo.</p></xml>',
+                           '<xml><p id="1">unterminated'):
+            with self.subTest(regression=regression):
+                baseline = '<xml><p id="1">Echo. Echo.</p></xml>'
+                good = '<xml><p id="1">Echo. Echo. Echo.</p></xml>'
+                translator, runtime = _repairing_translator([baseline, regression, good])
+                translator._translate_text_async = AsyncMock(return_value='Echo. Echo. Echo.')
+                source = fromstring('<body><p>Original.</p></body>')
+                result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+                    source, SubmitKind.REPLACE, None), error_policy=False, retry_policy=RetryPolicy(fill=2))
+                self.assertEqual(''.join(result.itertext()), 'Echo. Echo. Echo.')
+                self.assertEqual(runtime.context_value.calls, 3)
+                third = runtime.context_value.messages[2][0]
+                self.assertEqual(''.join(decoded(previous_xml(third), 'xml')[0].itertext()), 'Echo. Echo.')
+                self.assertIn('Missing 5, added 0', repair_feedback(third))
+                self.assertIn('complete earlier answer from THIS loop', repair_feedback(third))
+                self.assertNotIn('unterminated', previous_xml(third))
+
+    async def test_closest_rejected_answer_is_not_adopted_on_exhaustion(self):
+        translator, runtime = _repairing_translator([
+            '<xml><p id="1">Echo. Echo.</p></xml>', '<xml><p id="1">Echo.</p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='Echo. Echo. Echo.')
+        source = fromstring('<body><p>Original.</p></body>')
+        with self.assertRaises(XMLFillError) as caught:
+            await StructuredTranslation().translate(translator, TranslationTask(
+                source, SubmitKind.REPLACE, None), error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(caught.exception.attempts, 2)
+        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual(''.join(source.itertext()), 'Original.')
+
     async def test_stagnant_history_does_not_extend_budget_or_adopt_missing_content(self):
         translator, runtime = _repairing_translator(['<xml><p id="1">wrong</p></xml>'] * 13)
         artist = AsyncMock(return_value='ab')

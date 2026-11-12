@@ -67,14 +67,7 @@ def _literal_occurrences(text: str, literal: str) -> int:
     return count
 
 
-def text_difference(expected: str, actual: str, blocks=()) -> str | None:
-    original, original_actual = expected, actual
-    # Optional mathematical interpretation cannot invalidate existing text equivalence.
-    if _document_text(expected) == _document_text(actual):
-        return None
-    expected, actual = comparison_text(expected), comparison_text(actual)
-    if expected == actual:
-        return None
+def _comparison_edits(expected: str, actual: str):
     # Repetitive text can make SequenceMatcher quadratic even when the sole
     # difference is a missing suffix. Exact shared boundaries need no search.
     prefix, suffix = 0, 0
@@ -84,10 +77,29 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     while suffix < common - prefix and expected[-suffix-1] == actual[-suffix-1]:
         suffix += 1
     left_end, right_end = len(expected) - suffix, len(actual) - suffix
-    edits = [(kind, prefix+a, prefix+b, prefix+c, prefix+d)
+    return [(kind, prefix+a, prefix+b, prefix+c, prefix+d)
              for kind, a, b, c, d in SequenceMatcher(
                  None, expected[prefix:left_end], actual[prefix:right_end], autojunk=False).get_opcodes()
              if kind != 'equal']
+
+
+def comparison_distance(expected: str, actual: str) -> int:
+    """Diagnostic repair ranking only; zero never replaces XML/content acceptance."""
+    if _document_text(expected) == _document_text(actual):
+        return 0
+    return sum(b - a + d - c for _, a, b, c, d in _comparison_edits(
+        comparison_text(expected), comparison_text(actual)))
+
+
+def text_difference(expected: str, actual: str, blocks=()) -> str | None:
+    original, original_actual = expected, actual
+    # Optional mathematical interpretation cannot invalidate existing text equivalence.
+    if _document_text(expected) == _document_text(actual):
+        return None
+    expected, actual = comparison_text(expected), comparison_text(actual)
+    if expected == actual:
+        return None
+    edits = _comparison_edits(expected, actual)
     missing = sum(end-start for _, start, end, _, _ in edits)
     added = sum(end-start for _, _, _, start, end in edits)
     names = {'delete': 'missing', 'insert': 'extra', 'replace': 'different'}
