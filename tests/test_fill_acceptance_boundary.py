@@ -4,7 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
-from xml.etree.ElementTree import fromstring, tostring
+from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
 
 from pdf_craft.document.migrations import _migrate_formula_coverage
 from pdf_craft.document.render import _compose_chapter, RenderMode
@@ -68,6 +68,16 @@ class FillAcceptanceBoundaryTests(TestCase):
         assert error is not None
         self.assertNotIn('field=', error)
         self.assertNotIn('literal candidate', error)
+
+    def test_long_math_fallback_keeps_exact_literal_field_diagnostics(self):
+        block = Element('p', id='8')
+        for _ in range(700):
+            SubElement(block, 'expression').text = r'\(20\)'
+        actual = ''.join(block.itertext())
+        error = text_difference(actual + '.', actual, [block])
+        assert error is not None
+        self.assertIn('p#8/expression[699].text', error)
+        self.assertIn('END', error)
 
     def test_formula_coverage_round_trips_and_controls_rendering(self):
         source = encode(Chapter(5, -1, [DisplayFormula(SourceAsset(1, 'formula', (0,0,10,10), content=['x+1']))]))
