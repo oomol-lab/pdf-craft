@@ -80,6 +80,16 @@ class FillAcceptanceBoundaryTests(TestCase):
                 self.assertIn('positions', error)
         self.assertNotIn('NUMBER of occurrences', text_difference('Different', 'words') or '')
 
+    def test_many_block_locations_do_not_hide_actionable_field_locations(self):
+        blocks = [fromstring(f'<p id="{index}"><i>extra</i></p>') for index in range(20)]
+        before = [tostring(block) for block in blocks]
+        error = text_difference('', 'extra' * 20, blocks)
+        assert error is not None
+        self.assertIn('block id=0:', error)
+        self.assertIn('field=p#0/i[0].text', error)
+        self.assertIn('entire_field_extra=True', error)
+        self.assertEqual([tostring(block) for block in blocks], before)
+
     def test_end_gap_feedback_points_to_existing_field_without_changing_it(self):
         block = fromstring('<p id="9"><i>.</i></p>')
         before = tostring(block)
