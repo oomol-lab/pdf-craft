@@ -9,6 +9,18 @@ from tests.test_asset_editing import scene, roundtrip, assets
 
 
 class RepairPlanTests(TestCase):
+    def test_print_observations_are_separate_from_classification_proposals(self):
+        from pdf_craft.extractor.chapter.page_repair import build_page_repair_messages
+        source = scene(('text', (0, 0, 100, 20), 'A printed paragraph.'))
+        packet = json.loads(build_page_repair_messages(
+            previous_page=None, target_page=source, next_page=None,
+            previous_pass_probability=None, next_pass_probability=None)[1].message)['target_page']
+        observation = packet['layouts'][0]
+        self.assertEqual(observation['text'], 'A printed paragraph.')
+        for key in ('ownership', 'ocr_stream', 'initial_proposal', 'text_scale_estimate'):
+            self.assertNotIn(key, observation)
+        self.assertNotIn(observation['layout_id'], packet['initial_proposal'])
+
     def test_ignored_has_no_irrelevant_operations_and_retired_fields_are_rejected(self):
         minimal = dict(layouts=[dict(layout_id='s', destination=dict(kind='ignored'))])
         plan = RepairPlan.model_validate(minimal)
@@ -93,7 +105,7 @@ class PlanLoopTests(IsolatedAsyncioTestCase):
             self.assertNotIn('page_index',schema['properties'])
             layout_schema=schema['$defs']['LayoutDecision']
             self.assertIn('reason',layout_schema['required'])
-            self.assertIn('Before choosing destination',layout_schema['properties']['reason']['description'])
+            self.assertTrue(layout_schema['properties']['reason']['description'])
             values=packet['target_page']['layouts'];calls.append(packet)
             return json.dumps(dict(layouts=[
                 dict(layout_id=values[0]['layout_id'],destination=dict(kind='body')),

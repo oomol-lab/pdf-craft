@@ -144,9 +144,11 @@ class PrintedLineGeometryTests(TestCase):
                 assert analysed is not None
                 messages = build_page_repair_messages(previous_page=None, target_page=analysed,
                     next_page=None, previous_pass_probability=None, next_pass_probability=None)
-                observation = json.loads(messages[1].message)['target_page']['layouts'][0]
+                packet = json.loads(messages[1].message)['target_page']
+                observation = packet['layouts'][0]
                 self.assertEqual(observation['first_line_extra_indent_vs_later_lines_in_same_box'], inset)
-                self.assertIn('initial_proposal', observation)
+                self.assertNotIn('initial_proposal', observation)
+                self.assertNotIn(observation['layout_id'], packet['initial_proposal'])
                 self.assertNotIn('continues_from_previous', observation)
 
     def test_optional_observation_roundtrips_and_old_cache_remains_unknown(self):

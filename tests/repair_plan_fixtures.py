@@ -8,8 +8,12 @@ import json
 from pdf_craft.extractor.chapter.repair_plan import RepairPlan, materialize_plan, suggested_destination
 
 
-def expanded_packet(packet):
+def expanded_packet(packet: dict):
     """Present a model input suggestion as a compiler fixture for older tests."""
+    packet = dict(packet, layouts=[dict(item, initial_proposal=dict(
+        destination=packet['initial_proposal'].get(item['layout_id'],
+            dict(destination=dict(kind='body', join=False)))['destination']))
+        for item in packet['layouts']])
     plan = RepairPlan.model_validate(dict(layouts=[dict(layout_id=x['layout_id'], **x['initial_proposal'])
                               for x in packet['layouts']], notes=packet['notes'], references=packet['references']))
     resolved = materialize_plan(plan, packet['page_index']).model_dump()

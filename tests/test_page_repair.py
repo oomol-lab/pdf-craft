@@ -336,12 +336,14 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("jev_p_pass", payload["target_page"])
         citation_layout = next(
             layout for layout in payload["target_page"]["layouts"]
-            if layout["initial_proposal"]["destination"]["kind"] == "note"
+            if payload["target_page"]["initial_proposal"].get(layout["layout_id"],
+                dict(destination=dict(kind='body')))["destination"]["kind"] == "note"
         )
         self.assertEqual(citation_layout["definition_mark"], "①")
         paragraph_layouts = [
             layout for layout in payload["target_page"]["layouts"]
-            if layout["initial_proposal"]["destination"]["kind"] == "body"
+            if payload["target_page"]["initial_proposal"].get(layout["layout_id"],
+                dict(destination=dict(kind='body')))["destination"]["kind"] == "body"
         ]
         self.assertIsNone(
             paragraph_layouts[0]["initial_stream_boundary_from_previous"]

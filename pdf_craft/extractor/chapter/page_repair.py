@@ -48,7 +48,6 @@ from .text_locator import locate_text
 from .asset_editing import editable_asset_sources
 from .repair_plan import RepairPlan, RefAnchor, materialize_plan, suggested_destination
 from .page_review import (
-    text_scale_estimate,
     JEV_REVIEW_THRESHOLD,
     JevReviewProcessor,
     PageEvaluator,
@@ -365,9 +364,15 @@ def _repair_packet(page):
     fields = ('ownership', 'continues_from_previous', 'continues_to_next',
               'paragraph_role', 'paragraph_level', 'citation_id', 'citation_index',
               'asset_attachment', 'independent_stream', 'text_removals')
+    proposals = {}
     for layout in packet['layouts']:
         annotation = {key: layout.pop(key) for key in fields}
-        layout['initial_proposal'] = dict(destination=suggested_destination(annotation))
+        destination = suggested_destination(annotation)
+        ocr_stream = layout.pop('ocr_stream')
+        # Ordinary body/new-paragraph is the absence of a special suggestion,
+        # not extra evidence that an unmarked source cannot belong to a note.
+        if destination != dict(kind='body', join=False) or ocr_stream not in ('body', None):
+            proposals[layout['layout_id']] = dict(destination=destination, ocr_stream=ocr_stream)
     notes = sorted(packet.pop('citations'), key=lambda item: item['stream_order'])
     by_index = {item['index']: item['citation_id'] for item in notes if item['index'] is not None}
     packet['notes'] = [dict(note_id=item['citation_id'], operation='continue')
@@ -383,6 +388,9 @@ def _repair_packet(page):
         left_id=left['layout_id'], left_end=left['text'][-120:],
         right_id=right['layout_id'], right_start=right['text'][:120],
     ) for left, right in zip(text, text[1:])]
+    # Keep algorithm/vendor classifications out of each source observation.
+    # They are editable suggestions, not additional facts about the print.
+    packet['initial_proposal'] = proposals
     return packet
 
 
@@ -473,7 +481,6 @@ def _layout_packet(
         "first_line_extra_indent_vs_later_lines_in_same_box": getattr(getattr(layout.source, "origin", None), "first_line_inset", None),
         "printed_lines": _printed_lines_packet(layout),
         "text": text,
-        "text_scale_estimate": text_scale_estimate(text, layout.bbox) if layout.source_order is not None else None,
         "definition_mark": definition_mark,
         "initial_stream_boundary_from_previous": (
             _boundary_geometry(previous_in_initial_stream, layout)
