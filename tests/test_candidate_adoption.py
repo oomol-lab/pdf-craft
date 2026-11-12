@@ -215,8 +215,8 @@ class CandidateAdoptionTests(IsolatedAsyncioTestCase):
         from tests.test_toc_identity import refinement
 
         original = PrimaryPages.append
-        def broken_initial(primary, page):
-            result = original(primary, page)
+        def broken_initial(primary, page, **kwargs):
+            result = original(primary, page, **kwargs)
             if result.page_index == 2:
                 result.layouts[0].annotations.ownership = 'citation'
                 result.layouts[0].annotations.citation_id = 'missing-definition'

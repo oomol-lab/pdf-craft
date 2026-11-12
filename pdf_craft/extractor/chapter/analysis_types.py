@@ -177,6 +177,7 @@ class LayoutAnnotations:
     keep_asset_attachment: bool = False
     asset_attachment: AssetAttachment | None = None
     independent_stream: str | None = None
+    text_removals: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True)

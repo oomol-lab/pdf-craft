@@ -79,7 +79,7 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
                 if body_boundaries[key]:
                     primary.body_tail = load(f'raw-{key}')
                     break
-            return neighbors[0], primary.append(raw[1]), neighbors[2]
+            return neighbors[0], primary.append(raw[1], following=raw[2]), neighbors[2]
         neighbors = await IO_DOMAIN.run(context)
         result = await process(*deepcopy(neighbors))
         result = result if isinstance(result, PageResult) else PageResult(result)

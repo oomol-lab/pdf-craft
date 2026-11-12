@@ -66,6 +66,7 @@ class RefinedEngine(PDFExtractionEngine):
                 elif self.mode == 'merged':
                     first['continues_to_next'] = True
                     second['continues_from_previous'] = True
+                    second['paragraph_level'] = first['paragraph_level']
             return json.dumps(result)
         from pdf_craft.extractor.chapter.page_repair import repair_page_with_llm
         from pdf_craft.extractor.refinement import PageResult

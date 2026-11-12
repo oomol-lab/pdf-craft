@@ -347,7 +347,9 @@ def _citation_prefix(fragment: SourceTextFragment) -> int:
 
 
 def _project_fragment_content(source, layout, references) -> list:
-    content = _restore_content(source.content, layout.references, references)
+    from .text_operations import apply_text_removals
+    content = _restore_content(apply_text_removals(source.content, layout.annotations.text_removals),
+                               layout.references, references)
     if layout.ownership == 'citation' and source.citation_prefix_parts:
         content = content[source.citation_prefix_parts:]
     if layout.ownership == "citation" and source.citation_prefix and content:

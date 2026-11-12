@@ -262,7 +262,8 @@ class PDFExtractionEngine:
                 draft, analysed_pages=None,
                 resolved_database=(live.database if live is not None and
                                    (refinement is not None or not draft.toc.page_indexes) else None),
-                aborted=original_aborted, toc_llm=kwargs["toc_llm"], toc_assumed=kwargs["toc_assumed"],
+                aborted=original_aborted, preserve_decisions=refinement is not None,
+                toc_llm=kwargs["toc_llm"], toc_assumed=kwargs["toc_assumed"],
                 toc_executor=kwargs.get("toc_executor"),
             )
         except Exception as error:
@@ -280,11 +281,12 @@ class PDFExtractionEngine:
                 return await self._commit_extraction(
                     draft, analysed_pages=None, resolved_database=None,
                     prepared_chapters=recovered.chapters, aborted=original_aborted,
+                    preserve_decisions=refinement is not None,
                     toc_llm=kwargs["toc_llm"], toc_assumed=kwargs["toc_assumed"],
                     toc_executor=kwargs.get("toc_executor"))
 
     async def _commit_extraction(self, draft, *, analysed_pages, resolved_database, aborted,
-                                      refinement_usage=None, prepared_chapters=None,
+                                      refinement_usage=None, prepared_chapters=None, preserve_decisions=True,
                                       toc_llm=None, toc_assumed=False, toc_executor=None):
         """Commit one adopted flow before deriving any final semantic consumers."""
         from .common import save_xml
@@ -310,7 +312,8 @@ class PDFExtractionEngine:
                     toc_llm=toc_llm, toc_assumed=toc_assumed, toc_executor=toc_executor,
                     printed_page_indexes=draft.toc.page_indexes)
             draft = replace(draft, toc=toc)
-            await IO_DOMAIN.run(partition_adopted, adopted, draft.chapters_path, toc)
+            await IO_DOMAIN.run(partition_adopted, adopted, draft.chapters_path, toc,
+                                infer_levels=not preserve_decisions)
             await IO_DOMAIN.run(save_xml, encode_toc(toc), draft.toc_path)
             await self._write_furnitures(draft, projection, aborted)
             result = await run_cancellable(OCR_DOMAIN, lambda check: self._finish_extraction(

@@ -30,16 +30,16 @@ class PrimaryPages:
         self.previous_analysis = None
         self.body_tail = None
 
-    def append(self, current):
-        # Deduplicate the at-most-two retained raw pages before capturing source
-        # identities. Filtering body/footnote contexts must not change offsets.
-        pages = deepcopy({page.index: page for page in (self.body_tail, self.previous, current)
+    def append(self, current, *, following=None):
+        # Capture retained raw left evidence plus the already-ready current/right
+        # pages. Filtering streams must not change source identities or offsets.
+        pages = deepcopy({page.index: page for page in (self.body_tail, self.previous, current, following)
                           if page is not None})
         sources = capture_sources(list(pages.values()))
         body = Jointer(((page.index, reading_body(pages[page.index], includes_footnotes=self.includes_footnotes))
-                        for page in (self.body_tail, current) if page is not None), sources)
+                        for page in (self.body_tail, current, following) if page is not None), sources)
         notes = Jointer(((page.index, reading_notes(pages[page.index]))
-                         for page in (self.previous, current) if page is not None and self.includes_footnotes), sources)
+                         for page in (self.previous, current, following) if page is not None and self.includes_footnotes), sources)
         paragraphs, citations = _resolve_jointers(body, notes)
         if not self.includes_footnotes:
             # Treat the original note stream as source candidates, not as
