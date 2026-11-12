@@ -160,6 +160,19 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertIsNone(text_difference('Echo.Echo.', 'Echo.Echo.'))
         self.assertIsNotNone(text_difference('Echo.' * 3, 'Repeat Echo. 3 times.'))
 
+    def test_literal_word_diagnostics_do_not_infer_mathematical_or_sentence_units(self):
+        for unit, literal in [(r'\(\frac{49x}{100}=y\)', 'frac'),
+                              (r'\(\mathrm{Alter:}\)', 'Alter'),
+                              (r'If the single discount of \(19\%\).', 'Ifthesinglediscountof')]:
+            with self.subTest(unit=unit):
+                error = text_difference(unit * 6, unit * 5)
+                assert error is not None
+                samples = list(decode_friendly(error, tags='literal'))
+                self.assertIn(literal, [item.text for item in samples])
+                self.assertIn('Occurrences in the complete translation: 6.', error)
+                self.assertIn('Occurrences in your candidate: 5.', error)
+                self.assertIn('NOT a formula count', error)
+
     def test_long_diff_diagnostics_are_bounded_without_shortening_the_difference(self):
         block = fromstring('<p id="9">' + 'Echo.' * 100 + '</p>')
         before = tostring(block)

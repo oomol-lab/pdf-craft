@@ -1,5 +1,6 @@
 """Plain artist view and symmetric comparison, independent of XML field layout."""
 from difflib import SequenceMatcher
+import re
 import unicodedata
 
 from jinja2 import Environment, PackageLoader
@@ -113,18 +114,23 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     statistics = []
     samples = set()
     for _, a, b, c, d in edits[:10]:
-        for sample in (expected[a:b][:64], actual[c:d][:64]):
-            if not sample or sample in samples:
-                continue
-            samples.add(sample)
-            expected_count = _literal_occurrences(expected, sample)
-            actual_count = _literal_occurrences(actual, sample)
-            if expected_count and actual_count and max(expected_count, actual_count) > 1:
-                from xml.etree.ElementTree import Element
-                from .xml_translator.xml import encode_friendly
-                literal = Element('literal', {'xml:space': 'preserve'})
-                literal.text = sample
-                statistics.append(dict(literal=encode_friendly(literal), expected=expected_count, actual=actual_count))
+        for excerpt in (expected[a:b][:64], actual[c:d][:64]):
+            # Short literal words are easier to check than a sample spanning
+            # several repetitions. This is lexical evidence, not a formula or
+            # sentence parser, a minimal-period search or a compressed payload.
+            words = sorted(set(re.findall(r'[^\W\d_]{2,}', excerpt)), key=lambda word: (-len(word), word))[:2]
+            for sample in (excerpt, *words):
+                if not sample or sample in samples:
+                    continue
+                samples.add(sample)
+                expected_count = _literal_occurrences(expected, sample)
+                actual_count = _literal_occurrences(actual, sample)
+                if expected_count and actual_count and max(expected_count, actual_count) > 1:
+                    from xml.etree.ElementTree import Element
+                    from .xml_translator.xml import encode_friendly
+                    literal = Element('literal', {'xml:space': 'preserve'})
+                    literal.text = sample
+                    statistics.append(dict(literal=encode_friendly(literal), expected=expected_count, actual=actual_count))
     if statistics:
         details += '\n' + _FEEDBACK.get_template('literal_occurrences.jinja').render(
             statistics=statistics[:4]).strip()
