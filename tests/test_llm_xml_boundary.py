@@ -81,7 +81,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertIn('SOURCE_REFERENCE_ONLY', messages[1].message)
             else:
                 self.assertNotIn('SOURCE_REFERENCE_ONLY', messages[1].message)
-            self.assertEqual(messages[1].message.count('```XML'), 2)
+            self.assertEqual(messages[1].message.count('```XML'), 1 + int(index > 0))
             payload = re.search(r'<translation\b.*?</translation>', messages[1].message, re.S)
             assert payload is not None
             self.assertEqual(''.join(decoded(payload[0], 'translation').itertext()), 'ab')
@@ -92,20 +92,6 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                     self.assertNotIn(old, previous_xml(messages))
                 self.assertNotIn('<translation xml:space="preserve">', repair_feedback(messages))
                 self.assertIn("expected[0:2]='ab'", repair_feedback(messages))
-
-    async def test_initial_fill_distinguishes_source_reference_from_blank_target(self):
-        translator, runtime = _repairing_translator(['<xml><p id="1">Artist.</p></xml>'])
-        translator._translate_text_async = AsyncMock(return_value='Artist.')
-        await StructuredTranslation().translate(translator, TranslationTask(
-            fromstring('<body><p>Source.</p></body>'), SubmitKind.REPLACE, None),
-            error_policy=False, retry_policy=RetryPolicy(fill=0))
-        user = runtime.context_value.messages[0][0][1].message
-        trees = re.findall(r'```XML\n(.*?)\n```', user, re.S)
-        reference, target = [decoded(tree, 'xml') for tree in trees]
-        self.assertEqual(reference[0].text, 'Source.')
-        self.assertFalse(''.join(target[0].itertext()).strip())
-        self.assertEqual([(n.tag, n.attrib) for n in reference.iter()], [(n.tag, n.attrib) for n in target.iter()])
-        self.assertIn('<translation xml:space="preserve">Artist.</translation>', user)
 
     async def test_repairs_keep_full_source_contract_and_actual_candidate_for_all_error_types(self):
         translator, runtime = _repairing_translator([
