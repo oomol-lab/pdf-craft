@@ -10,12 +10,16 @@ from pdf_craft.document.migrations import _migrate_formula_coverage
 from pdf_craft.document.render import _compose_chapter, RenderMode
 from pdf_craft.extractor.chapter.chapter import Chapter, SourceAsset, DisplayFormula, encode
 from pdf_craft.transformer.fill_text import text_difference
+from pdf_craft.transformer.word_count import count_xml_words
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.translation_coverage import NarrativeCoverage, read_coverage, write_narrative_coverage
 from pdf_craft.transformer.xml_translator.segment import search_inline_segments, search_text_segments
 
 
 class FillAcceptanceBoundaryTests(TestCase):
+    def test_retired_formula_context_name_does_not_exempt_text_from_counting(self):
+        self.assertEqual(count_xml_words(fromstring('<body><formula_context>Visible words.</formula_context></body>')), 2)
+
     def test_missing_repeated_text_and_punctuation_have_the_same_hint(self):
         for expected, actual in [('Echo.Echo.Echo.', 'Echo.Echo.'), ('.'*16, '.'*15),
                                  ('A\u3000B A B', 'A\tB')]:
