@@ -67,6 +67,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
             self.assertEqual(len(answers), int(index > 0))
             if index:
                 self.assertIn(values[index-1], answers[0])
+                self.assertNotIn('<translation xml:space="preserve">', messages[-1].message)
+                self.assertIn('LOCAL correction', messages[-1].message)
 
     async def test_text_repair_uses_valid_answer_and_structure_failure_restores_blank_template(self):
         translator, runtime = _repairing_translator([

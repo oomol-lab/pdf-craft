@@ -670,7 +670,7 @@ class XMLTranslator:
                 # Only the known full-text difference allows source-free repair.
                 structure_valid = error is None or error.startswith('Visible text differs from the canonical translation:')
             if error is not None and canonical_text_validator is not None:
-                error += '\n\n' + repair_template.render(translation=encode_friendly(translation))
+                error += '\n\n' + repair_template.render()
             return error
 
         def deliver(element):
