@@ -14,7 +14,7 @@ from pdf_craft.common import read_xml
 from pdf_craft.document.content import chapter_paths
 from pdf_craft.extractor.chapter.analysis_content import layout_reference_text
 from pdf_craft.extractor.chapter.assembly import PageAssembly
-from pdf_craft.extractor.chapter.chapter import decode, SourceTextFragment, SourceAsset, TextFlowItem
+from pdf_craft.extractor.chapter.chapter import decode, SourceTextFragment, SourceAsset, TextFlowItem, InlineExpression
 from pdf_craft.extractor.chapter.analysis_types import _AnalysedTextSource
 from pdf_craft.extractor.chapter.generation import generate_chapter_files
 from pdf_craft.extractor.chapter.page_analysis import restore_streams, analyse_pages
@@ -86,13 +86,20 @@ class InitialTextOperationsTests(TestCase):
         # The raw source partition and anchor positions did not shrink.
         self.assertEqual(layout_reference_text(result.layouts[1]), 'A co‐operation.')
 
-    def test_removal_cannot_hide_words_references_or_formula_nodes(self):
+    def test_removal_rejects_words_but_not_ocr_formula_wrappers(self):
         source = scene(('text', (0, 0, 100, 30), r'Keep word and $x-y$.'))
-        for before, mark, after in [('Keep ', 'word', ' and'), ('Keep word and x', '-', 'y.')]:
-            data = candidate(source)
-            data['layouts'][0]['text_removals'] = [dict(before=before, mark=mark, after=after)]
-            with self.assertRaisesRegex(ValueError, 'TEXT_REMOVAL'):
-                compile_page(source, data)
+        data = candidate(source)
+        data['layouts'][0]['text_removals'] = [dict(before='Keep ', mark='word', after=' and')]
+        with self.assertRaisesRegex(ValueError, 'TEXT_REMOVAL'):
+            compile_page(source, data)
+        data['layouts'][0]['text_removals'] = [dict(before='Keep word and x', mark='-', after='y.')]
+        adopted = compile_page(source, data)
+        flow = roundtrip(adopted).flow_items[0]
+        assert isinstance(flow, TextFlowItem)
+        fragment = flow.children[0]
+        assert isinstance(fragment, SourceTextFragment)
+        assert isinstance(fragment.content[1], InlineExpression)
+        self.assertEqual(fragment.content[1].content, 'xy')
 
     def test_prepared_heading_levels_are_visible_and_later_model_levels_survive(self):
         source = scene(('title', (0, 0, 100, 40), 'Large heading'),

@@ -1,4 +1,5 @@
 """Small source-local regressions for service #314's three expression barriers."""
+from dataclasses import replace
 from tests.repair_plan_fixtures import expanded_packet
 # pylint: disable=protected-access
 from tests.repair_plan_fixtures import serialize_plan
@@ -138,8 +139,9 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
         assert isinstance(original, _AnalysedTextSource)
         text = layout_reference_text(source.layouts[-1])
         cut_inside_math = text.index('25') + 1
-        with self.assertRaisesRegex(ValueError, 'atomic expression'):
-            slice_content(original.content, 0, cut_inside_math)
+        selected = slice_content(original.content, 0, cut_inside_math)
+        from pdf_craft.extractor.chapter.content_ranges import content_text
+        self.assertEqual(content_text(selected), text[:cut_inside_math])
 
     async def test_whitespace_cut_variants_preserve_complete_original_ranges(self):
         from pdf_craft.extractor.chapter.analysis_content import layout_reference_text
@@ -315,8 +317,7 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
         note.update(citation_id='new-1-1', citation_index=1, ownership='citation',
                     paragraph_role='body', paragraph_level=-1)
         data['references'] = [dict(layout_id=data['layouts'][0]['layout_id'], citation_index=1,
-                                   anchor=dict(before='2005', mark='^{9}', after='.'),
-                                   extract_from_expression=True)]
+                                   anchor=dict(before='2005', mark='^{9}', after='.'))]
         result = restore_streams([compiled(source, data)])
         content = cast(SourceTextFragment, cast(TextFlowItem, result.paragraphs[0]).children[0]).content
         assert isinstance(content[1], InlineExpression)
@@ -324,13 +325,6 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
         from pdf_craft.extractor.chapter.chapter import Reference
         assert isinstance(content[2], Reference)
         self.assertEqual(content[2].id, result.citations[0].id)
-        data['references'][0]['extract_from_expression'] = False
-        with self.assertRaisesRegex(ValueError, 'complete atomic'):
-            compiled(source, data)
-        data['references'][0]['extract_from_expression'] = True
-        data['citations'][0]['mark'] = '8'
-        with self.assertRaisesRegex(ValueError, 'printed note marker'):
-            compiled(source, data)
 
     async def test_terminal_annotation_supports_printed_unicode_note_marks(self):
         source = page(box(r'Year \(2005^{①}\).'), box('① A note.'))
@@ -339,7 +333,7 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
         data['layouts'][-1].update(ownership='citation', citation_id='new-1-1', citation_index=1,
                                    paragraph_role='body', paragraph_level=-1)
         data['references'] = [dict(layout_id=data['layouts'][0]['layout_id'], citation_index=1,
-                                   anchor=dict(before='2005', mark='^{①}', after='.'), extract_from_expression=True)]
+                                   anchor=dict(before='2005', mark='^{①}', after='.'))]
         restored = restore_streams([compiled(source, data)])
         content = cast(SourceTextFragment, cast(TextFlowItem, restored.paragraphs[0]).children[0]).content
         self.assertEqual(cast(InlineExpression, content[1]).content, '2005')
@@ -410,14 +404,13 @@ class StructuredRangeTests(TestCase):
         self.assertEqual(slice_content(original, 0, 1), ('A',))
         self.assertEqual(slice_content(original, 1, 2), (br, 'B', empty))
 
-    def test_html_cuts_keep_wrappers_but_do_not_split_formulas(self):
+    def test_html_and_formula_cuts_preserve_the_selected_literal_characters(self):
         expression = _AnalysedInlineExpression(ExpressionKind.INLINE_PAREN, 'x^{2}')
         content = (_AnalysedHTMLTag('b', (), ('One. Two.',)), expression)
         sliced = slice_content(content, 5, 9)
         assert isinstance(sliced[0], _AnalysedHTMLTag)
         self.assertEqual(sliced[0].children, ('Two.',))
-        with self.assertRaisesRegex(ValueError, 'atomic expression'):
-            slice_content(content, 9, 11)
+        self.assertEqual(slice_content(content, 9, 11), (replace(expression, content='x^'),))
 
 
 class SharedSourceSafetyTests(TestCase):

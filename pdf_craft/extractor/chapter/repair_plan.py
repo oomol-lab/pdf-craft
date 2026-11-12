@@ -60,6 +60,7 @@ Destination = Annotated[
 class LayoutDecision(StrictModel):
     layout_id: str
     source_range: SourceRange | None = None
+    as_text: bool = False
     reason: str = ""
     destination: Destination
 
@@ -79,7 +80,6 @@ class NoteReference(StrictModel):
     layout_id: str
     note_id: str = Field(min_length=1)
     anchor: RefAnchor
-    extract_from_expression: bool = False
 
 
 class RepairPlan(StrictModel):
@@ -131,6 +131,7 @@ def materialize_plan(plan: RepairPlan, page_index: int):
         retained = isinstance(dest, ParagraphDestination)
         heading = dest.heading_level if retained else None
         layouts.append(LayoutCandidate(layout_id=part.layout_id, source_range=part.source_range,
+            as_text=part.as_text,
             ownership_evidence=part.reason, paragraph_evidence='', ownership=ownership,
             continues_from_previous=dest.join if retained else False,
             paragraph_role=('heading' if heading is not None else 'body') if retained else None,
@@ -147,7 +148,7 @@ def materialize_plan(plan: RepairPlan, page_index: int):
         if index is None:
             raise target_error('reference', reference.note_id)
         references.append(ReferenceCandidate(layout_id=reference.layout_id, citation_index=index,
-            anchor=reference.anchor, extract_from_expression=reference.extract_from_expression))
+            anchor=reference.anchor))
     return PageCandidate(page_index=page_index, layouts=layouts, citations=citations, references=references)
 
 

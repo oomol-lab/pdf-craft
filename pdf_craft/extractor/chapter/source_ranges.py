@@ -12,10 +12,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from .analysis_types import (
-    PageAnalysis, AnalysedLayout, LayoutAnnotations, _AnalysedTextSource, _AnalysedAssetSource, _AnalysedHTMLTag,
+    PageAnalysis, AnalysedLayout, LayoutAnnotations, _AnalysedTextSource, _AnalysedAssetSource,
 )
-from .analysis_content import layout_reference_text, _visible_content_text, _materialize_reference_text
+from .analysis_content import layout_reference_text, _materialize_reference_text
 from .text_locator import locate_text
+from .content_ranges import slice_content
 from .asset_editing import editable_asset_sources
 from .review_templates import review_text
 
@@ -104,31 +105,6 @@ def _coverage_error(ident, text, total, intervals, start, end, kind):
     ))
 
 
-def slice_content(content, start, end):
-    """Retain rich wrappers while rejecting cuts through atomic expressions."""
-    materialized = _materialize_reference_text(content)
-    total = len(_visible_content_text(materialized))
-    if start == 0 and end == total:
-        return materialized
-    result, offset = [], 0
-    for part in materialized:
-        length = len(part) if isinstance(part, str) else len(_visible_content_text((part,)))
-        lo, hi = max(start, offset), min(end, offset + length)
-        if length == 0 and start <= offset and (offset < end or offset == end == total):
-            result.append(part)
-        if lo < hi:
-            if isinstance(part, str):
-                result.append(part[lo-offset:hi-offset])
-            elif isinstance(part, _AnalysedHTMLTag):
-                result.append(replace(part, children=slice_content(part.children, lo-offset, hi-offset)))
-            elif lo == offset and hi == offset + length:
-                result.append(part)
-            else:
-                raise ValueError('[SOURCE_RANGE] A source cut cannot split an atomic expression')
-        offset += length
-    return tuple(result)
-
-
 def compile_source_ranges(source, response, layout_id, resolve_anchor):
     """Resolve all ownership ranges and reference annotations atomically.
 
@@ -136,7 +112,25 @@ def compile_source_ranges(source, response, layout_id, resolve_anchor):
     an original source and optionally a range; there is no second partition
     table for the model to keep aligned.
     """
-    originals = {layout_id(item): item for item in source.layouts}
+    # The model may correct an OCR display-formula classification. Conversion
+    # transports the existing text and geometry; it does not recognize math or
+    # create words from an image. One source identity keeps one textual surface.
+    text_sources = {item.layout_id for item in response.layouts if item.as_text}
+    originals = {}
+    next_order = max((item.source_order for item in source.layouts
+                      if item.source_order is not None), default=-1) + 1
+    for item in source.layouts:
+        ident = layout_id(item)
+        record = item.source
+        if ident in text_sources and isinstance(record, _AnalysedAssetSource):
+            if record.ref != 'formula':
+                raise ValueError(review_text('page_repair_source_text_feedback',
+                                            layout_id=ident, source_type=record.ref))
+            item = replace(item, source=_AnalysedTextSource(
+                record.page_index, next_order, record.bbox, record.content,
+                reading_order=record.reading_order, origin=record.origin))
+            next_order += 1
+        originals[ident] = item
     consumed = defaultdict(list)
     expanded, proposals, source_members = [], [], defaultdict(list)
     base_order = min((item.document_order for item in source.layouts), default=0)

@@ -298,7 +298,7 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
                     await asyncio.gather(waiting, return_exceptions=True)
                 await live.cancel()
 
-    async def test_complete_superscript_reference_can_replace_atomic_ocr_expression(self):
+    async def test_reference_ranges_can_replace_complete_or_partial_ocr_expression(self):
         from pdf_craft.expression import ExpressionKind
         from pdf_craft.extractor.chapter.chapter import InlineExpression, SourceTextFragment, TextFlowItem
         from pdf_craft.extractor.chapter.page_analysis import analyse_pages
@@ -311,9 +311,12 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
         span = ReferenceSpan(5, 10, 1, 1, '^{33}')
         restored = replace_layout_references(layout, [span])
         self.assertEqual(layout_reference_spans(restored), [span])
-        # A partial expression remains ambiguous/structurally invalid.
-        with self.assertRaises(ValueError):
-            replace_layout_references(layout, [ReferenceSpan(7, 9, 1, 1, '33')])
+        # Exact character positions, not the OCR wrapper, define a reference.
+        partial = ReferenceSpan(7, 9, 1, 1, '33')
+        split = replace_layout_references(layout, [partial])
+        self.assertEqual(layout_reference_spans(split), [partial])
+        from pdf_craft.extractor.chapter.analysis_content import layout_reference_text
+        self.assertEqual(layout_reference_text(split), 'Text ^{33} follows.')
 
     async def test_cross_page_metadata_change_is_not_a_candidate_failure(self):
         from contextlib import asynccontextmanager

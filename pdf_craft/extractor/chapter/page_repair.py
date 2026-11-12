@@ -69,7 +69,6 @@ class ReferenceCandidate(_StrictModel):
     layout_id: str
     citation_index: int = Field(ge=1)
     anchor: RefAnchor
-    extract_from_expression: bool = False
 
 
 class AssetAttachmentCandidate(_StrictModel):
@@ -81,6 +80,7 @@ class LayoutCandidate(_StrictModel):
     """Resolved compiler record, NOT the model response schema."""
     layout_id: str
     source_range: SourceRange | None = None
+    as_text: bool = False
     ownership_evidence: str = ""
     ownership: Literal["paragraph", "citation", "ignored"]
     paragraph_evidence: str = ""
@@ -369,18 +369,22 @@ def _repair_packet(page):
         annotation = {key: layout.pop(key) for key in fields}
         destination = suggested_destination(annotation)
         ocr_stream = layout.pop('ocr_stream')
+        definition_mark = layout.pop('definition_mark')
         # Ordinary body/new-paragraph is the absence of a special suggestion,
         # not extra evidence that an unmarked source cannot belong to a note.
         if destination != dict(kind='body', join=False) or ocr_stream not in ('body', None):
             proposals[layout['layout_id']] = dict(destination=destination, ocr_stream=ocr_stream)
+        if definition_mark is not None:
+            proposals.setdefault(layout['layout_id'], dict(destination=destination, ocr_stream=ocr_stream))['definition_mark'] = definition_mark
     notes = sorted(packet.pop('citations'), key=lambda item: item['stream_order'])
     by_index = {item['index']: item['citation_id'] for item in notes if item['index'] is not None}
-    packet['notes'] = [dict(note_id=item['citation_id'], operation='continue')
+    packet['initial_notes'] = [dict(note_id=item['citation_id'], operation='continue')
                        if item['continues_previous'] else dict(
                            note_id=item['citation_id'], operation='define', mark=item['mark'])
                        for item in notes]
     for reference in packet['references']:
         reference['note_id'] = by_index[reference.pop('citation_index')]
+    packet['initial_references'] = packet.pop('references')
     text = [layout for layout in packet['layouts'] if layout['source_type'] == 'text']
     # Raw adjacency evidence, not approved paragraph/ownership decisions.
     # The model may reorder sources; no validator consumes this catalog.
@@ -461,12 +465,13 @@ def _layout_packet(
     definition_mark: str | None,
     previous_in_initial_stream: AnalysedLayout | None,
 ) -> dict:
+    from .analysis_content import _visible_content_text
     try:
         text = layout_reference_text(layout)
     except ValueError:
-        text = ""
+        text = (_visible_content_text(layout.source.content)
+                if getattr(layout.source, "ref", None) == "formula" else "")
     from .text_operations import apply_text_removals, removal_anchors
-    from .analysis_content import _visible_content_text
     packet = {
         "layout_id": _layout_id(layout),
         "text_removals": removal_anchors(layout) if layout.source_order is not None else [],
@@ -698,17 +703,6 @@ def _compile_repaired_page(
             continue
         assert resolved is not None
         start, end = resolved
-        if reference.extract_from_expression:
-            printed = (_mark_text(citation.mark) or '').strip()
-            selected = text[start:end]
-            if not printed or selected != '^{' + printed + '}':
-                issues.append(review_text(
-                    'page_repair_expression_feedback', reference=prefix,
-                    layout_id=reference.layout_id, selected=repr(selected),
-                    index=reference.citation_index, citation=citation,
-                    mark=repr(printed), expected=repr('^{' + printed + '}'),
-                ))
-                continue
         spans_by_layout.setdefault(reference.layout_id, []).append(
             ReferenceSpan(
                 start=start,
@@ -716,7 +710,6 @@ def _compile_repaired_page(
                 citation_page_index=source.page_index,
                 citation_index=reference.citation_index,
                 mark_text=text[start:end],
-                extract_from_expression=reference.extract_from_expression,
             )
         )
 

@@ -61,7 +61,6 @@ def apply_text_removals(content, removals):
     if not removals:
         return content
     offset = 0
-    visited = []
 
     def walk(parts):
         nonlocal offset
@@ -74,17 +73,17 @@ def apply_text_removals(content, removals):
                     if isinstance(part, _ReferencePlaceholder) else part.content)
             start, end = offset, offset + len(text)
             offset = end
-            cuts = sorted((a, b) for a, b in removals if a < end and start < b)
+            cuts = sorted((max(a, start), min(b, end)) for a, b in removals if a < end and start < b)
             if cuts:
-                if not isinstance(part, str) or any(a < start or b > end for a, b in cuts):
+                if isinstance(part, _ReferencePlaceholder):
                     raise removal_error('leaf')
                 pieces, cursor = [], 0
                 for a, b in cuts:
                     pieces.append(text[cursor:a-start])
                     cursor = b-start
-                    visited.append((a, b))
                 pieces.append(text[cursor:])
-                result.append(''.join(pieces))
+                value = ''.join(pieces)
+                result.append(value if isinstance(part, str) else replace(part, content=value))
             else:
                 result.append(part)
         return tuple(result)
@@ -99,7 +98,4 @@ def apply_text_removals(content, removals):
     if any(b > len(surface) or any(not is_whitespace(c) and c not in HYPHENS
                                   for c in surface[a:b]) for a, b in ordered):
         raise removal_error('characters')
-    projected = walk(content)
-    if sorted(visited) != ordered:
-        raise removal_error('span')
-    return projected
+    return walk(content)
