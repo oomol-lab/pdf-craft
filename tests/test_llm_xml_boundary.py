@@ -275,6 +275,22 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertIn('ALREADY MATCHES', str(caught.exception))
         self.assertEqual([(node.tag, node.text, node.tail) for node in source.iter()], original)
 
+    async def test_extra_text_feedback_does_not_protect_an_invented_wrapper(self):
+        translator, runtime = _repairing_translator([
+            '<xml><p id="1"><i>A</i><bad id="9">A</bad>B</p></xml>',
+            '<xml><p id="1"><i>A</i>B</p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='AB')
+        result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+            fromstring('<body><p>Original <i>format</i> words.</p></body>'), SubmitKind.REPLACE, None),
+            error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(''.join(result.itertext()), 'AB')
+        self.assertEqual([n.tag for n in result[0]], ['i'])
+        self.assertEqual(runtime.context_value.calls, 2)
+        feedback = repair_feedback(runtime.context_value.messages[1][0])
+        self.assertIn('keeping every required element, ID and attribute', feedback)
+        self.assertIn('Surplus invented wrappers/IDs may be removed', feedback)
+        self.assertNotIn('keeping every element, ID and attribute', feedback)
+
     async def test_closest_rejected_answer_is_not_adopted_on_exhaustion(self):
         translator, runtime = _repairing_translator([
             '<xml><p id="1">Echo. Echo.</p></xml>', '<xml><p id="1">Echo.</p></xml>'])
