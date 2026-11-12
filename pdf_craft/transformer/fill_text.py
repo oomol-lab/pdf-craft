@@ -53,8 +53,8 @@ def _raw_excerpt(original: str, view: str, start: int, end: int, tag: str):
     positions = [index for index, char in enumerate(original) if not is_whitespace(char)]
     raw = original[positions[start]:positions[end-1]+1]
     excerpt = Element(tag, {'xml:space': 'preserve'})
-    excerpt.text = raw[:6000]
-    return encode_friendly(excerpt), len(raw) > 6000
+    excerpt.text = raw[:600]
+    return encode_friendly(excerpt), len(raw) > 600
 
 
 def _literal_occurrences(text: str, literal: str) -> int:
@@ -90,10 +90,10 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     missing = sum(end-start for _, start, end, _, _ in edits)
     added = sum(end-start for _, _, _, start, end in edits)
     names = {'delete': 'missing', 'insert': 'extra', 'replace': 'different'}
-    details = '\n'.join(f'{names[kind]}: expected[{a}:{b}]={expected[a:b][:6000]!r}; '
+    details = '\n'.join(f'{names[kind]}: expected[{a}:{b}]={expected[a:b][:600]!r}; '
                         f'candidate[{c}:{d}]={actual[c:d][:600]!r}; '
-                        f'expected context={expected[max(0,a-50):min(len(expected),b+50)]!r}; '
-                        f'candidate context={actual[max(0,c-50):min(len(actual),d+50)]!r}'
+                        f'expected context={(expected[max(0,a-50):a], expected[b:b+50])!r}; '
+                        f'candidate context={(actual[max(0,c-50):c], actual[d:d+50])!r}'
                         for kind, a, b, c, d in edits[:10])
     for kind, a, b, c, d in edits[:10]:
         if kind in ('delete', 'replace'):
@@ -184,8 +184,8 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                     boundary = 'BEGINNING' if c == start else 'END' if c == end else None
                     if boundary is not None:
                         field_locations.append(_FEEDBACK.get_template('missing_location.jinja').render(
-                            path=path, boundary=boundary, missing=repr(expected[a:b][:6000]),
-                            current=repr(value)).strip())
+                            path=path, boundary=boundary, missing=repr(expected[a:b][:600]),
+                            current=repr(value[:300])).strip())
                         located_missing.add(index)
                     elif index not in located_missing:
                         offset = c - start
