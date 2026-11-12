@@ -647,9 +647,12 @@ class XMLTranslator:
         content_status_template = await self._fill_runtime.template("structure_content_feedback")
         translation = Element('translation', {'xml:space': 'preserve'})
         translation.text = translated_text
+        structure_valid = False
 
         def validate_candidate(element):
+            nonlocal structure_valid
             error = hill_climbing.validate(element)
+            structure_valid = error is None
             if error is not None:
                 blocks = hill_climbing.inline_feedback_blocks(element)
                 if blocks:
@@ -664,6 +667,9 @@ class XMLTranslator:
                 return error
             if canonical_text_validator is not None:
                 error = canonical_text_validator(element, translated_text)
+                # Format-specific ownership checks can also reject this tree.
+                # Only the known full-text difference allows source-free repair.
+                structure_valid = error is None or error.startswith('Visible text differs from the canonical translation:')
             if error is not None and canonical_text_validator is not None:
                 error += '\n\n' + repair_template.render(translation=encode_friendly(translation))
             return error
@@ -695,6 +701,8 @@ class XMLTranslator:
             translated_text=encode_friendly(translation))
         canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render()
                                   if canonical_text_validator is not None else '')
+        content_input = (await self._fill_runtime.template('content_repair_input')).render(
+            translated_text=encode_friendly(translation))
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render() + "\n\n" + canonical_instructions),
@@ -714,9 +722,10 @@ class XMLTranslator:
 
             class _XMLProtocol:
                 async def validate(self, response: str, state, attempt: int, max_attempts: int):
-                    nonlocal last_error
+                    nonlocal last_error, structure_valid
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
+                        structure_valid = False
                         error = validated
                     else:
                         error = validate_candidate(validated)
@@ -733,7 +742,8 @@ class XMLTranslator:
                                          reset_history=False)
 
                 async def empty(self, state, attempt: int, max_attempts: int):
-                    nonlocal last_error
+                    nonlocal last_error, structure_valid
+                    structure_valid = False
                     error = "LLM returned an empty XML response. Please return one complete <xml> block."
                     last_error = error
                     return ProtocolRetry(error, state)
@@ -742,12 +752,18 @@ class XMLTranslator:
                     error = last_error or "XML fill exhausted retries; no usable response was produced."
                     raise XMLFillError(error, attempts=attempts)
 
+            async def request(current, index, maximum):
+                # A structurally valid previous answer already carries the
+                # required tree. Avoid anchoring text repairs to source wording
+                # again; any subsequent structure failure restores the source.
+                messages = ([current[0], Message(MessageRole.USER, content_input), *current[2:]]
+                            if structure_valid and index else current)
+                return await request_model(llm_context, messages, retry_index=index, retry_max=maximum,
+                                           use_cache=False, max_tokens=output_budget)
+
             accepted = await run_repair_loop(RepairLoopOptions(
                 messages=fixed_messages,
-                request=lambda current, index, maximum: request_model(
-                    llm_context, current, retry_index=index, retry_max=maximum, use_cache=False,
-                    max_tokens=output_budget,
-                ),
+                request=request,
                 protocol=_XMLProtocol(),
                 state=None,
                 max_attempts=current().retry.attempts(RetryScope.FILL),
