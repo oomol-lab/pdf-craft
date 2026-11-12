@@ -1,7 +1,7 @@
 Original translation excerpt corresponding to expected[{{ start }}:{{ end }}]:
 {{ excerpt }}
 {% if truncated %}
-This excerpt stops after 600 original characters. Obtain the rest from the
+This excerpt stops after {{ limit|default(600) }} original characters. Obtain the rest from the
 complete translation; the reported difference is not shortened.
 {% endif %}
 This quotes supplied translation data, not a new translation or a ready-made XML

@@ -186,15 +186,23 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertEqual(tostring(block), before)
         self.assertIsNotNone(text_difference('Kept.', ''.join(block.itertext()), [block]))
 
+    def test_original_missing_excerpt_keeps_a_complete_moderate_gap_for_direct_copy(self):
+        unit = 'Repeated phrase. '
+        error = text_difference(unit * 100, unit * 20)
+        assert error is not None
+        excerpt = next(decode_friendly(error, tags='excerpt')).text
+        self.assertEqual(excerpt, (unit * 80).rstrip())
+        self.assertNotIn('This excerpt stops after', error)
+
     def test_long_diff_diagnostics_are_bounded_without_shortening_the_difference(self):
         block = fromstring('<p id="9">' + 'Echo.' * 100 + '</p>')
         before = tostring(block)
-        error = text_difference('Echo.' * 1000, ''.join(block.itertext()), [block])
+        error = text_difference('Echo.' * 3000, ''.join(block.itertext()), [block])
         assert error is not None
-        self.assertIn('Missing 4500, added 0 characters', error)
-        self.assertIn('600 original characters', error)
-        self.assertIn('Occurrences in the complete translation: 988.', error)
-        self.assertLess(len(error), 6500)
+        self.assertIn('Missing 14500, added 0 characters', error)
+        self.assertIn('6000 original characters', error)
+        self.assertIn('Occurrences in the complete translation: 2988.', error)
+        self.assertLess(len(error), 12500)
         self.assertEqual(tostring(block), before)
 
     def test_end_gap_feedback_points_to_existing_field_without_changing_it(self):

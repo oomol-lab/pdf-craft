@@ -43,7 +43,7 @@ def comparison_text(text: str) -> str:
     return _document_text(normalize_latex(text))
 
 
-def _raw_excerpt(original: str, view: str, start: int, end: int, tag: str):
+def _raw_excerpt(original: str, view: str, start: int, end: int, tag: str, limit: int = 600):
     # Only NFC plus whitespace deletion supplies a reliable inverse index map.
     # Never manufacture a model field from a mathematical comparison view.
     if (start == end or unicodedata.normalize('NFC', original) != original
@@ -54,8 +54,8 @@ def _raw_excerpt(original: str, view: str, start: int, end: int, tag: str):
     positions = [index for index, char in enumerate(original) if not is_whitespace(char)]
     raw = original[positions[start]:positions[end-1]+1]
     excerpt = Element(tag, {'xml:space': 'preserve'})
-    excerpt.text = raw[:600]
-    return encode_friendly(excerpt), len(raw) > 600
+    excerpt.text = raw[:limit]
+    return encode_friendly(excerpt), len(raw) > limit
 
 
 def _literal_occurrences(text: str, literal: str) -> int:
@@ -98,11 +98,11 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                         for kind, a, b, c, d in edits[:10])
     for kind, a, b, c, d in edits[:10]:
         if kind in ('delete', 'replace'):
-            excerpt = _raw_excerpt(original, expected, a, b, 'excerpt')
+            excerpt = _raw_excerpt(original, expected, a, b, 'excerpt', limit=6000)
             if excerpt is not None:
                 value, truncated = excerpt
                 details += '\n' + _FEEDBACK.get_template('original_missing_excerpt.jinja').render(
-                    start=a, end=b, excerpt=value, truncated=truncated).strip()
+                    start=a, end=b, excerpt=value, truncated=truncated, limit=6000).strip()
         if kind in ('insert', 'replace'):
             excerpt = _raw_excerpt(original_actual, actual, c, d, 'extra_excerpt')
             if excerpt is not None:
