@@ -162,6 +162,17 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertIsNone(text_difference('Echo.Echo.', 'Echo.Echo.'))
         self.assertIsNotNone(text_difference('Echo.' * 3, 'Repeat Echo. 3 times.'))
 
+    def test_local_missing_field_feedback_keeps_counts_scoped_to_the_entire_candidate(self):
+        block = fromstring('<p id="9"><i id="2">Echo.Echo.</i><i id="3">Echo.</i></p>')
+        before = tostring(block)
+        error = text_difference('Echo.' * 4, ''.join(block.itertext()), [block])
+        assert error is not None
+        self.assertIn('Occurrences in your candidate: 3.', error)
+        self.assertIn('complete candidate): +1.', error)
+        self.assertIn('already supplies 3 of these matches across ALL', error)
+        self.assertIn('p#9/i#3.text', error)
+        self.assertEqual(tostring(block), before)
+
     def test_literal_word_diagnostics_do_not_infer_mathematical_or_sentence_units(self):
         for unit, literal in [(r'\(\frac{49x}{100}=y\)', 'frac'),
                               (r'\(\mathrm{Alter:}\)', 'Alter'),
