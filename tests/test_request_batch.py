@@ -88,7 +88,7 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
             self.assertIn('XML structure', requests[0]['messages'][0]['content'])
             self.assertIn('Paragraph 0.', requests[1]['messages'][1]['content'])
             self.assertEqual([message['role'] for message in requests[1]['messages']], ['system', 'user'])
-            self.assertIn('Rejected candidate XML', requests[1]['messages'][1]['content'])
+            self.assertIn('Working candidate XML', requests[1]['messages'][1]['content'])
             usage = collector.report()[config]
             self.assertEqual(usage.effective.requests, 0)
             self.assertEqual(usage.wasted.requests, 3)

@@ -32,7 +32,7 @@ def repair_feedback(messages):
 
 
 def previous_xml(messages):
-    match = re.search(r'Rejected candidate XML.*?```XML\n(.*?)\n```', messages[-1].message, re.S)
+    match = re.search(r'Working candidate XML.*?```XML\n(.*?)\n```', messages[-1].message, re.S)
     assert match is not None
     return match[1]
 

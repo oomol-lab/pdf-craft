@@ -4,7 +4,7 @@ Required source structure for this repair (editable words intentionally blank):
 ```
 Source words are background, not output text to restore.
 {% if candidate_xml %}
-Rejected candidate XML — data to correct, NOT an authoritative prior answer:
+Working candidate XML — your previous submitted document to edit:
 ```XML
 {{ candidate_xml }}
 ```
@@ -16,7 +16,8 @@ Validation feedback:
 {{ feedback }}
 
 Return the whole corrected XML, including every required identity and the
-complete translation above. The rejected candidate does not determine the words,
-number of occurrences or reading order. Use its correct structure and passages;
-correct its reported defects without restoring source wording. Do not output an
+complete translation above. Edit the working XML directly; preserve its correct
+passages instead of regenerating them from the source or the whole translation.
+The translation still determines the required words, occurrences and reading
+order. Correct the reported defects without restoring source wording. Do not output an
 intermediate plan or a partial patch.
