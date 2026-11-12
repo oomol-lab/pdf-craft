@@ -125,6 +125,25 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertIn('entire_field_extra=True', error)
         self.assertEqual([tostring(block) for block in blocks], before)
 
+    def test_missing_period_and_extra_wrapper_are_independent_repairs(self):
+        source = fromstring('<body><p><b><i>.</i></b></p><p>Next</p></body>')
+        segments = list(search_inline_segments(search_text_segments(source)))
+        hill = HillClimbing(get_encoding('cl100k_base'), 10, BlockSegment('xml', segments))
+        candidates = [
+            ('<xml><p id="1"><b><i>.</i></b></p><p id="2">Next</p></xml>', True, False),
+            ('<xml><p id="1"><b><i>.</i></b></p><p id="2"><b><i>.</i></b>Next</p></xml>', False, True),
+            ('<xml><p id="1"><b><i>.</i></b></p><p id="2">.Next</p></xml>', True, True),
+            ('<xml><p id="1"><b><i>..</i></b></p><p id="2">Next</p></xml>', True, True),
+        ]
+        for xml, structure_valid, content_valid in candidates:
+            with self.subTest(xml=xml):
+                candidate = fromstring(xml)
+                before = tostring(candidate)
+                self.assertEqual(hill.validate(candidate) is None, structure_valid)
+                self.assertEqual(text_difference('..Next', ''.join(candidate.itertext())) is None,
+                                 content_valid)
+                self.assertEqual(tostring(candidate), before)
+
     def test_interior_missing_gap_reports_field_and_raw_offsets_without_editing(self):
         block = fromstring('<p id="9">a\u200bc</p>')
         before = tostring(block)
@@ -147,7 +166,7 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertEqual(tostring(block), before)
 
     def test_field_preview_does_not_silently_shorten_the_work_to_repair(self):
-        for count in (80, 600):
+        for count in (20, 80, 600):
             with self.subTest(count=count):
                 block = Element('p', {'id': '1'})
                 block.text = 'Echo.' * count
@@ -156,9 +175,9 @@ class FillAcceptanceBoundaryTests(TestCase):
                 assert error is not None
                 previews = list(decode_friendly(error, tags='field_excerpt'))
                 self.assertTrue(previews)
-                self.assertEqual(previews[0].text, block.text[:2000])
-                if len(block.text) > 2000:
-                    self.assertIn('TRUNCATED: first 2000 of 3000 characters', error)
+                self.assertEqual(previews[0].text, block.text[:300])
+                if len(block.text) > 300:
+                    self.assertIn(f'TRUNCATED: first 300 of {len(block.text)} characters', error)
                 self.assertEqual(tostring(block), before)
 
     def test_exact_original_missing_excerpt_follows_partial_field_previews(self):

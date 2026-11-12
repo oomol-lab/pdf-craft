@@ -50,7 +50,7 @@ def _quoted_text(tag: str, text: str) -> str:
     return encode_friendly(excerpt)
 
 
-def _preview_text(tag: str, text: str, limit: int = 2000) -> str:
+def _preview_text(tag: str, text: str, limit: int = 300) -> str:
     return _FEEDBACK.get_template('text_preview.jinja').render(
         quoted=_quoted_text(tag, text[:limit]), limit=limit, length=len(text)).strip()
 
