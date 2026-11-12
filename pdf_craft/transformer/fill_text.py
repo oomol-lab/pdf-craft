@@ -52,6 +52,11 @@ def _quoted_text(tag: str, text: str) -> str:
     return encode_friendly(excerpt)
 
 
+def _preview_text(tag: str, text: str, limit: int = 2000) -> str:
+    return _FEEDBACK.get_template('text_preview.jinja').render(
+        quoted=_quoted_text(tag, text[:limit]), limit=limit, length=len(text)).strip()
+
+
 def _raw_excerpt(original: str, view: str, start: int, end: int, tag: str, limit: int = 600):
     # Only NFC plus whitespace deletion supplies a reliable inverse index map.
     # Never manufacture a model field from a mathematical comparison view.
@@ -111,8 +116,8 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     names = {'delete': 'missing', 'insert': 'extra', 'replace': 'different'}
     details = _FEEDBACK.get_template('text_edits.jinja').render(edits=[dict(
         kind=names[kind], a=a, b=b, c=c, d=d,
-        expected=_quoted_text('expected_view', expected[a:b][:600]),
-        actual=_quoted_text('candidate_view', actual[c:d][:600]),
+        expected=_preview_text('expected_view', expected[a:b], 600),
+        actual=_preview_text('candidate_view', actual[c:d], 600),
         expected_before=_quoted_text('before', expected[max(0,a-50):a]),
         expected_after=_quoted_text('after', expected[b:b+50]),
         actual_before=_quoted_text('before', actual[max(0,c-50):c]),
@@ -129,18 +134,19 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
             if not expected_context[1] and not actual_context[1]:
                 details += '\n' + _FEEDBACK.get_template('paired_text_context.jinja').render(
                     expected=expected_context[0], actual=actual_context[0]).strip()
+    original_details = ''
     for kind, a, b, c, d in edits[:10]:
         if kind in ('delete', 'replace'):
             excerpt = _raw_excerpt(original, expected, a, b, 'excerpt', limit=6000)
             if excerpt is not None:
                 value, truncated = excerpt
-                details += '\n' + _FEEDBACK.get_template('original_missing_excerpt.jinja').render(
+                original_details += '\n' + _FEEDBACK.get_template('original_missing_excerpt.jinja').render(
                     start=a, end=b, excerpt=value, truncated=truncated, limit=6000).strip()
         if kind in ('insert', 'replace'):
             excerpt = _raw_excerpt(original_actual, actual, c, d, 'extra_excerpt')
             if excerpt is not None:
                 value, truncated = excerpt
-                details += '\n' + _FEEDBACK.get_template('original_extra_excerpt.jinja').render(
+                original_details += '\n' + _FEEDBACK.get_template('original_extra_excerpt.jinja').render(
                     start=c, end=d, excerpt=value, truncated=truncated).strip()
     # Bounded excerpts of the actual diff, not a run-length encoding or an
     # allocation plan. Both complete texts remain in the request and the gate.
@@ -184,7 +190,7 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     if any(expected[a:b] and expected[a:b] in actual
            for kind, a, b, _, _ in edits if kind in ('delete', 'replace')):
         details += '\n' + _FEEDBACK.get_template('repeated_missing.jinja').render().strip()
-    message = f'Visible text differs from the canonical translation: Missing {missing}, added {added} characters.\n{details}'
+    header = f'Visible text differs from the canonical translation: Missing {missing}, added {added} characters.\n'
     def fields(node, path):
         yield path + '.text', node.text or ''
         for index, child in enumerate(node):
@@ -204,7 +210,7 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     if ''.join(normalized for _, values in field_blocks for _, _, normalized in values) != actual:
         # Only report offsets when the complete comparison view is provably
         # decomposable into these field views. Cross-field math may not be.
-        return message
+        return header + details + original_details
     cursor, locations = 0, []
     for block, values in field_blocks:
         end = cursor + sum(len(normalized) for _, _, normalized in values)
@@ -213,7 +219,7 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
             whole_extra = end > cursor and any(kind == 'insert' and start <= cursor and end <= finish
                                                for kind, _, _, start, finish in edits)
             locations.append(f'block id={block.get("id")}: candidate[{cursor}:{end}], '
-                             f'entire_block_extra={whole_extra}, text={_quoted_text("block_excerpt", "".join(block.itertext())[:200])}')
+                             f'entire_block_extra={whole_extra}, text={_preview_text("block_excerpt", "".join(block.itertext()), 200)}')
         cursor = end
     cursor = 0
     located_missing = set()
@@ -239,8 +245,8 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                     boundary = 'BEGINNING' if c == start else 'END' if c == end else None
                     if boundary is not None:
                         field_locations.append(_FEEDBACK.get_template('missing_location.jinja').render(
-                            path=path, boundary=boundary, missing=_quoted_text('missing_view', expected[a:b][:600]),
-                            current=_quoted_text('field_excerpt', value[:300])).strip())
+                            path=path, boundary=boundary, missing=_preview_text('missing_view', expected[a:b], 600),
+                            current=_preview_text('field_excerpt', value)).strip())
                         located_missing.add(index)
                     elif index not in located_missing:
                         offset = c - start
@@ -258,10 +264,10 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                 if extra:
                     wholly_extra_fields.append(path)
                 field_locations.append(f'field={path}, candidate[{start}:{end}], '
-                                 f'entire_field_extra={extra}, value={_quoted_text("field_excerpt", value[:300])}')
+                                 f'entire_field_extra={extra}, value={_preview_text("field_excerpt", value)}')
     if wholly_extra_fields:
         details += '\n' + _FEEDBACK.get_template('extra_fields.jinja').render(
             fields=wholly_extra_fields[:256], total=len(wholly_extra_fields)).strip()
     if locations or field_locations:
         details += '\n' + '\n'.join([*locations[:12], *field_locations[:12]])
-    return f'Visible text differs from the canonical translation: Missing {missing}, added {added} characters.\n{details}'
+    return header + details + original_details

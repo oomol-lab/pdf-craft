@@ -146,6 +146,28 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertEqual(next(decode_friendly(error, tags='extra_excerpt')).text, 'bc')
         self.assertEqual(tostring(block), before)
 
+    def test_field_preview_does_not_silently_shorten_the_work_to_repair(self):
+        for count in (80, 600):
+            with self.subTest(count=count):
+                block = Element('p', {'id': '1'})
+                block.text = 'Echo.' * count
+                before = tostring(block)
+                error = text_difference('Echo.' * (count-1), block.text, [block])
+                assert error is not None
+                previews = list(decode_friendly(error, tags='field_excerpt'))
+                self.assertTrue(previews)
+                self.assertEqual(previews[0].text, block.text[:2000])
+                if len(block.text) > 2000:
+                    self.assertIn('TRUNCATED: first 2000 of 3000 characters', error)
+                self.assertEqual(tostring(block), before)
+
+    def test_exact_original_missing_excerpt_follows_partial_field_previews(self):
+        block = fromstring('<p id="1">Echo.</p>')
+        error = text_difference('Echo.' * 4, 'Echo.', [block])
+        assert error is not None
+        self.assertGreater(error.index('Original translation excerpt'), error.rindex('field_excerpt'))
+        self.assertEqual(next(decode_friendly(error, tags='excerpt')).text, 'Echo.' * 3)
+
     def test_repeated_whole_field_samples_distinguish_a_shortage_from_an_ending(self):
         block = fromstring('<p id="1"><i>Repeat.</i><i>Repeat.</i><i>Repeat.</i><i>End.</i><i>End.</i></p>')
         before = tostring(block)
