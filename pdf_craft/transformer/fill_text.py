@@ -1,7 +1,5 @@
 """Plain artist view and symmetric comparison, independent of XML field layout."""
-from collections import Counter
 from difflib import SequenceMatcher
-import re
 import unicodedata
 
 from jinja2 import Environment, PackageLoader
@@ -66,15 +64,6 @@ def _raw_excerpt(original: str, view: str, start: int, end: int, tag: str, limit
     positions = [index for index, char in enumerate(original) if not is_whitespace(char)]
     raw = original[positions[start]:positions[end-1]+1]
     return _quoted_text(tag, raw[:limit]), len(raw) > limit
-
-
-def _literal_occurrences(text: str, literal: str) -> int:
-    """Count overlapping literal matches, never infer a repeated semantic unit."""
-    count, offset = 0, 0
-    while literal and (offset := text.find(literal, offset)) >= 0:
-        count += 1
-        offset += 1
-    return count
 
 
 def _comparison_edits(expected: str, actual: str):
@@ -148,45 +137,6 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                 value, truncated = excerpt
                 original_details += '\n' + _FEEDBACK.get_template('original_extra_excerpt.jinja').render(
                     start=c, end=d, excerpt=value, truncated=truncated).strip()
-    # Bounded excerpts of the actual diff, not a run-length encoding or an
-    # allocation plan. Both complete texts remain in the request and the gate.
-    statistics = []
-    samples = set()
-    def record_sample(sample, require_difference=False):
-        if not sample or sample in samples:
-            return
-        samples.add(sample)
-        expected_count = _literal_occurrences(expected, sample)
-        actual_count = _literal_occurrences(actual, sample)
-        if (expected_count and actual_count and max(expected_count, actual_count) > 1
-                and (not require_difference or expected_count != actual_count)):
-            statistics.append(dict(literal=_quoted_text('literal', sample),
-                                   expected=expected_count, actual=actual_count))
-
-    # Prefer short whole values actually repeated in candidate fields over a
-    # diff slice that crosses several occurrences. These are literal evidence,
-    # not inferred formula units, field quotas or a compressed translation.
-    values = Counter(value for block in blocks for node in block.iter()
-                     for value in (node.text, node.tail) if value and len(value) <= 64)
-    for value, count in values.most_common():
-        if count < 2:
-            break
-        sample = _document_text(value)
-        if sample not in actual:
-            sample = comparison_text(value)
-        record_sample(sample, require_difference=True)
-        if len(statistics) >= 2:
-            break
-    if not statistics:
-        for _, a, b, c, d in edits[:10]:
-            for excerpt in (expected[a:b][:64], actual[c:d][:64]):
-                words = sorted(set(re.findall(r'[^\W\d_]{2,}', excerpt)),
-                               key=lambda word: (-len(word), word))[:2]
-                for sample in (excerpt, *words):
-                    record_sample(sample)
-    if statistics:
-        details += '\n' + _FEEDBACK.get_template('literal_occurrences.jinja').render(
-            statistics=statistics[:4]).strip()
     if any(expected[a:b] and expected[a:b] in actual
            for kind, a, b, _, _ in edits if kind in ('delete', 'replace')):
         details += '\n' + _FEEDBACK.get_template('repeated_missing.jinja').render().strip()

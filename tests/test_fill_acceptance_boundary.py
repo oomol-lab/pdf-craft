@@ -10,7 +10,7 @@ from tiktoken import get_encoding
 from pdf_craft.document.migrations import _migrate_formula_coverage
 from pdf_craft.document.render import _compose_chapter, RenderMode
 from pdf_craft.extractor.chapter.chapter import Chapter, SourceAsset, DisplayFormula, encode
-from pdf_craft.transformer.fill_text import text_difference, _literal_occurrences
+from pdf_craft.transformer.fill_text import text_difference
 from pdf_craft.transformer.xml_translator.xml import decode_friendly
 from pdf_craft.transformer.word_count import count_xml_words
 from pdf_craft.transformer.structured_translation import StructuredTranslation
@@ -168,56 +168,24 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertGreater(error.index('Original translation excerpt'), error.rindex('field_excerpt'))
         self.assertEqual(next(decode_friendly(error, tags='excerpt')).text, 'Echo.' * 3)
 
-    def test_repeated_whole_field_samples_distinguish_a_shortage_from_an_ending(self):
-        block = fromstring('<p id="1"><i>Repeat.</i><i>Repeat.</i><i>Repeat.</i><i>End.</i><i>End.</i></p>')
-        before = tostring(block)
-        error = text_difference('Repeat.' * 5 + 'End.', ''.join(block.itertext()), iter([block]))
-        assert error is not None
-        samples = [node.text for node in decode_friendly(error, tags='literal')]
-        self.assertEqual(samples, ['Repeat.', 'End.'])
-        self.assertIn('complete candidate): +2.', error)
-        self.assertIn('complete candidate): -1.', error)
-        self.assertEqual(tostring(block), before)
-
-    def test_repeated_literal_statistics_are_generic_and_not_a_count_acceptance_gate(self):
-        for unit, wanted, found in [('Echo.', 3, 2), ('.', 16, 15), ('a', 5, 4), ('Echo.', 2, 3)]:
+    def test_repetition_diagnostics_never_replace_complete_text_acceptance(self):
+        for unit, wanted, found in [('Echo.', 3, 2), ('.', 16, 15), ('a', 5, 4), ('Echo.', 2, 3),
+                                   (r'\(\frac{49x}{100}=y\)', 6, 5)]:
             with self.subTest(unit=unit, wanted=wanted, found=found):
-                error = text_difference(unit * wanted, unit * found)
-                assert error is not None
-                self.assertIn(f'Occurrences in the complete translation: {wanted}.', error)
-                self.assertIn(f'Occurrences in your candidate: {found}.', error)
-                self.assertIn(f'complete candidate): {wanted-found:+d}.', error)
-                self.assertIn('whole-candidate TOTAL', error)
-                self.assertIn('Counts alone do not establish correctness', error)
-        self.assertEqual(_literal_occurrences('ababa', 'aba'), 2)
-        self.assertEqual(_literal_occurrences('abc', ''), 0)
+                self.assertIsNotNone(text_difference(unit * wanted, unit * found))
+                self.assertIsNone(text_difference(unit * wanted, unit * wanted))
         self.assertIsNotNone(text_difference('Echo.A.Echo.B.', 'Echo.B.Echo.A.'))
-        self.assertIsNone(text_difference('Echo.Echo.', 'Echo.Echo.'))
         self.assertIsNotNone(text_difference('Echo.' * 3, 'Repeat Echo. 3 times.'))
 
-    def test_local_missing_field_feedback_keeps_counts_scoped_to_the_entire_candidate(self):
+    def test_local_missing_feedback_reports_exact_excerpt_and_field_without_editing(self):
         block = fromstring('<p id="9"><i id="2">Echo.Echo.</i><i id="3">Echo.</i></p>')
         before = tostring(block)
         error = text_difference('Echo.' * 4, ''.join(block.itertext()), [block])
         assert error is not None
-        self.assertIn('Occurrences in your candidate: 3.', error)
-        self.assertIn('complete candidate): +1.', error)
-        self.assertIn('already supplies 3 of these matches across ALL', error)
+        self.assertEqual(next(decode_friendly(error, tags='excerpt')).text, 'Echo.')
+        self.assertIn('NUMBER of occurrences', error)
         self.assertIn('p#9/i#3.text', error)
         self.assertEqual(tostring(block), before)
-
-    def test_literal_word_diagnostics_do_not_infer_mathematical_or_sentence_units(self):
-        for unit, literal in [(r'\(\frac{49x}{100}=y\)', 'frac'),
-                              (r'\(\mathrm{Alter:}\)', 'Alter'),
-                              (r'If the single discount of \(19\%\).', 'Ifthesinglediscountof')]:
-            with self.subTest(unit=unit):
-                error = text_difference(unit * 6, unit * 5)
-                assert error is not None
-                samples = list(decode_friendly(error, tags='literal'))
-                self.assertIn(literal, [item.text for item in samples])
-                self.assertIn('Occurrences in the complete translation: 6.', error)
-                self.assertIn('Occurrences in your candidate: 5.', error)
-                self.assertIn('NOT a formula count', error)
 
     def test_all_wholly_extra_fields_are_reported_by_actual_id_beyond_excerpt_limit(self):
         block = fromstring('<p id="9">Kept.' + ''.join(
@@ -247,7 +215,6 @@ class FillAcceptanceBoundaryTests(TestCase):
         assert error is not None
         self.assertIn('Missing 14500, added 0 characters', error)
         self.assertIn('6000 original characters', error)
-        self.assertIn('Occurrences in the complete translation: 2988.', error)
         self.assertLess(len(error), 12500)
         self.assertEqual(tostring(block), before)
 
