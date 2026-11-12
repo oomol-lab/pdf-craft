@@ -770,8 +770,8 @@ class XMLTranslator:
             async def request(messages_for_attempt, index, maximum):
                 messages = messages_for_attempt
                 if index:
-                    # Revise the latest parseable XML with the complete canonical
-                    # text and current feedback. Without a working XML, retain
+                    # Revise one actual answer with its matching feedback and
+                    # complete canonical text. Without a working XML, retain
                     # the original source reference for reconstruction.
                     previous = next((message.message for message in reversed(messages_for_attempt)
                                      if message.role == MessageRole.ASSISTANT), None)
