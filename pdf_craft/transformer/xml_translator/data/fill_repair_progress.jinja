@@ -1,11 +1,19 @@
 Repair attempt {{ attempt }} of {{ maximum }} within the SAME fixed request budget.
 {% if reused %}
 The last revision was rejected and did not improve the repair baseline. The
-working XML is the complete earlier answer from THIS loop with valid structure
-and the smallest whole-text difference found so far.
+working XML is the complete earlier answer from THIS loop with the smallest
+whole-text difference found so far (preferring valid structure for equal text
+scores).
 {% else %}
-The working XML is your last actual answer. It has valid structure, but its
-remaining content errors still prevent acceptance.
+The working XML is your last actual answer; it still has defects preventing
+acceptance.
+{% endif %}
+{% if structure_valid %}
+This working XML passed source structure checks, but has NOT passed content validation.
+{% else %}
+This working XML still has STRUCTURAL ERRORS. Use the required source template
+and feedback to repair them without undoing its correct text. Even zero text
+difference would NOT authorize accepting missing, extra or misplaced nodes.
 {% endif %}
 Working XML full-text difference (missing plus extra comparison characters): {{ distance }}.
 {% if last_distance is not none %}

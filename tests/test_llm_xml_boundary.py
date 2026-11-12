@@ -262,6 +262,40 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertIn('p#1.text', feedback)
                 self.assertNotIn('does not authorize emptying', feedback)
 
+    async def test_nearer_text_with_missing_inline_node_is_a_repair_input_only(self):
+        translator, runtime = _repairing_translator([
+            '<xml><p id="1">A<i/></p></xml>', '<xml><p id="1">AB</p></xml>',
+            '<xml><p id="1"><i/>AB</p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='AB')
+        result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+            fromstring('<body><p>Original <i>format</i> words.</p></body>'), SubmitKind.REPLACE, None),
+            error_policy=False, retry_policy=RetryPolicy(fill=2))
+        self.assertEqual(''.join(result.itertext()), 'AB')
+        self.assertEqual(runtime.context_value.calls, 3)
+        third = runtime.context_value.messages[2][0]
+        draft = decoded(previous_xml(third), 'xml')
+        self.assertEqual(draft[0].text, 'AB')
+        self.assertEqual(len(draft[0]), 0)  # No program-inserted inline node.
+        self.assertEqual(third[1].message.count('```XML'), 2)
+        self.assertIn('STRUCTURAL ERRORS', third[1].message)
+        self.assertIn('ALREADY MATCHES', repair_feedback(third))
+        self.assertNotIn('already passed the required source structure checks', third[1].message)
+        self.assertEqual(len(result[0]), 1)
+
+    async def test_zero_text_distance_never_adopts_a_structurally_incomplete_answer(self):
+        translator, runtime = _repairing_translator([
+            '<xml><p id="1">A<i/></p></xml>', '<xml><p id="1">AB</p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='AB')
+        source = fromstring('<body><p>Original <i>format</i> words.</p></body>')
+        original = [(node.tag, node.text, node.tail) for node in source.iter()]
+        with self.assertRaises(XMLFillError) as caught:
+            await StructuredTranslation().translate(translator, TranslationTask(
+                source, SubmitKind.REPLACE, None), error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(caught.exception.attempts, 2)
+        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertIn('ALREADY MATCHES', str(caught.exception))
+        self.assertEqual([(node.tag, node.text, node.tail) for node in source.iter()], original)
+
     async def test_closest_rejected_answer_is_not_adopted_on_exhaustion(self):
         translator, runtime = _repairing_translator([
             '<xml><p id="1">Echo. Echo.</p></xml>', '<xml><p id="1">Echo.</p></xml>'])

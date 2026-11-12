@@ -55,6 +55,11 @@ class _RepairBaseline:
     xml: str
     feedback: str
     improved_at: int
+    structure_valid: bool
+
+    @property
+    def rank(self) -> tuple[int, bool]:
+        return self.distance, not self.structure_valid
 
 
 @dataclass
@@ -740,17 +745,23 @@ class XMLTranslator:
                         last_error = None
                         return ProtocolSuccess(validated, state)
                     last_error = error
-                    if (canonical_text_validator is not None and not isinstance(validated, str)
-                            and hill_climbing.validate(validated) is None):
+                    if canonical_text_validator is not None and not isinstance(validated, str):
+                        # Intact outer ownership/resources permit a read-only
+                        # text view even when a few inline nodes need repair.
+                        # Do not throw away good text to prefer a worse complete
+                        # tree. Structural failure still rejects this answer.
                         raw_blocks = hill_climbing.candidate_blocks_for_diagnostics(validated)
                         if raw_blocks is not None:
                             distance = comparison_distance(translated_text, ''.join(
                                 ''.join(block.itertext()) + (block.tail or '') for block in raw_blocks))
+                            structure_valid = hill_climbing.validate(validated) is None
+                            rank = distance, not structure_valid
                             last_distance = distance
-                            if best_repair is None or distance <= best_repair.distance:
-                                improved_at = (attempt if best_repair is None or distance < best_repair.distance
+                            if best_repair is None or rank <= best_repair.rank:
+                                improved_at = (attempt if best_repair is None or rank < best_repair.rank
                                                else best_repair.improved_at)
-                                best_repair = _RepairBaseline(distance, encode_friendly(validated), error, improved_at)
+                                best_repair = _RepairBaseline(distance, encode_friendly(validated), error,
+                                                              improved_at, structure_valid)
                     # Preserve the actual answer even when content errors
                     # repeat: releasing it loses an already-correct tree and
                     # makes the engineer regenerate every required identity.
@@ -785,9 +796,10 @@ class XMLTranslator:
                             reused=previous != baseline or feedback != baseline_feedback,
                             attempt=index + 1, maximum=maximum + 1,
                             last_distance=last_distance, distance=best_repair.distance,
-                            stagnant=index - best_repair.improved_at > 2) + '\n\n' + baseline_feedback
+                            stagnant=index - best_repair.improved_at > 2,
+                            structure_valid=best_repair.structure_valid) + '\n\n' + baseline_feedback
                         previous = baseline
-                    structure = (None if best_repair is not None else
+                    structure = (None if best_repair is not None and best_repair.structure_valid else
                                  repair_source_xml if previous is not None else source_xml)
                     user = repair_input.render(source_xml=structure,
                         candidate_xml=previous,
