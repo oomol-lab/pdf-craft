@@ -46,7 +46,11 @@ The number of translated formulas is not the number of source expression nodes.
 For required IDs 2 and 3 and translation "$x$ $x$ $x$", this preserves all content:
 <p id="1"><expression id="2"/><expression id="3">$x$ $x$ $x$</expression></p>
 For those SAME required IDs and translation "$x$", this is complete:
-<p id="1"><expression id="2"/><expression id="3">$x$</expression></p>
+<p id="1"><expression id="3"/><expression id="2">$x$</expression></p>
+Here the unused empty inline ID 3 is emitted first, before the filled ID 2,
+inside their original parent. This changes no visible text and leaves no empty
+inline identities to emit after the long passage. Do not do this with blocks or
+resource anchors.
 Do not force the artist to repeat twice merely because there are two source
 containers. Do not shorten three translated occurrences to two either. Every
 occurrence counts, even when the artist repeats a passage hundreds of times or

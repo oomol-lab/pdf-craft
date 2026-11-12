@@ -44,6 +44,12 @@ may hold several occurrences and others may remain empty. Do not cross resource
 boundaries or apply this to distinct links or references. Keep every required
 node, including unused empty nodes. Perform this inside your single XML answer; do not output
 an intermediate text or allocation plan.
+When an unused INLINE formatting node must remain empty, you may emit that
+empty node BEFORE its filled siblings inside the SAME required parent. An empty
+inline node has no translated characters: emitting it first avoids continuing a
+repetitive passage merely to reach its ID. Preserve its tag, ID and attributes.
+This does not permit moving blocks, links, references, opaque resource anchors
+or crossing their boundaries. Filled content must still read in translation order.
 Read the final text in fixed output order before returning it.
 Source length metadata does not limit how much translation a block can receive.
 A complete translated passage may occupy one earlier block while its later
