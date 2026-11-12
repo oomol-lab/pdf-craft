@@ -45,13 +45,15 @@ fallback; this answer must still pass all structure and whole-text checks.
 Use friendly XML escapes for text <, > and &: &lt;, &gt;, &amp;. Literal spelling
 &lt; is written &amp;lt;. Do not use CDATA or invent identities.
 
-Placement example with the transport's fragment and expression containers:
-Required structure: <xml><fragment id="1"/><fragment id="2"><expression/></fragment><fragment id="3"><expression/></fragment></xml>
-Translation: "\(x\) \(x\) \(x\) \(x\) \(x\) \(x\) \(x\) \(x\) \(x\) \(x\)"
-One complete XML: <xml><fragment id="1">\(x\) \(x\) \(x\) \(x\)</fragment><fragment id="2"><expression>\(x\) \(x\) \(x\)</expression></fragment><fragment id="3"><expression>\(x\) \(x\) \(x\)</expression></fragment></xml>
-Every actual occurrence is written, including multiple formulas inside one
-expression slot. Other distributions are also valid. If fragment 3 is unused,
-keep <fragment id="3"><expression/></fragment>, not <fragment id="3"/>.
-The example's counts and IDs are not your task's values. Use the actual translation
-and existing nodes, and preserve correct text outside the repeated passage.
-Never replace the artist's text with a counting scheme.
+A surplus inline wrapper is not permission to drop its words:
+Required structure: <xml><fragment id="1"><expression id="2"/><expression id="3"/></fragment></xml>
+Translation: "\(a\) \(b\) \(c\)"
+Rejected XML: <xml><fragment id="1"><expression id="2">\(a\)</expression> <expression id="3">\(b\)</expression> <expression id="4">\(c\)</expression></fragment></xml>
+Corrected XML: <xml><fragment id="1"><expression id="2">\(a\)</expression> <expression id="3">\(b\)</expression> \(c\)</fragment></xml>
+ID 4 was invented. UNWRAP that element, keeping its actual characters at the same
+reading position as ordinary mixed text. The extra translated formula does not
+need a new source identity or its own expression node. Alternatively an existing
+expression may hold several consecutive translated formulas. Never truncate to
+the number of source slots. This example's IDs and text are not your task's values.
+If you empty a fragment, keep any required inline children present EMPTY; an empty
+parent does not replace its required children. Return every actual character.

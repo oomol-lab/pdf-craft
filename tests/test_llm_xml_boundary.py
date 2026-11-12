@@ -10,7 +10,7 @@ from tiktoken import get_encoding
 from pdf_craft import RetryPolicy
 from pdf_craft.llm import MessageRole
 from pdf_craft.transformer.structured_translation import StructuredTranslation
-from pdf_craft.transformer.fill_text import text_difference
+from pdf_craft.transformer.fill_text import text_difference, comparison_text
 from pdf_craft.transformer.xml_translator.segment import (
     BlockSegment, ImmutableBlockElement, search_inline_segments, search_text_segments,
 )
@@ -91,7 +91,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 for old in values[:index-1]:
                     self.assertNotIn(old, previous_xml(messages))
                 self.assertNotIn('<translation xml:space="preserve">', repair_feedback(messages))
-                self.assertIn("expected[0:2]='ab'", repair_feedback(messages))
+                self.assertIn('expected[0:2]=<expected_view xml:space="preserve">ab</expected_view>', repair_feedback(messages))
 
     async def test_repairs_keep_full_source_contract_and_actual_candidate_for_all_error_types(self):
         translator, runtime = _repairing_translator([
@@ -290,6 +290,22 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertIn('keeping every required element, ID and attribute', feedback)
         self.assertIn('Surplus invented wrappers/IDs may be removed', feedback)
         self.assertNotIn('keeping every element, ID and attribute', feedback)
+
+    async def test_surplus_expression_can_be_unwrapped_without_losing_its_text(self):
+        translator, runtime = _repairing_translator([
+            '<xml><p id="1"><expression id="2">a</expression> '
+            '<expression id="3">b</expression> <expression id="4">c</expression></p></xml>',
+            '<xml><p id="1"><expression id="2">a</expression> <expression id="3">b</expression> c</p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='a b c')
+        source = fromstring('<body><p><expression id="left" display="inline">u</expression>'
+                            '<expression id="right" display="inline">v</expression></p></body>')
+        result, _ = await StructuredTranslation().translate(translator, TranslationTask(
+            source, SubmitKind.REPLACE, None), error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(comparison_text(''.join(result.itertext())), 'abc')
+        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual(len(result[0]), 2)
+        self.assertEqual(result[0][-1].tail, ' c')
+        self.assertIn('UNWRAP that element', runtime.context_value.messages[1][0][0].message)
 
     async def test_closest_rejected_answer_is_not_adopted_on_exhaustion(self):
         translator, runtime = _repairing_translator([

@@ -276,7 +276,7 @@ class FillAcceptanceBoundaryTests(TestCase):
         error = text_difference(prefix + 'Echo.Echo.' + suffix, ''.join(block.itertext()), [block])
         assert error is not None
         self.assertIn('Missing 5, added 0', error)
-        self.assertIn("='Echo.'", error)
+        self.assertIn('<expected_view xml:space="preserve">Echo.</expected_view>', error)
         self.assertIn('p#6.text', error)
 
     def test_formula_coverage_round_trips_and_controls_rendering(self):

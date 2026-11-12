@@ -42,6 +42,31 @@ class ComparisonTests(TestCase):
                 self.assertEqual(comparison_distance(expected, actual), distance)
                 self.assertEqual(text_difference(expected, actual) is None, distance == 0)
 
+    def test_diagnostics_quote_literal_backslashes_and_original_context_without_repr(self):
+        expected = r'Prefix \plain\name & <value> suffix'
+        actual = r'Prefix \plain\na & <value> suffix'
+        block = fromstring('<p id="1"/>')
+        block.text = actual
+        original = tostring(block)
+        feedback = text_difference(expected, actual, [block])
+        assert feedback is not None
+        expected_context = next(decode_friendly(feedback, tags='expected_context'))
+        actual_context = next(decode_friendly(feedback, tags='candidate_context'))
+        self.assertEqual(expected_context.text, expected)
+        self.assertEqual(actual_context.text, actual)
+        field = next(decode_friendly(feedback, tags='field_excerpt'))
+        self.assertEqual(field.text, actual)
+        self.assertNotIn(r'\\plain', feedback)
+        self.assertIn('&amp; &lt;value&gt;', feedback)
+        self.assertEqual(tostring(block), original)
+
+    def test_context_is_not_synthesized_from_a_noninvertible_comparison_view(self):
+        with patch('pdf_craft.transformer.fill_text.normalize_latex', side_effect=lambda value: value.replace('LONG', 'q')):
+            feedback = text_difference('LONG B', 'wrong B')
+        assert feedback is not None
+        self.assertNotIn('<expected_context', feedback)
+        self.assertNotIn('PAIRED ORIGINAL CONTEXT', feedback)
+
     def test_markdown_has_no_custom_formula_recognition(self):
         for raw, expected in [('**bold** and *emphasis*', 'bold and emphasis'),
                               ('# Heading\n\n[text](https://example.org)', 'Headingtext'),

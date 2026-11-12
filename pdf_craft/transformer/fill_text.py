@@ -43,19 +43,23 @@ def comparison_text(text: str) -> str:
     return _document_text(normalize_latex(text))
 
 
+def _quoted_text(tag: str, text: str) -> str:
+    from xml.etree.ElementTree import Element
+    from .xml_translator.xml import encode_friendly
+    excerpt = Element(tag, {'xml:space': 'preserve'})
+    excerpt.text = text
+    return encode_friendly(excerpt)
+
+
 def _raw_excerpt(original: str, view: str, start: int, end: int, tag: str, limit: int = 600):
     # Only NFC plus whitespace deletion supplies a reliable inverse index map.
     # Never manufacture a model field from a mathematical comparison view.
     if (start == end or unicodedata.normalize('NFC', original) != original
             or _document_text(original) != view):
         return None
-    from xml.etree.ElementTree import Element
-    from .xml_translator.xml import encode_friendly
     positions = [index for index, char in enumerate(original) if not is_whitespace(char)]
     raw = original[positions[start]:positions[end-1]+1]
-    excerpt = Element(tag, {'xml:space': 'preserve'})
-    excerpt.text = raw[:limit]
-    return encode_friendly(excerpt), len(raw) > limit
+    return _quoted_text(tag, raw[:limit]), len(raw) > limit
 
 
 def _literal_occurrences(text: str, literal: str) -> int:
@@ -103,11 +107,26 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
     missing = sum(end-start for _, start, end, _, _ in edits)
     added = sum(end-start for _, _, _, start, end in edits)
     names = {'delete': 'missing', 'insert': 'extra', 'replace': 'different'}
-    details = '\n'.join(f'{names[kind]}: expected[{a}:{b}]={expected[a:b][:600]!r}; '
-                        f'candidate[{c}:{d}]={actual[c:d][:600]!r}; '
-                        f'expected context={(expected[max(0,a-50):a], expected[b:b+50])!r}; '
-                        f'candidate context={(actual[max(0,c-50):c], actual[d:d+50])!r}'
-                        for kind, a, b, c, d in edits[:10])
+    details = _FEEDBACK.get_template('text_edits.jinja').render(edits=[dict(
+        kind=names[kind], a=a, b=b, c=c, d=d,
+        expected=_quoted_text('expected_view', expected[a:b][:600]),
+        actual=_quoted_text('candidate_view', actual[c:d][:600]),
+        expected_before=_quoted_text('before', expected[max(0,a-50):a]),
+        expected_after=_quoted_text('after', expected[b:b+50]),
+        actual_before=_quoted_text('before', actual[max(0,c-50):c]),
+        actual_after=_quoted_text('after', actual[d:d+50]))
+        for kind, a, b, c, d in edits[:10]]).strip()
+    for _, a, b, c, d in edits[:3]:
+        if b - a + d - c > 512:
+            continue
+        expected_context = _raw_excerpt(original, expected, max(0, a-60), min(len(expected), b+60),
+                                        'expected_context', limit=1024)
+        actual_context = _raw_excerpt(original_actual, actual, max(0, c-60), min(len(actual), d+60),
+                                      'candidate_context', limit=1024)
+        if expected_context is not None and actual_context is not None:
+            if not expected_context[1] and not actual_context[1]:
+                details += '\n' + _FEEDBACK.get_template('paired_text_context.jinja').render(
+                    expected=expected_context[0], actual=actual_context[0]).strip()
     for kind, a, b, c, d in edits[:10]:
         if kind in ('delete', 'replace'):
             excerpt = _raw_excerpt(original, expected, a, b, 'excerpt', limit=6000)
@@ -178,7 +197,7 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
             whole_extra = end > cursor and any(kind == 'insert' and start <= cursor and end <= finish
                                                for kind, _, _, start, finish in edits)
             locations.append(f'block id={block.get("id")}: candidate[{cursor}:{end}], '
-                             f'entire_block_extra={whole_extra}, text={"".join(block.itertext())[:200]!r}')
+                             f'entire_block_extra={whole_extra}, text={_quoted_text("block_excerpt", "".join(block.itertext())[:200])}')
         cursor = end
     cursor = 0
     located_missing = set()
@@ -204,8 +223,8 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                     boundary = 'BEGINNING' if c == start else 'END' if c == end else None
                     if boundary is not None:
                         field_locations.append(_FEEDBACK.get_template('missing_location.jinja').render(
-                            path=path, boundary=boundary, missing=repr(expected[a:b][:600]),
-                            current=repr(value[:300])).strip())
+                            path=path, boundary=boundary, missing=_quoted_text('missing_view', expected[a:b][:600]),
+                            current=_quoted_text('field_excerpt', value[:300])).strip())
                         located_missing.add(index)
                     elif index not in located_missing:
                         offset = c - start
@@ -223,7 +242,7 @@ def text_difference(expected: str, actual: str, blocks=()) -> str | None:
                 if extra:
                     wholly_extra_fields.append(path)
                 field_locations.append(f'field={path}, candidate[{start}:{end}], '
-                                 f'entire_field_extra={extra}, value={value[:300]!r}')
+                                 f'entire_field_extra={extra}, value={_quoted_text("field_excerpt", value[:300])}')
     if wholly_extra_fields:
         details += '\n' + _FEEDBACK.get_template('extra_fields.jinja').render(
             fields=wholly_extra_fields[:256], total=len(wholly_extra_fields)).strip()
