@@ -703,6 +703,9 @@ class XMLTranslator:
                                   if canonical_text_validator is not None else '')
         content_input = (await self._fill_runtime.template('content_repair_input')).render(
             translated_text=encode_friendly(translation))
+        structure_input = (await self._fill_runtime.template('fill_input')).render(
+            source_xml=encode_friendly(hill_climbing.request_template()),
+            translated_text=encode_friendly(translation))
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render() + "\n\n" + canonical_instructions),
@@ -753,11 +756,13 @@ class XMLTranslator:
                     raise XMLFillError(error, attempts=attempts)
 
             async def request(current, index, maximum):
-                # A structurally valid previous answer already carries the
-                # required tree. Avoid anchoring text repairs to source wording
-                # again; any subsequent structure failure restores the source.
-                messages = ([current[0], Message(MessageRole.USER, content_input), *current[2:]]
-                            if structure_valid and index else current)
+                # Keep the full original reference in the first request/log.
+                # Repairs use the actual preceding answer, not source words
+                # to restore. Structure errors also receive the required blank
+                # tree with all identities, attributes and opaque resources.
+                user = content_input if structure_valid else structure_input
+                messages = ([current[0], Message(MessageRole.USER, user), *current[2:]]
+                            if index else current)
                 return await request_model(llm_context, messages, retry_index=index, retry_max=maximum,
                                            use_cache=False, max_tokens=output_budget)
 

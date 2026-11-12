@@ -35,7 +35,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 feedback = runtime.context_value.messages[1][0][-1].message
                 self.assertIn('MISPLACED, not disposable', feedback)
                 self.assertNotIn('Fix: Remove all', feedback)
-                self.assertIn('SOURCE_ONLY_LEFT', runtime.context_value.messages[1][0][1].message)
+                self.assertIn('SOURCE_ONLY_LEFT', runtime.context_value.messages[0][0][1].message)
+                self.assertNotIn('SOURCE_ONLY_LEFT', runtime.context_value.messages[1][0][1].message)
                 self.assertNotIn('SOURCE_ONLY_LEFT', feedback)
                 self.assertNotIn('SOURCE_ONLY_RIGHT', feedback)
                 if last == 'b':
@@ -66,7 +67,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
             if index:
                 self.assertIn(values[index-1], answers[0])
 
-    async def test_text_repair_uses_valid_answer_and_structure_failure_restores_source(self):
+    async def test_text_repair_uses_valid_answer_and_structure_failure_restores_blank_template(self):
         translator, runtime = _repairing_translator([
             '<xml><p id="1"><expression id="2">wrong</expression><expression id="3"/></p></xml>',
             '<xml><p id="1"><expression id="2">ab</expression></p></xml>',
@@ -81,7 +82,12 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertIn('SOURCE_REFERENCE_ONLY', requests[0][1].message)
         self.assertNotIn('SOURCE_REFERENCE_ONLY', requests[1][1].message)
         self.assertIn('passed the required structure checks', requests[1][1].message)
-        self.assertIn('SOURCE_REFERENCE_ONLY', requests[2][1].message)
+        self.assertNotIn('SOURCE_REFERENCE_ONLY', requests[2][1].message)
+        template = re.search(r'```XML\n(.*?)\n```', requests[2][1].message, re.S)
+        assert template is not None
+        required = decoded(template[1], 'xml')
+        self.assertEqual({node.get('id') for node in required.iter()}, {None, '1', '2', '3'})
+        self.assertEqual(''.join(required.itertext()).strip(), '')
         for messages in requests:
             payload = re.search(r'<translation\b.*?</translation>', messages[1].message, re.S)
             assert payload is not None
