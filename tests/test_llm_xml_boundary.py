@@ -3,11 +3,19 @@
 import re
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
-from xml.etree.ElementTree import fromstring
+from xml.etree.ElementTree import Element, fromstring, tostring
+
+from tiktoken import get_encoding
 
 from pdf_craft import RetryPolicy
 from pdf_craft.llm import MessageRole
 from pdf_craft.transformer.structured_translation import StructuredTranslation
+from pdf_craft.transformer.fill_text import text_difference
+from pdf_craft.transformer.xml_translator.segment import (
+    BlockSegment, ImmutableBlockElement, search_inline_segments, search_text_segments,
+)
+from pdf_craft.transformer.xml_translator.xml_translator.callbacks import warp_callbacks
+from pdf_craft.transformer.xml_translator.xml_translator.hill_climbing import HillClimbing
 from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask, SubmitKind
 from pdf_craft.transformer.xml_translator.xml_translator.translator import XMLFillError
@@ -48,7 +56,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertIn('MISPLACED, not disposable', feedback)
                 self.assertNotIn('Fix: Remove all', feedback)
                 self.assertIn('SOURCE_ONLY_LEFT', runtime.context_value.messages[0][0][1].message)
-                self.assertIn('SOURCE_ONLY_LEFT', runtime.context_value.messages[1][0][1].message)
+                self.assertNotIn('SOURCE_ONLY_LEFT', runtime.context_value.messages[1][0][1].message)
                 self.assertNotIn('SOURCE_ONLY_LEFT', feedback)
                 self.assertNotIn('SOURCE_ONLY_RIGHT', feedback)
                 if last == 'b':
@@ -69,7 +77,10 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual(runtime.context_value.calls, 4)
         for index, recorded in enumerate(runtime.context_value.messages):
             messages = recorded[0]
-            self.assertIn('SOURCE_REFERENCE_ONLY', messages[1].message)
+            if index == 0:
+                self.assertIn('SOURCE_REFERENCE_ONLY', messages[1].message)
+            else:
+                self.assertNotIn('SOURCE_REFERENCE_ONLY', messages[1].message)
             self.assertEqual(messages[1].message.count('```XML'), 1 + int(index > 0))
             payload = re.search(r'<translation\b.*?</translation>', messages[1].message, re.S)
             assert payload is not None
@@ -82,7 +93,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertNotIn('<translation xml:space="preserve">', repair_feedback(messages))
                 self.assertIn("expected[0:2]='ab'", repair_feedback(messages))
 
-    async def test_repairs_keep_full_source_and_actual_candidate_for_all_error_types(self):
+    async def test_repairs_keep_full_source_contract_and_actual_candidate_for_all_error_types(self):
         translator, runtime = _repairing_translator([
             '<xml><p id="1"><expression id="2">wrong</expression><expression id="3"/></p></xml>',
             '<xml><p id="1"><expression id="2">ab</expression></p></xml>',
@@ -95,8 +106,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual(runtime.context_value.calls, 3)
         requests = [recorded[0] for recorded in runtime.context_value.messages]
         self.assertIn('SOURCE_REFERENCE_ONLY', requests[0][1].message)
-        self.assertIn('SOURCE_REFERENCE_ONLY', requests[1][1].message)
-        self.assertIn('SOURCE_REFERENCE_ONLY', requests[2][1].message)
+        self.assertNotIn('SOURCE_REFERENCE_ONLY', requests[1][1].message)
+        self.assertNotIn('SOURCE_REFERENCE_ONLY', requests[2][1].message)
         source = re.search(r'```XML\n(.*?)\n```', requests[2][1].message, re.S)
         assert source is not None
         required = decoded(source[1], 'xml')
@@ -107,6 +118,36 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
             self.assertEqual(''.join(decoded(payload[0], 'translation').itertext()), 'ab')
         prior = previous_xml(requests[1])
         self.assertEqual(decoded(prior, 'xml')[0][0].text, 'wrong')
+
+    async def test_repair_wire_keeps_opaque_resource_and_ids_without_restoring_editable_words(self):
+        anchor_xml = '<anchor anchor_key="image&amp;one" asset_ref="image"/>'
+        translator, runtime = _repairing_translator([
+            '<xml>' + anchor_xml + '<p id="1">wrong<b/></p></xml>',
+            '<xml>' + anchor_xml + '<p id="1">a<b>b</b></p></xml>'])
+        source = fromstring('<body><p>ORIGINAL <b>REFERENCE</b></p></body>')
+        before = tostring(source)
+        segments = list(search_inline_segments(search_text_segments(source)))
+        hill = HillClimbing(get_encoding('cl100k_base'), 10, BlockSegment('xml', segments, [
+            ImmutableBlockElement(Element('anchor', anchor_key='image&one', asset_ref='image'), 0)]))
+        result = await translator._request_and_submit_async(hill, 'ORIGINAL REFERENCE', 'ab',
+            warp_callbacks(None, None, None),
+            canonical_text_validator=lambda candidate, canonical: text_difference(
+                canonical, ''.join(candidate[1].itertext())))
+        self.assertIsNotNone(result)
+        self.assertEqual(runtime.context_value.calls, 2)
+        requests = [entry[0] for entry in runtime.context_value.messages]
+        first_match = re.search(r'```XML\n(.*?)```', requests[0][1].message, re.S)
+        repair_match = re.search(r'```XML\n(.*?)```', requests[1][1].message, re.S)
+        assert first_match is not None and repair_match is not None
+        first, repair = decoded(first_match[1], 'xml'), decoded(repair_match[1], 'xml')
+        self.assertEqual(tostring(first[0]), tostring(repair[0]))
+        self.assertEqual(repair[0].get('anchor_key'), 'image&one')
+        self.assertEqual([(node.tag, node.get('id')) for node in first.iter()],
+                         [(node.tag, node.get('id')) for node in repair.iter()])
+        self.assertIn('ORIGINAL', ''.join(first[1].itertext()))
+        self.assertEqual(''.join(repair[1].itertext()).strip(), '')
+        self.assertEqual(decoded(previous_xml(requests[1]), 'xml')[1].text, 'wrong')
+        self.assertEqual(tostring(source), before)
 
     async def test_identical_content_failure_retains_the_actual_structure_without_extra_calls(self):
         translator, runtime = _repairing_translator([
@@ -121,7 +162,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         second, third = [recorded[0] for recorded in runtime.context_value.messages[1:]]
         self.assertFalse(any(m.role == MessageRole.ASSISTANT for m in second))
         self.assertFalse(any(m.role == MessageRole.ASSISTANT for m in third))
-        self.assertIn('SOURCE_REFERENCE_ONLY', third[1].message)
+        self.assertNotIn('SOURCE_REFERENCE_ONLY', third[1].message)
         previous = previous_xml(third)
         self.assertEqual(decoded(previous, 'xml')[0].get('id'), '1')
         self.assertEqual(decoded(previous, 'xml')[0].text, 'wrong')

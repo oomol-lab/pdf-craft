@@ -691,6 +691,10 @@ class XMLTranslator:
             translated_text=encode_friendly(translation))
         canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render()
                                   if canonical_text_validator is not None else '')
+        # Repeating editable source words during repairs encourages restoring
+        # their old content/occurrence count while adding required nodes. Keep
+        # the complete source contract and the actual rejected answer instead.
+        repair_source_xml = encode_friendly(hill_climbing.request_template())
         repair_input = await self._fill_runtime.template('fill_repair_input')
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
@@ -747,7 +751,7 @@ class XMLTranslator:
                     # put the sole complete authoritative translation last.
                     previous = next((message.message for message in reversed(messages_for_attempt)
                                      if message.role == MessageRole.ASSISTANT), None)
-                    user = repair_input.render(source_xml=source_xml, candidate_xml=previous,
+                    user = repair_input.render(source_xml=repair_source_xml, candidate_xml=previous,
                         feedback=messages_for_attempt[-1].message, translated_text=encode_friendly(translation))
                     messages = [fixed_messages[0], Message(MessageRole.USER, user)]
                 return await request_model(llm_context, messages, retry_index=index, retry_max=maximum,
