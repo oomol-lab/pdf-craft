@@ -55,6 +55,24 @@ class RefinementContentRangesTests(TestCase):
                 chapter = Chapter(None, -1, [x for x in restored.paragraphs if isinstance(x, TextFlowItem)], restored.citations)
                 self.assertEqual(decode(fromstring(tostring(encode(chapter)))), chapter)
 
+    def test_manuscript_sheet_note_and_leading_callout_survive_assembly(self):
+        # A referenced editorial annotation is content, even if the provisional
+        # classifier calls its subject publication metadata. The model owns it.
+        source = page(box('1Main paragraph.'), box('1 Sheet forty-nine of manuscript A.'))
+        candidate = wire_candidate(source, '1', dict(before='', mark='1', after='Main paragraph.'))
+        streams = restore_streams([candidate])
+        chapter = Chapter(None, -1, [x for x in streams.paragraphs if isinstance(x, TextFlowItem)], streams.citations)
+        root = encode(chapter)
+        definition = root.find('./references/ref')
+        assert definition is not None
+        self.assertEqual(definition.findtext('mark'), '1')
+        note_flow = definition.find('flow')
+        assert note_flow is not None
+        self.assertEqual(''.join(note_flow.itertext()).strip(), 'Sheet forty-nine of manuscript A.')
+        callouts = root.findall('./flow//ref')
+        self.assertEqual([n.attrib['id'] for n in callouts], [definition.attrib['id']])
+        self.assertEqual(decode(fromstring(tostring(root))), chapter)
+
     def test_reference_crosses_format_nodes_without_consuming_surrounding_letters(self):
         source = page(box(escape('<b>prefix1</b><i>2suffix</i>')), box('12 Note.'))
         candidate = wire_candidate(source, '12', dict(before='prefix', mark='12', after='suffix'))
