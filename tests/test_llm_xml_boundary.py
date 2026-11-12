@@ -135,6 +135,26 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual(artist.await_count, 1)
         self.assertEqual(''.join(source.itertext()), 'SOURCE_REFERENCE_ONLY')
 
+    async def test_root_level_inline_identity_is_moved_instead_of_deleted(self):
+        for empty in (True, False):
+            with self.subTest(empty=empty):
+                outer = 'ab' if empty else ''
+                a, b = ('', '') if empty else ('a', 'b')
+                translator, runtime = _repairing_translator([
+                    f'<xml><p id="1">{outer}</p><expression id="2">{a}</expression><expression id="3">{b}</expression></xml>',
+                    '<xml><p id="1"><expression id="2">a</expression><expression id="3">b</expression></p></xml>'])
+                translator._translate_text_async = AsyncMock(return_value='ab')
+                result, _ = await StructuredTranslation().translate(translator, TranslationTask(fromstring(
+                    '<body><p><expression id="2" display="inline">SOURCE</expression><expression id="3" display="inline">REFERENCE</expression></p></body>'), SubmitKind.REPLACE, None),
+                    error_policy=False, retry_policy=RetryPolicy(fill=1))
+                self.assertEqual(''.join(result.itertext()), 'ab')
+                self.assertEqual(runtime.context_value.calls, 2)
+                feedback = runtime.context_value.messages[1][0][-1].message
+                self.assertIn('MISPLACED required identity', feedback)
+                self.assertIn('under xml/p#1', feedback)
+                self.assertNotIn('Remove this unexpected block', feedback)
+                self.assertEqual('ALREADY MATCHES' in feedback, empty)
+
     async def test_duplicate_blocks_cannot_claim_content_is_already_complete(self):
         translator, runtime = _repairing_translator([
             '<xml><p id="1">wrong</p><p id="1">ab</p></xml>', '<xml><p id="1">ab</p></xml>'])

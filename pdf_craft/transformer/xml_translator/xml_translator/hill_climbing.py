@@ -6,7 +6,7 @@ from xml.etree.ElementTree import Element, indent
 from tiktoken import Encoding
 
 from pdf_craft.transformer.xml_translator.segment import (
-    BlockContentError, BlockImmutableElementsError, BlockSegment, BlockSubmitter, FoundInvalidIDError, TextSegment,
+    BlockContentError, BlockUnexpectedIDError, BlockImmutableElementsError, BlockSegment, BlockSubmitter, FoundInvalidIDError, TextSegment,
     search_text_segments, TextPosition,
 )
 from pdf_craft.transformer.xml_translator.xml import encode_friendly
@@ -76,7 +76,7 @@ class HillClimbing:
         Missing/duplicate blocks and broken resource boundaries cannot supply
         trustworthy delivery-order text.
         """
-        if any(not isinstance(error, BlockContentError) for error in self._block_segment.validate(element)):
+        if any(not isinstance(error, (BlockContentError, BlockUnexpectedIDError)) for error in self._block_segment.validate(element)):
             return None
         if any(not is_whitespace(char) for char in element.text or ''):
             return None
@@ -175,6 +175,7 @@ class HillClimbing:
             encoding=self._encoding,
             errors_group=errors_group,
             omitted_count=origin_errors_count - errors_group.errors_count,
+            required_tree=self.request_template(),
         )
         return message, block_weights
 
