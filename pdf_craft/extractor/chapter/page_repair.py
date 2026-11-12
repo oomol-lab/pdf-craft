@@ -46,8 +46,8 @@ from .source_ranges import SourceRange, RepairSources, compile_source_ranges, re
 from .page_validation import validate_page
 from .text_locator import locate_text
 from .asset_editing import editable_asset_sources
+from .repair_plan import RepairPlan, RefAnchor, materialize_plan, suggested_destination
 from .page_review import (
-    text_scale_estimate,
     JEV_REVIEW_THRESHOLD,
     JevReviewProcessor,
     PageEvaluator,
@@ -65,30 +65,25 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class RefAnchor(_StrictModel):
-    before: str
-    mark: str
-    after: str
-
-
-class RepairedReference(_StrictModel):
+class ReferenceCandidate(_StrictModel):
     layout_id: str
     citation_index: int = Field(ge=1)
     anchor: RefAnchor
     extract_from_expression: bool = False
 
 
-class RepairedAssetAttachment(_StrictModel):
+class AssetAttachmentCandidate(_StrictModel):
     asset_id: str = Field(min_length=1)
     slot: Literal["title", "content", "caption"]
 
 
-class RepairedLayout(_StrictModel):
+class LayoutCandidate(_StrictModel):
+    """Resolved compiler record, NOT the model response schema."""
     layout_id: str
     source_range: SourceRange | None = None
-    ownership_evidence: str = Field(min_length=1)
+    ownership_evidence: str = ""
     ownership: Literal["paragraph", "citation", "ignored"]
-    paragraph_evidence: str = Field(min_length=1)
+    paragraph_evidence: str = ""
     continues_from_previous: bool
     continues_to_next: bool | None = None
     paragraph_role: Literal["body", "heading"] | None
@@ -96,12 +91,13 @@ class RepairedLayout(_StrictModel):
     citation_id: str | None
     citation_index: int | None = Field(default=None, ge=1)
     preserve_as_image: bool = False
-    asset_attachment: RepairedAssetAttachment | None = None
+    asset_attachment: AssetAttachmentCandidate | None = None
     independent_stream: str | None = Field(default=None, min_length=1)
     text_removals: list[RefAnchor] = Field(default_factory=list)
+    submission: dict | None = Field(default=None, exclude=True)
 
 
-class RepairedCitation(_StrictModel):
+class CitationCandidate(_StrictModel):
     citation_id: str
     stream_order: int = Field(ge=0)
     continues_previous: bool = False
@@ -109,12 +105,12 @@ class RepairedCitation(_StrictModel):
     mark: str | None
 
 
-class RepairedPage(_StrictModel):
+class PageCandidate(_StrictModel):
     page_index: int = Field(ge=1)
     stream_assessment: str = ""
-    layouts: list[RepairedLayout]
-    citations: list[RepairedCitation]
-    references: list[RepairedReference]
+    layouts: list[LayoutCandidate]
+    citations: list[CitationCandidate]
+    references: list[ReferenceCandidate]
 
 
 PAGE_REPAIR_SYSTEM_PROMPT = review_text('page_repair', includes_footnotes=True)
@@ -301,19 +297,16 @@ async def repair_page_with_llm(
     sources = repair_sources(target_page)
 
     def compile_candidate(data, _index, _maximum):
-        if not includes_footnotes:
-            response = cast(RepairedPage, data)
-            if response.citations or response.references or any(
-                layout.ownership == 'citation' or layout.citation_id is not None
-                or layout.citation_index is not None for layout in response.layouts
-            ):
-                raise ValueError("[FOOTNOTES_DISABLED] Page refinement cannot create citations or references")
-        return _compile_repaired_page(sources, cast(RepairedPage, data))
+        plan = cast(RepairPlan, data)
+        if not includes_footnotes and (plan.notes or plan.references or any(
+                item.destination.kind == 'note' for item in plan.layouts)):
+            raise ValueError("[FOOTNOTES_DISABLED] Page refinement cannot create notes or references")
+        return _compile_repaired_page(sources, materialize_plan(plan, sources.page_index))
 
     # A rejected whole-page plan is not a patch base. Rebuild from the immutable
     # input and concrete diagnostics; the loop still records rejected answers.
     return await request_guaranteed_json(GuaranteedOptions(
-        messages=messages, request=request, schema=RepairedPage,
+        messages=messages, request=request, schema=RepairPlan,
         parse=compile_candidate, include_response=False,
     ))
 
@@ -330,7 +323,15 @@ def build_page_repair_messages(
 ) -> list[Message]:
     del previous_pass_probability, next_pass_probability, target_pass_probability
     target = _repair_packet(target_page)
-    output_contract = RepairedPage.model_json_schema()
+    output_contract = RepairPlan.model_json_schema()
+    # Ask for the reading decision before its operation. Acceptance deliberately
+    # tolerates omitted reasoning: prose is a model aid, never a validity gate.
+    output_contract['$defs']['LayoutDecision']['required'] = ['layout_id', 'reason', 'destination']
+    output_contract['$defs']['LayoutDecision']['properties']['reason']['description'] = review_text(
+        'page_repair_reason_instruction')
+    for name in ('BodyDestination', 'NoteDestination', 'AssetDestination', 'IndependentDestination'):
+        output_contract['$defs'][name]['properties']['join']['description'] = review_text(
+            'page_repair_join_instruction')
     payload = {
         "previous_page": _context_packet(previous_page),
         "target_page": target,
@@ -363,8 +364,23 @@ def _repair_packet(page):
     fields = ('ownership', 'continues_from_previous', 'continues_to_next',
               'paragraph_role', 'paragraph_level', 'citation_id', 'citation_index',
               'asset_attachment', 'independent_stream', 'text_removals')
+    proposals = {}
     for layout in packet['layouts']:
-        layout['initial_proposal'] = {key: layout.pop(key) for key in fields}
+        annotation = {key: layout.pop(key) for key in fields}
+        destination = suggested_destination(annotation)
+        ocr_stream = layout.pop('ocr_stream')
+        # Ordinary body/new-paragraph is the absence of a special suggestion,
+        # not extra evidence that an unmarked source cannot belong to a note.
+        if destination != dict(kind='body', join=False) or ocr_stream not in ('body', None):
+            proposals[layout['layout_id']] = dict(destination=destination, ocr_stream=ocr_stream)
+    notes = sorted(packet.pop('citations'), key=lambda item: item['stream_order'])
+    by_index = {item['index']: item['citation_id'] for item in notes if item['index'] is not None}
+    packet['notes'] = [dict(note_id=item['citation_id'], operation='continue')
+                       if item['continues_previous'] else dict(
+                           note_id=item['citation_id'], operation='define', mark=item['mark'])
+                       for item in notes]
+    for reference in packet['references']:
+        reference['note_id'] = by_index[reference.pop('citation_index')]
     text = [layout for layout in packet['layouts'] if layout['source_type'] == 'text']
     # Raw adjacency evidence, not approved paragraph/ownership decisions.
     # The model may reorder sources; no validator consumes this catalog.
@@ -372,6 +388,9 @@ def _repair_packet(page):
         left_id=left['layout_id'], left_end=left['text'][-120:],
         right_id=right['layout_id'], right_start=right['text'][:120],
     ) for left, right in zip(text, text[1:])]
+    # Keep algorithm/vendor classifications out of each source observation.
+    # They are editable suggestions, not additional facts about the print.
+    packet['initial_proposal'] = proposals
     return packet
 
 
@@ -462,7 +481,6 @@ def _layout_packet(
         "first_line_extra_indent_vs_later_lines_in_same_box": getattr(getattr(layout.source, "origin", None), "first_line_inset", None),
         "printed_lines": _printed_lines_packet(layout),
         "text": text,
-        "text_scale_estimate": text_scale_estimate(text, layout.bbox) if layout.source_order is not None else None,
         "definition_mark": definition_mark,
         "initial_stream_boundary_from_previous": (
             _boundary_geometry(previous_in_initial_stream, layout)
@@ -528,7 +546,7 @@ def _anchor_for_span(text: str, start: int, end: int, context: int = 24) -> dict
 
 
 def _compile_repaired_page(
-    source: PageAnalysis | RepairSources, response: RepairedPage,
+    source: PageAnalysis | RepairSources, response: PageCandidate,
 ) -> PageAnalysis:
     source, response = compile_source_ranges(repair_sources(source), response, _layout_id, _resolve_anchor)
     issues: list[str] = []
@@ -625,6 +643,14 @@ def _compile_repaired_page(
                           key=lambda layout: layout.document_order)
         for text_sequence in continuation_sequences(sequence):
             for left, right in zip(text_sequence, text_sequence[1:]):
+                # An omitted paragraph descriptor on a joined wire part inherits
+                # the current paragraph. This is mechanical, current-page only;
+                # direct compiler records still carry explicit resolved metadata.
+                submitted = response_layouts[_layout_id(right)].submission
+                if (right.continues_from_previous and submitted is not None
+                        and submitted['destination'].get('heading_level') is None):
+                    right.annotations.paragraph_role = left.paragraph_role
+                    right.annotations.paragraph_level = left.paragraph_level
                 if response_layouts[_layout_id(left)].continues_to_next is None:
                     left.annotations.continues_to_next = right.continues_from_previous
         if sequence and ownership == "citation":

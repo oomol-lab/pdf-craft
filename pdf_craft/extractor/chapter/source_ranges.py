@@ -150,9 +150,9 @@ def compile_source_ranges(source, response, layout_id, resolve_anchor):
             bounds = proposal.source_range
             start, end = (0, len(text)) if bounds is None else (
                 _boundary(text, bounds.start, layout_id=ident, edge='start', entry=number,
-                          submission=proposal.model_dump(mode='json')),
+                          submission=proposal.submission or proposal.model_dump(mode='json')),
                 _boundary(text, bounds.end, layout_id=ident, edge='end', entry=number,
-                          submission=proposal.model_dump(mode='json')))
+                          submission=proposal.submission or proposal.model_dump(mode='json')))
             if not (0 <= start <= end <= len(text)) or start == end and text:
                 raise ValueError(f'[SOURCE_RANGE] Invalid range in {ident}')
             consumed[ident].append((start, end))

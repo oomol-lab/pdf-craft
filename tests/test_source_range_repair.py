@@ -1,5 +1,7 @@
 """Small source-local regressions for service #314's three expression barriers."""
+from tests.repair_plan_fixtures import expanded_packet
 # pylint: disable=protected-access
+from tests.repair_plan_fixtures import serialize_plan
 import json
 from typing import Any, cast
 from copy import deepcopy
@@ -14,7 +16,7 @@ from pdf_craft.extractor.chapter.chapter import (
 )
 from pdf_craft.extractor.chapter.page_analysis import restore_streams
 from pdf_craft.extractor.chapter.page_repair import (
-    RepairedLayout, RepairedPage, _compile_repaired_page,
+    LayoutCandidate, PageCandidate, _compile_repaired_page,
     build_page_repair_messages, repair_page_with_llm,
 )
 from pdf_craft.extractor.chapter.source_ranges import slice_content
@@ -39,8 +41,8 @@ def box(text):
 def proposal(source) -> dict[str, Any]:
     messages = build_page_repair_messages(previous_page=None, target_page=source, next_page=None,
                                          previous_pass_probability=None, next_pass_probability=None)
-    packet = json.loads(messages[1].message)['target_page']
-    fields = set(RepairedLayout.model_fields)
+    packet = expanded_packet(json.loads(messages[1].message)['target_page'])
+    fields = set(LayoutCandidate.model_fields)
     return dict(page_index=1, layouts=[dict({k: v for k, v in {**item, **item["initial_proposal"]}.items() if k in fields},
                                           ownership_evidence="Fixture stream decision.", paragraph_evidence="Fixture boundary decision.")
                                      for item in packet['layouts']], citations=packet['citations'], references=[])
@@ -61,7 +63,7 @@ def split_notes(source):
 
 
 def compiled(source, data):
-    return _compile_repaired_page(source, RepairedPage.model_validate(data))
+    return _compile_repaired_page(source, PageCandidate.model_validate(data))
 
 
 class SourceRangeRepairTests(IsolatedAsyncioTestCase):
@@ -175,7 +177,7 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
         c['continues_from_previous'] = True
         data['layouts'] = [a, c, b]
         async def request(*_args):
-            return json.dumps(data)
+            return serialize_plan(data)
         result = await repair_page_with_llm(previous_page=None, target_page=source, next_page=None,
                                           previous_pass_probability=None, next_pass_probability=None,
                                           request=request, retry_policy=RetryPolicy(analysis=0))
@@ -392,7 +394,7 @@ class SourceRangeRepairTests(IsolatedAsyncioTestCase):
                        continues_from_previous=False, continues_to_next=False)
         data.update(layouts=[body, ignored], citations=[])
         async def request(*_args):
-            return json.dumps(data)
+            return serialize_plan(data)
         repaired = await repair_page_with_llm(previous_page=None, target_page=source, next_page=None,
                                             previous_pass_probability=None, next_pass_probability=None,
                                             request=request, includes_footnotes=False, retry_policy=RetryPolicy(analysis=0))

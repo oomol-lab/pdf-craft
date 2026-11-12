@@ -1,11 +1,11 @@
 """The page result is the entire semantic authority (service #314/smoke)."""
 # pylint: disable=protected-access
+from tests.repair_plan_fixtures import serialize_plan
 import asyncio
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import replace
 import inspect
-import json
 from pathlib import Path
 import pickle
 from tempfile import TemporaryDirectory
@@ -18,7 +18,7 @@ from pdf_craft.extractor.chapter.assembly import PageAssembly
 from pdf_craft.extractor.chapter.analysis_types import PageStructureError
 from pdf_craft.extractor.chapter.live import LiveExtraction
 from pdf_craft.extractor.chapter.page_repair import (
-    RepairedPage, _compile_repaired_page, repair_page_with_llm, validate_page,
+    PageCandidate, _compile_repaired_page, repair_page_with_llm, validate_page,
 )
 from pdf_craft.extractor.refinement import PageResult
 from tests.test_footnote_contracts import response
@@ -55,12 +55,12 @@ class CurrentPageValidationTests(IsolatedAsyncioTestCase):
         initial = PrimaryPages().append(_page(2, _text('Available evidence.')))
         submitted = response(initial)
         submitted['layouts'][0].pop('continues_to_next')
-        expected = _compile_repaired_page(initial, RepairedPage.model_validate(submitted))
+        expected = _compile_repaired_page(initial, PageCandidate.model_validate(submitted))
         initial.citations = cast(Any, ForbiddenEvidence())
         layout = initial.layouts[0]
         initial.layouts[0] = replace(layout, annotations=ForbiddenEvidence(), source=replace(
             layout.source, origin=ForbiddenEvidence()))
-        actual = _compile_repaired_page(initial, RepairedPage.model_validate(submitted))
+        actual = _compile_repaired_page(initial, PageCandidate.model_validate(submitted))
         self.assertEqual(actual.layouts[0].annotations, expected.layouts[0].annotations)
         validate_page(actual)
 
@@ -76,14 +76,14 @@ class CurrentPageValidationTests(IsolatedAsyncioTestCase):
         data['layouts'][0].update(ownership='citation', citation_id='local-first', citation_index=1)
         data['layouts'][1].update(ownership='ignored', paragraph_role=None, paragraph_level=None,
                                   continues_from_previous=False, continues_to_next=False)
-        first = _compile_repaired_page(first, RepairedPage.model_validate(data))
+        first = _compile_repaired_page(first, PageCandidate.model_validate(data))
         second = initial.append(_page(2, _text('脚注继续。')))
         data = response(second)
         data['citations'] = [dict(citation_id='local-next', index=None, mark=None,
                                  stream_order=0, continues_previous=True)]
         data['layouts'][0].update(ownership='citation', citation_id='local-next', citation_index=None,
                                   continues_from_previous=False, continues_to_next=False)
-        second = _compile_repaired_page(second, RepairedPage.model_validate(data))
+        second = _compile_repaired_page(second, PageCandidate.model_validate(data))
         for excluded in (True, False):
             with self.subTest(cue_excluded=excluded), TemporaryDirectory() as directory:
                 variant = deepcopy(first)
@@ -129,7 +129,7 @@ class CurrentPageValidationTests(IsolatedAsyncioTestCase):
                     await asyncio.Event().wait()
                 await blocked.wait()
                 async def request(*_args):
-                    return json.dumps(response(target))
+                    return serialize_plan(response(target))
                 result = await repair_page_with_llm(
                     previous_page=previous, target_page=target, next_page=following,
                     previous_pass_probability=None, next_pass_probability=None,
@@ -188,11 +188,11 @@ class CurrentPageValidationTests(IsolatedAsyncioTestCase):
 
     def test_incoming_protocol_has_no_neighbor_membership_contract(self):
         from pydantic import ValidationError
-        from pdf_craft.extractor.chapter.page_repair import RepairedCitation
+        from pdf_craft.extractor.chapter.page_repair import CitationCandidate
         operation = dict(citation_id='tail', index=None, mark=None, stream_order=0, continues_previous=True)
-        self.assertTrue(RepairedCitation.model_validate(operation).continues_previous)
+        self.assertTrue(CitationCandidate.model_validate(operation).continues_previous)
         with self.assertRaises(ValidationError):
-            RepairedCitation.model_validate(dict(operation, predecessor=dict(
+            CitationCandidate.model_validate(dict(operation, predecessor=dict(
                 page_index=1, source_order=8, start=0, end=6)))
 
     async def test_valid_adoption_never_opens_the_initial_fallback_candidate(self):
@@ -223,7 +223,7 @@ class CurrentPageValidationTests(IsolatedAsyncioTestCase):
         for layout, identifier, index in zip(submitted['layouts'], ['first', 'second'], [1, 2]):
             layout.update(ownership='citation', citation_id=identifier, citation_index=index,
                           continues_from_previous=False, continues_to_next=False)
-        result = _compile_repaired_page(page, RepairedPage.model_validate(submitted))
+        result = _compile_repaired_page(page, PageCandidate.model_validate(submitted))
         self.assertEqual([citation.index for citation in result.citations], [1, 2])
         with TemporaryDirectory() as directory:
             assembly = PageAssembly(Path(directory)/'streams.sqlite')
@@ -242,7 +242,7 @@ class CurrentPageValidationTests(IsolatedAsyncioTestCase):
             layout.update(ownership='citation', citation_id=identifier, citation_index=index,
                           continues_from_previous=False, continues_to_next=False)
         with self.assertRaisesRegex(ValueError, 'CITATION_ORDER'):
-            _compile_repaired_page(page, RepairedPage.model_validate(submitted))
+            _compile_repaired_page(page, PageCandidate.model_validate(submitted))
 
     def test_reordered_incoming_and_new_note_keep_every_text_once(self):
         for has_cursor in (False, True):
@@ -252,7 +252,7 @@ class CurrentPageValidationTests(IsolatedAsyncioTestCase):
                 data = response(prior)
                 data['citations'] = [dict(citation_id='prior', index=1, mark='*', stream_order=0)]
                 data['layouts'][0].update(ownership='citation', citation_id='prior', citation_index=1)
-                prior = _compile_repaired_page(prior, RepairedPage.model_validate(data))
+                prior = _compile_repaired_page(prior, PageCandidate.model_validate(data))
                 page = pages.append(_page(2, _text('Incoming tail.') + _text('New note.')))
                 data = response(page)
                 data['citations'] = [dict(citation_id='new', index=1, mark='*', stream_order=1),
@@ -261,7 +261,7 @@ class CurrentPageValidationTests(IsolatedAsyncioTestCase):
                 for layout, identifier, index in zip(data['layouts'], ['tail', 'new'], [None, 1]):
                     layout.update(ownership='citation', citation_id=identifier, citation_index=index,
                                   continues_from_previous=False, continues_to_next=False)
-                current = _compile_repaired_page(page, RepairedPage.model_validate(data))
+                current = _compile_repaired_page(page, PageCandidate.model_validate(data))
                 validate_page(current)
                 conflict = deepcopy(current)
                 conflict.citations[1].stream_order = conflict.citations[0].stream_order
@@ -289,7 +289,7 @@ class CurrentPageValidationTests(IsolatedAsyncioTestCase):
         for layout, identifier, index in zip(data['layouts'], ['unmarked', 'printed'], [None, 1]):
             layout.update(ownership='citation', citation_id=identifier, citation_index=index,
                           continues_from_previous=False, continues_to_next=False)
-        repaired = _compile_repaired_page(page, RepairedPage.model_validate(data))
+        repaired = _compile_repaired_page(page, PageCandidate.model_validate(data))
         validate_page(repaired)
         self.assertEqual({item.citation_id: item.index for item in repaired.citations},
                          {'printed': 1, 'unmarked': 2})

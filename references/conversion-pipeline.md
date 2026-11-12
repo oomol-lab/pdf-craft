@@ -60,11 +60,11 @@ OCR 流内下标和独立阅读位置。正文沿用原 source_order；新提取
 图片为 title/caption，表格还包括保留富结构的 content；图片非展示 content 不暴露、不自动变成说明。
 内生来源 ID 为资产稳定来源 ID 加字段名，使用原资产 bbox，不虚构文字子框；原始 OCR 不修改。
 
-页精修的 `asset_attachment={asset_id, slot}` 是最终本页关联声明，支持新建、解除、改目标和改槽位，
-不要求初级算法先建立候选。`null` 表示不关联。文字可按既有 source_range 切分后分别归属，多个来源
-按最终提交顺序组成同一槽位。资产及关联文字须处于同一已提交正文/脚注流；目标使用稳定来源 ID，
+页精修的 `destination={kind:asset, asset_id, slot}` 是最终本页关联声明，支持新建、解除、改目标和改槽位，
+不要求初级算法先建立候选。解除关联时改为 body、note 或 independent 目标，不提交 null 目标。文字可按 source_range 切分，多个来源
+按最终提交顺序组成同一槽位。关联文字继承目标资产最终的正文/脚注归属，不要求模型双写；目标使用稳定来源 ID，
 不能以相同坐标认作同一资产。内生展示文字也可以取出恢复为正文或脚注，表格富结构不因此被打平。
-不确定目标的独立说明使用 `independent_stream` 本页句柄，保留为独立自然段，不能接续其他页。
+不确定目标的独立说明使用 `destination={kind:independent, stream_id}` 本页句柄，保留为独立自然段，不能接续其他页。
 
 验收先按最终归属划分阅读流，再解释各流内自然段连接；图表文字不会占用主正文的接续游标。
 `materialize_asset_text` 在单页采用后的输出边界落实槽位，`PageAssembly` 分开处理主正文和本页独立说明，
@@ -95,10 +95,10 @@ role/level 契约锁住本页修正。跨页身份只按本页声明和输出流
 OCR证据不回写，无法证明有效的派生缓存重算。metadata独立读取所需前N页初级书目证据。
 产品目的、工程取舍和持续时序验收详见[设计文章](../docs/design/pdf-extraction-streaming.md)。
 
-连接的唯一编辑真源为后继的 continues_from_previous；continues_to_next 由此派生，旧字段若
-显式返回，仅作为同页一致性断言。没有按修正先后顺序选择布尔值的 reconciliation。
+连接的唯一模型编辑真源为后继的 join；内部 continues_from_previous/continues_to_next 由此机械物化。
+模型协议不再接受显式 outgoing 断言。没有按修正先后顺序选择布尔值的 reconciliation。
 本页定义、成员与引用只按本页校验，不能因某个初级 ID 出现在邻页就冻结本页归属。
-本页可以通过重分组拆分或合并定义，新增局部 ID 为 new-页码-index；跨页续接提交当前页
+本页可以通过重分组拆分或合并定义，新增 note_id 为模型选择的非空页内句柄，不要求拼接页码或编号；跨页续接提交当前页
 自己的连接声明，不要求通过邻页来源的成员资格检查。输出实体身份在组装时分配和绑定，
 已交付身份不能事后重命名。无索引段排在本页有索引段前，有索引定义从 1 连续递增。
 未绑定来源必须显式保全，不能猜测归属后丢弃；最终输出引用仍须通过纯结构完整性校验。
@@ -355,3 +355,13 @@ RGB/RGBA为8位，16位灰度保持16位，调色板透明度物化为RGBA；不
 精修数据库/批候选生成章节时跳过标点归一与标题重算；partition_adopted 默认保留段落级别。
 传统未精修提取可显式请求最终标题估算；恢复已采用页只恢复声明，不重跑初级判断。
 详见[页精修硬边界](page-refinement-validation.md)。
+
+
+## 精修操作的单一决定真源
+
+页精修模型使用 RepairPlan：layouts 的互斥 destination、notes 数组顺序和统一 note_id，
+以及段落 join。内部 PageCandidate/AnalysedLayout 保存物化后的显式属性，不是第二个模型协议。
+不要重新把 outgoing、脚注index/stream_order、已知页码或 ignored 不适用的字段暴露给模型。
+模型仅给资产文字指定目标asset_id/slot，所属正文/脚注继承该目标的最终决定，不双写。
+来源切分、引用与#1038的原始锚点text_removals保持同一来源口径。此次仅更新私有运行时协议，
+PCEX v7 字段语义不变，无需迁移；不得为旧请求/回答在业务中添加fallback。

@@ -1,9 +1,9 @@
 """Offline cross-page adoption: rejected candidates leave a usable raw route."""
 # pylint: disable=protected-access,cell-var-from-loop
+from tests.repair_plan_fixtures import serialize_plan
 import asyncio
 from contextlib import asynccontextmanager
 from copy import deepcopy
-import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import IsolatedAsyncioTestCase
@@ -69,7 +69,7 @@ class CandidateAdoptionTests(IsolatedAsyncioTestCase):
                                 if layout['ownership'] == 'citation':
                                     layout.update(paragraph_role='heading', paragraph_level=0)
                         async def request(*_args):
-                            return json.dumps(proposed)
+                            return serialize_plan(proposed)
                         candidate = await repair_page_with_llm(
                             previous_page=previous, target_page=target, next_page=following,
                             previous_pass_probability=None, next_pass_probability=None,

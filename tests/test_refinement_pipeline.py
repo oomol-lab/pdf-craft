@@ -1,5 +1,6 @@
 """Barrier regressions for local dependencies, bounded work and ordered delivery."""
 # pylint: disable=protected-access
+from tests.repair_plan_fixtures import serialize_plan
 import asyncio
 from copy import deepcopy
 from typing import Any, cast
@@ -129,7 +130,7 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
                 prompts.append(payload)
                 if payload['target_page']['page_index'] == 1:
                     llm_started.set()
-                return json.dumps(_response_from_message(messages[1]))
+                return serialize_plan(_response_from_message(messages[1]))
         with TemporaryDirectory() as directory:
             root = Path(directory)
             engine = PDFExtractionEngine('ignored')

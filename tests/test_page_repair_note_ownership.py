@@ -1,5 +1,5 @@
 """Numbered main text must be expressible without semantic program gates."""
-import json
+from tests.repair_plan_fixtures import serialize_plan
 from copy import deepcopy
 from unittest import IsolatedAsyncioTestCase
 from xml.etree.ElementTree import fromstring, tostring
@@ -38,9 +38,9 @@ class NoteOwnershipRepairTests(IsolatedAsyncioTestCase):
             else:
                 feedback = messages[-1].message
                 self.assertIn('[REF_LAYOUT_OWNERSHIP]', feedback)
-                self.assertIn('submitted ownership is citation', feedback)
+                self.assertIn('resolved submitted ownership is citation', feedback)
                 self.assertIn(members[0]['layout_id'], feedback)
-                self.assertIn('If the note was misidentified', feedback)
+                self.assertIn('If the note was mistaken', feedback)
                 self.assertIn('If only the reference was invented', feedback)
                 for member in members:
                     member.update(ownership='paragraph', citation_id=None,
@@ -49,7 +49,7 @@ class NoteOwnershipRepairTests(IsolatedAsyncioTestCase):
                 data['references'] = []
                 # No program audit of the model's natural-language reasoning.
                 data['stream_assessment'] = 'Opaque submitted reading assessment.'
-            return json.dumps(data)
+            return serialize_plan(data)
 
         result = await repair_page_with_llm(previous_page=None, target_page=source,
             next_page=None, previous_pass_probability=None, next_pass_probability=None,
@@ -78,7 +78,7 @@ class NoteOwnershipRepairTests(IsolatedAsyncioTestCase):
                 note = next(x for x in data['layouts'] if x['ownership'] == 'citation')
                 data['references'].append(dict(layout_id=note['layout_id'], citation_index=1,
                     anchor=dict(before='', mark='', after='Note.')))
-            return json.dumps(data)
+            return serialize_plan(data)
 
         result = await repair_page_with_llm(previous_page=None, target_page=source,
             next_page=None, previous_pass_probability=None, next_pass_probability=None,
