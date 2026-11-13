@@ -188,6 +188,9 @@ def _check_paragraph_answers(page, source, target):
     from pdf_craft.extractor.chapter.page_analysis import restore_streams
     required = target['body_sources']
     answers = target['paragraph_answers']
+    span_only = target.get('paragraph_scope') == 'span'
+    if target.get('paragraph_scope', 'page') not in ('page', 'span'):
+        raise ValueError('Unknown paragraph answer scope')
     if (not answers or len(set(required)) != len(required)
             or any([identity for group in answer for identity in group] != required
                    or any(not group for group in answer) for answer in answers)):
@@ -196,9 +199,19 @@ def _check_paragraph_answers(page, source, target):
     def delivered(value):
         stream = restore_streams([value])
         groups, fragments = [], []
-        if stream.citations:
+        if stream.citations and not span_only:
             raise ValueError('Unexpected note in body-only paragraph fixture')
         for item in stream.paragraphs:
+            if span_only:
+                identities = {
+                    f'layout-{(fragment.page_index << 32) + fragment.source_order}'
+                    for fragment in getattr(item, 'children', ())
+                    if isinstance(fragment, SourceTextFragment)
+                }
+                if not identities.intersection(required):
+                    continue
+                if not identities.issubset(required):
+                    raise ValueError('Reviewed paragraph span crosses its surrounding content')
             if not isinstance(item, TextFlowItem) or item.role != 'body':
                 raise ValueError('Expected body text paragraphs only')
             group = []

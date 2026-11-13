@@ -16,20 +16,29 @@ class PageRepairSmokeTests(unittest.TestCase):
         self.analysis = prepare_chapter_analysis(
             Path(__file__).parent / 'assets/analysis/citation_large_ocr', TocInfo([], []))
 
-    def paragraph_fixture(self, answer):
+    def paragraph_fixture(self, answer, page_index=20):
         from pdf_craft.extractor.chapter.page_repair import _compile_repaired_page
         from pdf_craft.extractor.chapter.repair_plan import RepairPlan, materialize_plan
         expected = json.loads((Path(__file__).parent / 'assets/analysis/citation_large_page_repair_expected.json').read_text())
-        target = next(item for item in expected['pages'] if item['page_index'] == 20)
-        source = next(item for item in self.analysis.pages if item.page_index == 20)
+        target = next(item for item in expected['pages'] if item['page_index'] == page_index)
+        source = next(item for item in self.analysis.pages if item.page_index == page_index)
         joins = {identity: index > 0 for group in answer for index, identity in enumerate(group)}
-        joins['layout-85899345921'] = True
+        if page_index == 20:
+            joins['layout-85899345921'] = True
+        def destination(item):
+            identity = f'layout-{item.document_order}'
+            if identity in joins:
+                return dict(kind='body', join=joins[identity])
+            if page_index == 20 or item.source_order == 4:
+                return dict(kind='ignored')
+            if item.source_order == 1:
+                return dict(kind='body', heading_level=2)
+            return dict(kind='body', join=item.source_order in (0, 3))
         plan = RepairPlan.model_validate(dict(layouts=[dict(
             layout_id=f'layout-{item.document_order}',
-            destination=(dict(kind='body', join=joins[f'layout-{item.document_order}'])
-                         if item.source_order else dict(kind='ignored')))
+            destination=destination(item))
             for item in source.layouts]))
-        page = _compile_repaired_page(source, materialize_plan(plan, 20))
+        page = _compile_repaired_page(source, materialize_plan(plan, page_index))
         return source, page, {'pages': [target]}
 
     def test_all_reviewed_paragraph_answers_preserve_delivery(self):
@@ -65,6 +74,43 @@ class PageRepairSmokeTests(unittest.TestCase):
                 else:
                     page.layouts[5].annotations.continues_from_previous = True
                     page.layouts[4].annotations.continues_to_next = True
+                self.assertTrue(_check_final_state([page], expected, source_pages=[source]))
+
+    def test_question_and_explanation_allow_only_reviewed_span_answers(self):
+        fixture = json.loads((Path(__file__).parent / 'assets/analysis/citation_large_page_repair_expected.json').read_text())
+        target = next(item for item in fixture['pages'] if item['page_index'] == 12)
+        self.assertEqual(len(target['paragraph_answers']), 2)
+        for answer in target['paragraph_answers']:
+            with self.subTest(answer=answer):
+                source, page, expected = self.paragraph_fixture(answer, page_index=12)
+                self.assertEqual(_check_final_state([page], expected, source_pages=[source]), [])
+
+    def test_reviewed_span_rejects_damage_and_merging_into_preceding_quote(self):
+        ids = ['layout-51539607557', 'layout-51539607558']
+        source, good, expected = self.paragraph_fixture([ids], page_index=12)
+        for damage in ('drop', 'duplicate', 'reorder', 'text', 'ignored', 'heading', 'context'):
+            with self.subTest(damage=damage):
+                page = deepcopy(good)
+                if damage == 'drop':
+                    page.layouts.pop(6)
+                elif damage == 'duplicate':
+                    page.layouts.append(deepcopy(page.layouts[6]))
+                elif damage == 'reorder':
+                    page.layouts[5], page.layouts[6] = page.layouts[6], page.layouts[5]
+                    for index, item in enumerate(page.layouts):
+                        page.layouts[index] = replace(item, document_order=(12 << 32) + index)
+                elif damage == 'text':
+                    item = page.layouts[6]
+                    page.layouts[6] = replace(item, source=replace(item.source, content=('CHANGED',)))
+                elif damage == 'ignored':
+                    page.layouts[6].annotations.ownership = 'ignored'
+                elif damage == 'heading':
+                    page.layouts[6].annotations.paragraph_role = 'heading'
+                    page.layouts[6].annotations.continues_from_previous = False
+                    page.layouts[5].annotations.continues_to_next = False
+                else:
+                    page.layouts[5].annotations.continues_from_previous = True
+                    page.layouts[3].annotations.continues_to_next = True
                 self.assertTrue(_check_final_state([page], expected, source_pages=[source]))
 
     def test_paragraph_oracle_requires_source_and_complete_answer_contract(self):

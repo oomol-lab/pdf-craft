@@ -65,13 +65,34 @@
         "layout-51539607557": {
           "ownership": "paragraph",
           "continues_from_previous": false,
-          "continues_to_next": false,
           "paragraph_role": "body",
           "paragraph_level": -1,
           "citation_id": null,
           "citation_index": null
         }
-      }
+      },
+      "paragraph_scope": "span",
+      "body_sources": [
+        "layout-51539607557",
+        "layout-51539607558"
+      ],
+      "paragraph_answers": [
+        [
+          [
+            "layout-51539607557"
+          ],
+          [
+            "layout-51539607558"
+          ]
+        ],
+        [
+          [
+            "layout-51539607557",
+            "layout-51539607558"
+          ]
+        ]
+      ],
+      "paragraph_answer_review": "Reviewed: the normalization paragraph ends with questions about appropriate affect; the following paragraph develops that question. Either two paragraphs matching print or one question-and-explanation paragraph preserves the argument. The preceding epigraph/attribution and ignored page number are outside this span. Source wording and order must remain exact."
     },
     {
       "page_index": 20,

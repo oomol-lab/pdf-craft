@@ -164,12 +164,17 @@ def check_reading_flows(output, footnotes):
     expected_marks = {'1-1': '1', '1-2': '2', '1-3': '3', '3-1': '1'}
     printed_passed = all(printed_definitions.get(key) == mark for key, mark in expected_marks.items())
     continued_note = {1, 2} <= note_pages.get('1-3', set())
+    # The concluding “therefore” sentence can stand alone or close the
+    # preceding argument. Neither reading moves note content into body.
+    paragraphs_passed = first_page_paragraphs in (
+        [['0'], ['1'], ['2']], [['0'], ['1', '2']],
+    )
     return {'body_note_leaks': leaked, 'missing_note_content': missing,
             'first_page_paragraphs': first_page_paragraphs,
             'cross_page_body_paragraphs': sorted(joined), 'definitions': definitions,
             'printed_definitions': printed_definitions, 'note_3_continues_to_page_2': continued_note,
             'passed': not leaked and not missing and joined == {'1-2','2-3'}
-                      and first_page_paragraphs == [['0'], ['1'], ['2']]
+                      and paragraphs_passed
                       and (printed_passed and continued_note if footnotes else definitions == 0)}
 
 

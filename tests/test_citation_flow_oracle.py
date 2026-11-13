@@ -9,13 +9,17 @@ from pdf_craft_tool.smoke.citation_footnotes import check_reading_flows
 
 
 class CitationFlowOracleTests(TestCase):
-    def check_fixture(self, *, missing=False, wrong_mark=False, detached=False):
+    def check_fixture(self, *, missing=False, wrong_mark=False, detached=False,
+                      paragraphs=((0,), (1,), (2,)), leaked=False):
         root = Element('chapter')
         flow = SubElement(root, 'flow')
-        for order in (0, 1, 2):
+        for orders in paragraphs:
             text = SubElement(flow, 'text')
-            SubElement(text, 'fragment', page_index='1', source_order=str(order)).text = 'Main prose.'
+            for order in orders:
+                SubElement(text, 'fragment', page_index='1', source_order=str(order)).text = 'Main prose.'
         text = list(flow)[-1]
+        if leaked:
+            SubElement(text, 'fragment', page_index='1', source_order='6').text = '试着泛化'
         for page in (2, 3):
             SubElement(text, 'fragment', page_index=str(page), source_order='0').text = 'Continued prose.'
         refs = SubElement(root, 'references')
@@ -46,3 +50,10 @@ class CitationFlowOracleTests(TestCase):
         for failure in ('missing', 'wrong_mark', 'detached'):
             with self.subTest(failure=failure):
                 self.assertFalse(self.check_fixture(**{failure: True})['passed'])
+
+    def test_concluding_sentence_can_join_preceding_argument(self):
+        self.assertTrue(self.check_fixture(paragraphs=((0,), (1, 2)))['passed'])
+
+    def test_alternative_does_not_allow_note_leaks_or_arbitrary_merges(self):
+        self.assertFalse(self.check_fixture(paragraphs=((0,), (1, 2)), leaked=True)['passed'])
+        self.assertFalse(self.check_fixture(paragraphs=((0, 1, 2),))['passed'])
