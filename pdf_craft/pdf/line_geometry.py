@@ -2,6 +2,7 @@
 
 from collections.abc import Iterable
 from statistics import median
+from math import exp, isfinite
 import re
 from typing import NamedTuple
 
@@ -15,6 +16,28 @@ class PrintedLineMetrics(NamedTuple):
     line_count: int
     median_ink_height: float
     left_offsets: tuple[int, ...]
+
+
+def first_line_indent_confidence(
+    inset: float | None,
+    line_height: float | None,
+    left_offsets: tuple[int, ...] | None,
+) -> float | None:
+    """Summarize geometric evidence, without deciding paragraph membership.
+
+    This bounded heuristic is not a calibrated probability. Inset is already
+    measured relative to later full lines in units of printed line height.
+    Agreement among later line starts discounts irregular/noisy observations.
+    Unknown measurements, including single-line boxes, remain unknown.
+    """
+    if (inset is None or line_height is None or not left_offsets
+            or len(left_offsets) < 2 or not isfinite(inset)
+            or not isfinite(line_height) or line_height <= 0):
+        return None
+    later = left_offsets[1:]
+    baseline = median(later)
+    agreement = sum(abs(left - baseline) <= 0.3 * line_height for left in later) / len(later)
+    return round((1 - exp(-max(0.0, inset))) * agreement, 4)
 
 
 def printed_line_metrics(image: Image, bbox: tuple[int, int, int, int]) -> PrintedLineMetrics | None:

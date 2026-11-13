@@ -349,6 +349,10 @@ class PageExtractorNode:
         if structured is None:
             return
 
+        # Later OCR passes can mask the main text. When coordinates match,
+        # observe the original raster; otherwise use this pass's own raster.
+        measurement_image = (number_image if number_image is not None
+                             and number_image.size == image.size else image)
         obstructions = [block.det for block in structured.blocks
                         if _LAYOUT_KIND_TO_REF.get(str(block.kind.value)) in ASSET_TAGS]
         for block in structured.blocks:
@@ -376,17 +380,16 @@ class PageExtractorNode:
             if ref in ASSET_TAGS:
                 asset_hash = asset_hub.clip(image, det)
 
-            lines = (printed_line_metrics(image, det)
-                     if stage_index == 1 and ref == 'text' and '<' not in text else None)
+            lines = (printed_line_metrics(measurement_image, det)
+                     if ref == 'text' and '<' not in text else None)
             yield PageLayout(
                 ref=ref,
                 det=det,
                 text=text,
                 hash=asset_hash,
                 order=0,
-                first_line_inset=(first_line_inset(image, det, obstructions)
-                                  if stage_index == 1 and ref == "text" and not is_footnote
-                                  and "<" not in text else None),
+                first_line_inset=(first_line_inset(measurement_image, det, obstructions)
+                                  if ref == "text" and "<" not in text else None),
                 printed_line_count=lines.line_count if lines is not None else None,
                 printed_line_height=lines.median_ink_height if lines is not None else None,
                 printed_line_lefts=lines.left_offsets if lines is not None else None,

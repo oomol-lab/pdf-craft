@@ -15,7 +15,7 @@ from pdf_craft.common import AssetHub
 from pdf_craft.extractor.chapter.primary import project_window
 from pdf_craft.extractor.chapter.page_repair import build_page_repair_messages
 from pdf_craft.extractor.chapter.reading_serials import _vertical_text
-from pdf_craft.pdf.line_geometry import first_line_inset, has_vertical_columns, printed_line_metrics
+from pdf_craft.pdf.line_geometry import first_line_inset, first_line_indent_confidence, has_vertical_columns, printed_line_metrics
 from pdf_craft.pdf.page_extractor import PageExtractorNode
 from pdf_craft.pdf.types import Page, PageLayout, encode, decode
 
@@ -29,6 +29,73 @@ def _printed_lines(*, indented=True):
 
 
 class PrintedLineGeometryTests(TestCase):
+    def test_second_pass_footnotes_keep_ink_observations_through_model_input(self):
+        node = PageExtractorNode(DeepSeekOCRVendorConfig("https://unused.invalid", "unused", "unused"))
+        with Image.new('RGB', (100, 145), 'white') as original:
+            draw = ImageDraw.Draw(original)
+            for left, top in [(25, 4), (5, 24), (5, 44)]:
+                draw.rectangle((left, top, 95, top + 10), fill='black')
+            for left, top in [(25, 79), (5, 97), (5, 115)]:
+                draw.rectangle((left, top, 95, top + 6), fill='black')
+            with original.copy() as masked, TemporaryDirectory() as directory:
+                ImageDraw.Draw(masked).rectangle((0, 0, 100, 70), fill='white')
+                # Physical observations use the aligned original even when a
+                # later pass has lost ink to a redaction boundary.
+                ImageDraw.Draw(masked).rectangle((0, 75, 100, 88), fill='white')
+                results = []
+                for image, layout in [(original, Layout((0, 0, 100, 70), '正文内容', kind=LayoutKind.TEXT)),
+                                      (masked, Layout((0, 75, 100, 140), '续注的完整文字', kind=LayoutKind.FOOTNOTE))]:
+                    results.append((image, OCRPageResult([layout], 'test', structured=build_structured_page([layout]))))
+                page = node.results2page(results=results, page_index=1, asset_hub=AssetHub(Path(directory)),
+                    includes_footnotes=True, raw_image=None, plot_path=None, input_tokens=0, output_tokens=0,
+                    aborted=lambda: False)
+        restored = decode(encode(page))
+        self.assertEqual(restored.body_layouts[0].printed_line_height, 11.0)
+        note = restored.footnotes_layouts[0]
+        self.assertEqual(note.printed_line_height, 7.0)
+        self.assertEqual(note.printed_line_lefts, (25, 5, 5))
+        self.assertIsNotNone(note.first_line_inset)
+        analysed = project_window([None, restored, None], True)[1]
+        assert analysed is not None
+        messages = build_page_repair_messages(previous_page=None, target_page=analysed,
+            next_page=None, previous_pass_probability=None, next_pass_probability=None)
+        layouts = json.loads(messages[1].message)['target_page']['layouts']
+        evidence = next(item for item in layouts if item['text'] == '续注的完整文字')
+        self.assertEqual(evidence['printed_lines']['median_ink_height'], 7.0)
+        self.assertGreater(evidence['first_line_indent_confidence'], 0.7)
+
+    def test_later_pass_with_different_dimensions_uses_its_own_raster(self):
+        node = PageExtractorNode(DeepSeekOCRVendorConfig("https://unused.invalid", "unused", "unused"))
+        layout = Layout((0, 0, 100, 70), '脚注内容', kind=LayoutKind.FOOTNOTE)
+        with _printed_lines() as current, Image.new('RGB', (20, 20), 'white') as previous, TemporaryDirectory() as directory:
+            layouts = list(node._iter_page_layouts(  # pylint: disable=protected-access
+                current, build_structured_page([layout]), AssetHub(Path(directory)), 2, True, previous))
+        self.assertEqual(layouts[0][0].printed_line_height, 11.0)
+        self.assertEqual(layouts[0][0].printed_line_lefts, (25, 5, 5))
+
+    def test_indent_confidence_summarizes_ink_without_a_paragraph_verdict(self):
+        with _printed_lines() as image, _printed_lines(indented=False) as flat:
+            metrics = printed_line_metrics(image, (0, 0, 100, 70))
+            assert metrics is not None
+            score = first_line_indent_confidence(first_line_inset(image, (0, 0, 100, 70)),
+                                                metrics.median_ink_height, metrics.left_offsets)
+            assert score is not None
+            self.assertGreater(score, 0.7)
+            self.assertLessEqual(score, 1.0)
+            self.assertEqual(first_line_indent_confidence(first_line_inset(flat, (0, 0, 100, 70)),
+                                                         11.0, (5, 5, 5)), 0.0)
+        self.assertEqual(first_line_indent_confidence(2, 11, (25, 5, 5)),
+                         first_line_indent_confidence(2, 11, (125, 105, 105)))
+        self.assertLess(first_line_indent_confidence(2, 11, (25, 5, 20, 5)) or 0,
+                        first_line_indent_confidence(2, 11, (25, 5, 5, 5)) or 0)
+
+    def test_missing_or_invalid_indent_observations_remain_unknown(self):
+        for inset, height, lefts in [(None, 11, (25, 5)), (2, None, (25, 5)),
+                                     (2, 11, (25,)), (2, 0, (25, 5)),
+                                     (float('nan'), 11, (25, 5))]:
+            with self.subTest(inset=inset, height=height, lefts=lefts):
+                self.assertIsNone(first_line_indent_confidence(inset, height, lefts))
+
     def test_ink_height_and_count_are_observations_even_for_one_line(self):
         with _printed_lines() as image:
             self.assertEqual(printed_line_metrics(image, (0, 0, 100, 70)), (3, 11.0, (25, 5, 5)))

@@ -1,6 +1,8 @@
 """Repair smoke checks final facts, independent of where they were corrected."""
 import unittest
 import json
+from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 from pdf_craft.extractor.chapter.generation import prepare_chapter_analysis
@@ -13,6 +15,66 @@ class PageRepairSmokeTests(unittest.TestCase):
     def setUp(self):
         self.analysis = prepare_chapter_analysis(
             Path(__file__).parent / 'assets/analysis/citation_large_ocr', TocInfo([], []))
+
+    def paragraph_fixture(self, answer):
+        from pdf_craft.extractor.chapter.page_repair import _compile_repaired_page
+        from pdf_craft.extractor.chapter.repair_plan import RepairPlan, materialize_plan
+        expected = json.loads((Path(__file__).parent / 'assets/analysis/citation_large_page_repair_expected.json').read_text())
+        target = next(item for item in expected['pages'] if item['page_index'] == 20)
+        source = next(item for item in self.analysis.pages if item.page_index == 20)
+        joins = {identity: index > 0 for group in answer for index, identity in enumerate(group)}
+        joins['layout-85899345921'] = True
+        plan = RepairPlan.model_validate(dict(layouts=[dict(
+            layout_id=f'layout-{item.document_order}',
+            destination=(dict(kind='body', join=joins[f'layout-{item.document_order}'])
+                         if item.source_order else dict(kind='ignored')))
+            for item in source.layouts]))
+        page = _compile_repaired_page(source, materialize_plan(plan, 20))
+        return source, page, {'pages': [target]}
+
+    def test_all_reviewed_paragraph_answers_preserve_delivery(self):
+        fixture = json.loads((Path(__file__).parent / 'assets/analysis/citation_large_page_repair_expected.json').read_text())
+        target = next(item for item in fixture['pages'] if item['page_index'] == 20)
+        self.assertEqual(len(target['paragraph_answers']), 8)
+        for answer in target['paragraph_answers']:
+            with self.subTest(answer=answer):
+                source, page, expected = self.paragraph_fixture(answer)
+                self.assertEqual(_check_final_state([page], expected, source_pages=[source]), [])
+
+    def test_alternative_answers_reject_content_order_and_ownership_damage(self):
+        ids = [f'layout-{(20 << 32) + i}' for i in range(1, 7)]
+        source, good, expected = self.paragraph_fixture([[ids[0]], ids[1:4], ids[4:]])
+        for damage in ('drop', 'duplicate', 'reorder', 'text', 'ignored', 'heading', 'cross_boundary'):
+            with self.subTest(damage=damage):
+                page = deepcopy(good)
+                if damage == 'drop':
+                    page.layouts.pop(3)
+                elif damage == 'duplicate':
+                    page.layouts.insert(3, deepcopy(page.layouts[3]))
+                elif damage == 'reorder':
+                    page.layouts[2], page.layouts[3] = page.layouts[3], page.layouts[2]
+                    for index, item in enumerate(page.layouts):
+                        page.layouts[index] = replace(item, document_order=(20 << 32) + index)
+                elif damage == 'text':
+                    item = page.layouts[3]
+                    page.layouts[3] = replace(item, source=replace(item.source, content=('LOST ORIGINAL CONTENT',)))
+                elif damage == 'ignored':
+                    page.layouts[3].annotations.ownership = 'ignored'
+                elif damage == 'heading':
+                    page.layouts[2].annotations.paragraph_role = 'heading'
+                else:
+                    page.layouts[5].annotations.continues_from_previous = True
+                    page.layouts[4].annotations.continues_to_next = True
+                self.assertTrue(_check_final_state([page], expected, source_pages=[source]))
+
+    def test_paragraph_oracle_requires_source_and_complete_answer_contract(self):
+        ids = [f'layout-{(20 << 32) + i}' for i in range(1, 7)]
+        source, page, expected = self.paragraph_fixture([[ids[0]], ids[1:4], ids[4:]])
+        with self.assertRaises(ValueError):
+            _check_final_state([page], expected)
+        expected['pages'][0]['paragraph_answers'] = [[[ids[0]]]]
+        with self.assertRaises(ValueError):
+            _check_final_state([page], expected, source_pages=[source])
 
     def test_model_seam_evidence_uses_immediate_sides_not_a_later_page_wrap(self):
         page = next(item for item in self.analysis.pages if item.page_index == 12)

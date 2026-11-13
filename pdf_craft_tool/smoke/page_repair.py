@@ -114,7 +114,7 @@ async def _run_page_repair_smoke(
 
     with report.stage("check"):
         expected = json.loads(expected_path.read_text(encoding="utf-8"))
-        errors = _check_final_state(repaired, expected)
+        errors = _check_final_state(repaired, expected, source_pages=analysis.pages)
         if actual['review_page_indexes'] != expected['review_page_indexes']:
             errors.append('Fixed page repair admission differs from committed selection')
     attempts = {
@@ -139,7 +139,8 @@ async def _run_page_repair_smoke(
     )
 
 
-def _check_final_state(pages: list[PageAnalysis], expected: dict[str, Any]) -> list[str]:
+def _check_final_state(pages: list[PageAnalysis], expected: dict[str, Any], *,
+                       source_pages: list[PageAnalysis] | None = None) -> list[str]:
     """Check target facts even when the initial algorithm already establishes them.
 
     Changes remain diagnostic output. Expectations describe final state, not a
@@ -167,6 +168,62 @@ def _check_final_state(pages: list[PageAnalysis], expected: dict[str, Any]) -> l
                             ('references', _reference_semantics(page))):
             if name in target and target[name] != value:
                 errors.append(f'Page {index}: final {name} differ from target')
+        if 'paragraph_answers' in target:
+            source = next((item for item in source_pages or [] if item.page_index == index), None)
+            if source is None:
+                raise ValueError('Paragraph delivery checks require original source pages')
+            errors.extend(_check_paragraph_answers(page, source, target))
+    return errors
+
+
+def _check_paragraph_answers(page, source, target):
+    """Allow reviewed paragraph variants, with exact source/content preservation.
+
+    This fixture-level oracle does not decide prose semantics in production.
+    Compare actual assembly output, never a model explanation or join flag alone.
+    """
+    from copy import deepcopy
+    from xml.etree.ElementTree import tostring
+    from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem, _encode_fragment
+    from pdf_craft.extractor.chapter.page_analysis import restore_streams
+    required = target['body_sources']
+    answers = target['paragraph_answers']
+    if (not answers or len(set(required)) != len(required)
+            or any([identity for group in answer for identity in group] != required
+                   or any(not group for group in answer) for answer in answers)):
+        raise ValueError('Paragraph answers must partition every required source in order')
+
+    def delivered(value):
+        stream = restore_streams([value])
+        groups, fragments = [], []
+        if stream.citations:
+            raise ValueError('Unexpected note in body-only paragraph fixture')
+        for item in stream.paragraphs:
+            if not isinstance(item, TextFlowItem) or item.role != 'body':
+                raise ValueError('Expected body text paragraphs only')
+            group = []
+            for fragment in item.children:
+                if not isinstance(fragment, SourceTextFragment):
+                    raise ValueError('Unexpected asset in text-only paragraph fixture')
+                group.append(f'layout-{(fragment.page_index << 32) + fragment.source_order}')
+                fragments.append(tostring(_encode_fragment(fragment)))
+            groups.append(group)
+        return groups, fragments
+
+    try:
+        groups, fragments = delivered(page)
+        original = deepcopy(source)
+        original.layouts = [item for item in original.layouts if _layout_id(item) in required]
+        source_groups, source_fragments = delivered(original)
+    except (ValueError, TypeError) as error:
+        return [f'Page {page.page_index}: paragraph delivery failed: {error}']
+    errors = []
+    if ([identity for group in source_groups for identity in group] != required
+            or [identity for group in groups for identity in group] != required
+            or fragments != source_fragments):
+        errors.append(f'Page {page.page_index}: body source content/order differs from original')
+    if groups not in answers:
+        errors.append(f'Page {page.page_index}: delivered paragraphs match no reviewed answer')
     return errors
 
 

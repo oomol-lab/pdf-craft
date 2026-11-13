@@ -44,6 +44,17 @@ def text_of(chapter):
 
 
 class InitialTextOperationsTests(TestCase):
+    def test_model_input_omits_only_identical_projected_text(self):
+        from pdf_craft.extractor.chapter.page_repair import build_page_repair_messages
+        source = scene(('text', (0, 0, 100, 20), 'An unchanged sentence.'))
+        before = deepcopy(source)
+        messages = build_page_repair_messages(previous_page=None, target_page=source,
+            next_page=None, previous_pass_probability=None, next_pass_probability=None)
+        item = json.loads(messages[1].message)['target_page']['layouts'][0]
+        self.assertEqual(item['text'], 'An unchanged sentence.')
+        self.assertNotIn('projected_text', item)
+        self.assertEqual(source, before)
+
     def test_suggestion_can_be_accepted_or_rejected_without_moving_source_offsets(self):
         source = initial_join(('text', (0, 0, 100, 20), 'An inter‐ '),
                        ('text', (0, 20, 100, 40), ' national word.'))
