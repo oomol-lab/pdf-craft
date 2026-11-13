@@ -21,6 +21,7 @@ from ...common.whitespace import is_whitespace
 from ...llm import Message, MessageRole
 from ...llm.guaranteed import GuaranteedOptions, request_guaranteed_json
 from ...pdf import Page
+from ...pdf.line_geometry import first_line_indent_confidence
 from .analysis_types import (
     AssetAttachment,
     AnalysedCitation,
@@ -484,6 +485,10 @@ def _layout_packet(
         "source_type": getattr(layout.source, "ref", "text"),
         "bbox": list(layout.bbox),
         "first_line_extra_indent_vs_later_lines_in_same_box": getattr(getattr(layout.source, "origin", None), "first_line_inset", None),
+        "first_line_indent_confidence": first_line_indent_confidence(
+            getattr(getattr(layout.source, "origin", None), "first_line_inset", None),
+            getattr(getattr(layout.source, "origin", None), "printed_line_height", None),
+            getattr(getattr(layout.source, "origin", None), "printed_line_lefts", None)),
         "printed_lines": _printed_lines_packet(layout),
         "text": text,
         "definition_mark": definition_mark,
@@ -504,6 +509,8 @@ def _layout_packet(
         "independent_stream": layout.annotations.independent_stream,
     }
 
+    if packet['projected_text'] == packet['text']:
+        packet.pop('projected_text')
     association = asset_text_packet(layout)
     if association is not None:
         packet['asset_text_association'] = association

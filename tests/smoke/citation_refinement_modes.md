@@ -47,3 +47,23 @@ as translated headers, page numbers or missed notes. Source headers and disabled
 notes can therefore correctly remain as their original scanned background.
 The page-1 non-linear note diagram should also retain its original artwork,
 while prose before/after it is translated and stays in the same note.
+
+## Large-page repair: reviewed paragraph alternatives
+
+The separate `citation_large_page_repair.json` matrix accepts eight explicit
+delivery variants on page 20. Its introductory prose, Freud quotation and
+author's commentary remain three distinct regions in their original order.
+Within the quotation, either internal boundary may be retained or merged;
+the two commentary paragraphs may likewise remain separate or merge. These
+are coherent developments within the same quotation or commentary, rather than
+changes of reading ownership. The assertion protects those region boundaries,
+not exact reproduction of every printed paragraph.
+
+`paragraph_answers` lists the complete combinations, not independent wildcard
+flags. The oracle assembles each submitted page through production assembly,
+then checks its paragraph groups and exact serialized source fragments against
+the original input. Missing, duplicated, reordered, rewritten or cropped text,
+unexpected notes/assets/headings, and joins across the three regions fail.
+Original source evidence is required; an absent or incomplete answer contract
+is an error. Other page targets, including page 12, are unchanged. The three-page
+citation/footnote fixture above has not been relaxed by this page-20 change.
