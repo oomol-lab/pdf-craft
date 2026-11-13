@@ -1,17 +1,8 @@
 {% if required_node %}
-{{ node }} is a MISPLACED required identity, not a disposable extra block.
-The template requires {{ required_node }} under {{ parent }}. Move the existing
-node to that parent with the required tag, retaining its text, tail and required
-descendants in translation order. Do not delete it or create a second copy.
+Misplaced identity {{ node }}. Expected {{ required_node }} under {{ parent }};
+found at the candidate location reported above.
 {% elif block %}
-Unexpected block identity {{ node }} has no source output position. Move any
-genuine translated content and required descendants into the appropriate existing
-required blocks, preserving reading order and resource boundaries; then remove
-only this surplus wrapper. Do not discard translation to repair structure.
+Unexpected block identity {{ node }} has no source output position.
 {% else %}
-Unexpected inline identity {{ node }} is not in the source template. If this is
-a required anonymous formatting slot, remove the invented ID while retaining
-that slot. If it is a surplus formatting wrapper, UNWRAP it while keeping its
-text, tail and required descendants in place. Never delete translation merely
-to remove a wrapper or ID. Correct any separately reported text difference too.
+Unexpected inline identity {{ node }} is not in the source template.
 {% endif %}

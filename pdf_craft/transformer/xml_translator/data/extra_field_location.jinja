@@ -1,5 +1,3 @@
 Extra range in {{ path }}: NORMALIZED COMPARISON VIEW [{{ left }}:{{ right }}).
 {% if raw_left is not none %}This corresponds to raw character range [{{ raw_left }}:{{ raw_right }}) in that field (zero-based, end exclusive).
-{% endif %}If retaining the current allocation, remove only this extra range and preserve
-correct prefix/suffix and required nodes. This is not a required allocation; placement may change, full content may not.
-Surplus invented wrappers/IDs may be removed as structure feedback requires.
+{% endif %}These locations describe the current allocation, not required placement.

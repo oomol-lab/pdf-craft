@@ -53,7 +53,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertEqual(''.join(result.itertext()), 'ab')
                 self.assertEqual(runtime.context_value.calls, 2)
                 feedback = repair_feedback(runtime.context_value.messages[1][0])
-                self.assertIn('MISPLACED, not disposable', feedback)
+                self.assertIn('p#1 > expression > expression', feedback)
                 self.assertNotIn('Fix: Remove all', feedback)
                 self.assertIn('SOURCE_ONLY_LEFT', runtime.context_value.messages[0][0][1].message)
                 self.assertNotIn('SOURCE_ONLY_LEFT', runtime.context_value.messages[1][0][1].message)
@@ -223,7 +223,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertNotIn('unterminated', previous_xml(third))
 
     async def test_diff_locations_do_not_freeze_the_models_field_allocation(self):
-        for text, permission in [('AAB', 'not a required allocation'), ('A', 'not a required destination')]:
+        for text, permission in [('AAB', 'not required placement'), ('A', 'not a required destination')]:
             with self.subTest(text=text):
                 translator, runtime = _repairing_translator([
                     f'<xml><p id="1">{text}</p><p id="2"/></xml>',
@@ -287,8 +287,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual([n.tag for n in result[0]], ['i'])
         self.assertEqual(runtime.context_value.calls, 2)
         feedback = repair_feedback(runtime.context_value.messages[1][0])
-        self.assertIn('keeping every required element, ID and attribute', feedback)
-        self.assertIn('Surplus invented wrappers/IDs may be removed', feedback)
+        self.assertIn('Unexpected inline identity', feedback)
+        self.assertNotIn('UNWRAP', feedback)
         self.assertNotIn('keeping every element, ID and attribute', feedback)
 
     async def test_surplus_expression_can_be_unwrapped_without_losing_its_text(self):
@@ -347,7 +347,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertEqual(''.join(result.itertext()), 'ab')
                 self.assertEqual(runtime.context_value.calls, 2)
                 feedback = repair_feedback(runtime.context_value.messages[1][0])
-                self.assertIn('MISPLACED required identity', feedback)
+                self.assertIn('Misplaced identity', feedback)
                 self.assertIn('under xml/p#1', feedback)
                 self.assertNotIn('Remove this unexpected block', feedback)
                 self.assertEqual('ALREADY MATCHES' in feedback, kind == 'matched')
