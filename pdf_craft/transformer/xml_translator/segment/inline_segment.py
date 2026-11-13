@@ -238,6 +238,7 @@ class InlineSegment:
         for child in self._child_inline_segments():
             if child.id is not None:
                 remain_expected_elements[child.id] = child.parent
+        known_ids = set(remain_expected_elements)
 
         for _, child_element in iter_with_stack(validated_element):
             if child_element is validated_element:
@@ -265,7 +266,7 @@ class InlineSegment:
                 id2element=remain_expected_elements,
             )
 
-        yield from self._validate_children_structure(validated_element)
+        yield from self._validate_children_structure(validated_element, known_ids)
 
     def _child_inline_segments(self) -> Generator["InlineSegment", None, None]:
         for child in self._children:
@@ -273,10 +274,17 @@ class InlineSegment:
                 yield child
                 yield from child._child_inline_segments()  # pylint: disable=protected-access
 
-    def _validate_children_structure(self, validated_element: Element):
+    def _validate_children_structure(self, validated_element: Element, known_ids: set[int]):
         tag2found_elements: dict[str, list[Element]] = {}
+        direct_ids = {child.id: child.parent for child in self._children
+                      if isinstance(child, InlineSegment) and child.id is not None}
 
         for child_element in validated_element:
+            identity = id_in_element(child_element)
+            if identity is not None and identity in known_ids:
+                expected = direct_ids.get(identity)
+                if expected is None or expected.tag != child_element.tag:
+                    yield InlineUnexpectedIDError(identity, child_element)
             ids = self._child_tag2ids.get(child_element.tag, None)
             if not ids:
                 found_elements = ensure_list(tag2found_elements, child_element.tag)
@@ -305,12 +313,15 @@ class InlineSegment:
                 )
 
         for child, child_element in self._match_children(validated_element):
+            if child.id != id_in_element(child_element):
+                continue  # Invalid identities cannot identify a subtree for validation.
             # pylint: disable=protected-access
-            for error in child._validate_children_structure(child_element):
-                error.stack.insert(0, self.parent)
+            for error in child._validate_children_structure(child_element, known_ids):
+                if isinstance(error, (InlineLostIDError, InlineWrongTagCountError)):
+                    error.stack.insert(0, self.parent)
                 yield error
 
-    # 即便 self.validate(...) 的错误没有排除干净，也要尽可能匹配一个质量较高（尽力而为）的版本
+    # Bind source attributes only after validation, retaining accepted content/order.
     def assign_attributes(self, template_element: Element) -> Element:
         assigned_element = Element(self.parent.tag, self.parent.attrib)
         if template_element.text:

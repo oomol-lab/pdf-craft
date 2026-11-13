@@ -7,7 +7,7 @@ from collections import Counter
 from collections.abc import Generator
 from xml.etree.ElementTree import Element
 
-from ..xml.matching import element_id, match_children
+from ..xml.matching import element_id
 from .common import FoundInvalidIDError, validate_id_in_element
 from .inline_segment import (
     InlineError, InlineExpectedIDsError, InlineLostIDError,
@@ -37,12 +37,18 @@ class SiblingInlineScopes:
         for members in self._groups:
             for member in members:
                 for child in self._children(member):
-                    child.id = 0
+                    self._identify_subtree(child)
         self._by_block: dict[int, tuple[int, list[InlineSegment], dict[int, InlineSegment]]] = {}
 
     @staticmethod
     def _children(segment: InlineSegment) -> list[InlineSegment]:
         return [child for child in segment.children if isinstance(child, InlineSegment)]
+
+    @classmethod
+    def _identify_subtree(cls, segment: InlineSegment) -> None:
+        segment.id = 0
+        for child in cls._children(segment):
+            cls._identify_subtree(child)
 
     def bind_ids(self) -> None:
         for scope, members in enumerate(self._groups, 1):
@@ -61,7 +67,6 @@ class SiblingInlineScopes:
         entry = self._by_block.get(block.id) if block.id is not None else None
         if entry is None:
             yield from block.validate(candidate)
-            yield from self._validate_nested_parents(block, candidate)
             return
         _, members, children = entry
         # A required subtree must occur directly below one of the allowed
@@ -90,30 +95,6 @@ class SiblingInlineScopes:
                 # Descendants stay attached to this root: validate the entire
                 # subtree with the unchanged local nesting/identity contract.
                 yield from source.validate(node)
-                yield from self._validate_nested_parents(source, node)
-
-    def _validate_nested_parents(self, source: InlineSegment, candidate: Element
-                                 ) -> Generator[InlineError | FoundInvalidIDError, None, None]:
-        children = self._children(source)
-        expected = {child.id: child for child in children if child.id is not None}
-        present = {element_id(node) for node in candidate}
-        missing = {identity: child.parent for identity, child in expected.items()
-                   if identity not in present}
-        if missing:
-            yield InlineExpectedIDsError(missing)
-        for node in candidate:
-            if node.get('id') is None:
-                continue
-            identity = validate_id_in_element(node)
-            if isinstance(identity, FoundInvalidIDError):
-                continue  # The ordinary subtree validator already reports it.
-            child = expected.get(identity)
-            if child is None:
-                yield InlineUnexpectedIDError(identity, node)
-            elif node.tag != child.parent.tag:
-                yield InlineUnexpectedIDError(identity, node)
-        for child, node in match_children(((child.parent.tag, child.id, child) for child in children), candidate):
-            yield from self._validate_nested_parents(child, node)
 
     def adopt(self, block: InlineSegment, candidate: Element) -> Element:
         """Bind a validated candidate without restoring its old parent/order."""

@@ -2,17 +2,20 @@
 from copy import deepcopy
 from unittest import TestCase, IsolatedAsyncioTestCase
 from xml.etree.ElementTree import Element, fromstring, tostring
+from tiktoken import get_encoding
 
 from pdf_craft._policy import policy_operation
 from pdf_craft.extractor.chapter.chapter import Chapter, TextFlowItem, SourceTextFragment, encode
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer.fill_text import comparison_text
 from pdf_craft.transformer.xml_translator.segment import (
-    BlockSegment, ImmutableBlockElement, search_inline_segments, search_text_segments,
+    BlockContentError, BlockSegment, ImmutableBlockElement, InlineExpectedIDsError,
+    search_inline_segments, search_text_segments,
 )
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
+from pdf_craft.transformer.xml_translator.xml_translator.hill_climbing import HillClimbing
 from pdf_craft.transformer.xml_translator.xml_translator.submitter import SubmitKind
 from tests.translation_model import translator_fixture
 from tests.fill_fixtures import model_replies
@@ -27,6 +30,66 @@ def contract(xml, anchors=None):
 
 
 class SiblingInlineTests(TestCase):
+    def test_missing_nested_identity_is_reported_once(self):
+        _, _, block, candidate = contract(
+            '<body><p><span><em class="a">x</em><em class="b">y</em></span></p><p>z</p></body>')
+        candidate[0][0].remove(candidate[0][0][0])
+        errors = list(block.validate(candidate))
+        self.assertEqual(len(errors), 1)
+        error = errors[0]
+        assert isinstance(error, BlockContentError)
+        missing = [item for item in error.errors if isinstance(item, InlineExpectedIDsError)]
+        self.assertEqual(len(missing), 1)
+
+    def test_anonymous_descendants_can_reorder_without_changing_parents(self):
+        _, _, block, candidate = contract(
+            '<body><p><span><em><b>x</b></em><em><i>y</i></em></span></p><p>z</p></body>')
+        first, second = candidate
+        subtree = first[0]
+        self.assertTrue(all(node.get('id') for node in subtree.iter()))
+        subtree[:] = list(reversed(subtree))
+        first.remove(subtree)
+        second.append(subtree)
+        self.assertEqual(list(block.validate(candidate)), [])
+        adopted = [item.submitted_element for item in block.submit(candidate)]
+        self.assertEqual([node.tag for node in adopted[1][0][0]], ['i'])
+        self.assertEqual([node.tag for node in adopted[1][0][1]], ['b'])
+        self.assertEqual(''.join(adopted[1].itertext()), 'zyx')
+
+    def test_invalid_submit_returns_feedback_without_partial_adoption(self):
+        _, _, block, candidate = contract('<body><p>A<span>B</span></p><p>C</p></body>')
+        hill = HillClimbing(get_encoding('cl100k_base'), 3, block)
+        for identity in (None, '999'):
+            with self.subTest(identity=identity):
+                invalid = deepcopy(candidate)
+                if identity is None:
+                    invalid[0][0].attrib.pop('id')
+                else:
+                    invalid[0][0].set('id', identity)
+                self.assertIsNotNone(hill.submit(invalid))
+                self.assertTrue(all(mapping is None for mapping in hill.gen_mappings()))
+        self.assertIsNone(hill.submit(candidate))
+        adopted = [''.join(part.text for part in mapping[1]) for mapping in hill.gen_mappings() if mapping is not None]
+        self.assertEqual(adopted, ['AB', 'C'])
+        rejected = deepcopy(candidate)
+        rejected[1].text = 'Wrong'
+        rejected[0][0].attrib.pop('id')
+        self.assertIsNotNone(hill.submit(rejected))
+        self.assertEqual([''.join(part.text for part in mapping[1]) for mapping in hill.gen_mappings() if mapping is not None], adopted)
+        replacement = deepcopy(candidate)
+        replacement[1].text = 'New'
+        self.assertIsNone(hill.submit(replacement))
+        self.assertEqual([''.join(part.text for part in mapping[1]) for mapping in hill.gen_mappings() if mapping is not None], ['AB', 'New'])
+
+    def test_error_display_limit_cannot_disable_structure_validation(self):
+        for limit in (0, -1):
+            with self.subTest(limit=limit):
+                _, _, block, candidate = contract('<body><p>A<span>B</span></p><p>C</p></body>')
+                candidate[0][0].attrib.pop('id')
+                hill = HillClimbing(get_encoding('cl100k_base'), limit, block)
+                self.assertIsNotNone(hill.submit(candidate))
+                self.assertTrue(all(mapping is None for mapping in hill.gen_mappings()))
+
     def test_identical_anonymous_inline_nodes_get_distinct_request_ids(self):
         _, _, block, candidate = contract('<body><p><span>x</span><span>y</span></p><p>z</p></body>')
         ids = [node.get('id') for node in candidate.iter('span')]
