@@ -195,7 +195,8 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
                 self.assertTrue(all(item['ocr_stream'] == 'footnote' and item['ownership'] == 'ignored'
                                     for item in previous['excluded_candidates']))
             for messages in prompts:
-                self.assertIn('split and account for every range', messages[0].message)
+                self.assertIn('All ranges, including ignored ones, form a disjoint complete partition.',
+                              messages[0].message)
                 self.assertIn('notes and references must be empty', messages[0].message)
                 if note_assets and json.loads(messages[1].message)['target_page']['page_index'] == 1:
                     assets = [item for item in json.loads(messages[1].message)['target_page']['layouts']
