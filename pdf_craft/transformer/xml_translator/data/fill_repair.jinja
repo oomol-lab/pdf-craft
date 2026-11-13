@@ -16,10 +16,17 @@ required containers may stay empty. Redistribute consecutive passages when
 needed, preserving final reading order, nesting and resource boundaries. Block
 IDs fix output positions; rearranging blocks in your answer cannot move them.
 
-Direct inline children may move between blocks in the same declared inline-scope,
-keeping IDs and complete subtrees. No movement across scopes or nesting levels;
-unmarked blocks retain source nesting. Scope declarations come from the source,
-not new attributes in a candidate.
+Blocks with the same inline-scope are real source siblings. Direct inline
+children may move between those blocks, never across scopes or nesting levels.
+Unmarked blocks have their own local inline domain. Block IDs remain unique and
+fix output positions. Inline tags do not use IDs: signature identifies an
+attribute variant, not an occurrence number. Reuse existing signature values
+when splitting or repeating a wrapper; never renumber them or assign a fresh
+value to an extra occurrence. For each tag, retain every supplied signature
+at least once across its domain; counts and positions may change. A tag without
+signature has only one attribute variant: retain it at least once and do not add
+signature. Do not invent tags or signatures. Child structure must still identify
+an unambiguous source template; moving a subtree preserves its nesting.
 
 Diagnostics describe the current allocation, not mandatory field quotas. Use
 actual translation characters, not normalized previews or count instructions.

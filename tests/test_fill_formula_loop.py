@@ -37,6 +37,15 @@ def protected_fixture(case):
         node.text = r'\(' + formulas(source)[int(keys[node.get('id')][1:]) - 1] + r'\)'
         for child in list(node):
             node.remove(child)
+    # The archived model answer used occurrence IDs. Current inline attributes
+    # use signatures, while fragment delivery IDs are numbered independently.
+    for index, fragment in enumerate((node for node in root if node.tag != 'anchor'), 1):
+        fragment.set('id', str(index))
+    for anchor in root.iter('anchor'):
+        anchor.attrib.pop('id', None)
+    for index, node in enumerate(nodes, 1):
+        node.attrib.pop('id', None)
+        node.set('signature', str(index))
     canonical = ''.join(root.itertext())
     return canonical, tostring(root, encoding='unicode')
 

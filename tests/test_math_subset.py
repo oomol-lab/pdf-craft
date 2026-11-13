@@ -117,8 +117,8 @@ class MathSubsetFillTests(IsolatedAsyncioTestCase):
                 translator, model = translator_fixture()
                 tag = 'p' if epub else 'fragment'
                 answer = (f'<xml><{tag} id="1">Relation '
-                          r'<expression id="2">\(\chi(n)=\)</expression>'
-                          r'<expression id="3">\(\chi^{\prime}(n)\)</expression>'
+                          r'<expression signature="1">\(\chi(n)=\)</expression>'
+                          r'<expression signature="2">\(\chi^{\prime}(n)\)</expression>'
                           f'.</{tag}></xml>')
                 model_replies(model, artist, [answer])
                 if epub:

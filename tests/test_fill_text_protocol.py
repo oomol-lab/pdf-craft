@@ -137,7 +137,7 @@ class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(runtime.context_value.calls, 1)
 
     async def test_real_fill_prompt_allows_empty_format_slots_without_source_fallback(self):
-        response = '<xml><fragment id="1"><span id="2">是</span><span id="3"/><span id="4"/></fragment></xml>'
+        response = '<xml><fragment id="1"><span signature="1">是</span><span signature="2"/><span signature="3"/></fragment></xml>'
         translator, runtime = _repairing_translator([response])
         translator._translate_text_async = AsyncMock(return_value='是')
         result = await NarrativeXMLTransformer(translator).transform(source_chapter(styled=True))
@@ -148,8 +148,8 @@ class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(list(encode(result).iter('span'))), 3)
 
     async def test_source_padding_is_rejected_then_correct_empty_slots_are_accepted(self):
-        bad = '<xml><fragment id="1"><span id="2">是</span><span id="3">e</span><span id="4">s</span></fragment></xml>'
-        good = '<xml><fragment id="1"><span id="2">是</span><span id="3"/><span id="4"/></fragment></xml>'
+        bad = '<xml><fragment id="1"><span signature="1">是</span><span signature="2">e</span><span signature="3">s</span></fragment></xml>'
+        good = '<xml><fragment id="1"><span signature="1">是</span><span signature="2"/><span signature="3"/></fragment></xml>'
         translator, runtime = _repairing_translator([bad, good])
         translator._translate_text_async = AsyncMock(return_value='是')
         result = await NarrativeXMLTransformer(translator).transform(source_chapter(styled=True))

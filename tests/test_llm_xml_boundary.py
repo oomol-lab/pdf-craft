@@ -43,8 +43,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         for last in ('b', 'c'):
             with self.subTest(last=last):
                 translator, runtime = _repairing_translator([
-                    f'<xml><p id="1"><expression id="2">a<expression id="3">{last}</expression></expression></p></xml>',
-                    '<xml><p id="1"><expression id="2">a</expression><expression id="3">b</expression></p></xml>'])
+                    f'<xml><p id="1"><expression signature="1">a<expression signature="2">{last}</expression></expression></p></xml>',
+                    '<xml><p id="1"><expression signature="1">a</expression><expression signature="2">b</expression></p></xml>'])
                 translator._translate_text_async = AsyncMock(return_value='ab')
                 result, _ = await StructuredTranslation().translate(translator, TranslationTask(fromstring(
                     '<body><p><expression id="2" display="inline">SOURCE_ONLY_LEFT</expression>'
@@ -53,7 +53,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertEqual(''.join(result.itertext()), 'ab')
                 self.assertEqual(runtime.context_value.calls, 2)
                 feedback = repair_feedback(runtime.context_value.messages[1][0])
-                self.assertIn('p#1 > expression > expression', feedback)
+                self.assertIn('<expression signature="2">', feedback)
                 self.assertNotIn('Fix: Remove all', feedback)
                 self.assertIn('SOURCE_ONLY_LEFT', runtime.context_value.messages[0][0][1].message)
                 self.assertNotIn('SOURCE_ONLY_LEFT', runtime.context_value.messages[1][0][1].message)
@@ -63,7 +63,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                     self.assertIn('ALREADY MATCHES', feedback)
                 else:
                     self.assertNotIn('ALREADY MATCHES', feedback)
-                    self.assertIn('Missing 1, added 1', feedback)
+                    self.assertIn('+++ translation.normalized.txt', feedback)
 
     async def test_repairs_keep_latest_actual_answer_and_complete_translation(self):
         values = ['BAD_ROUND_ZERO', 'BAD_ROUND_ONE', 'BAD_ROUND_TWO', 'ab']
@@ -91,13 +91,13 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 for old in values[:index-1]:
                     self.assertNotIn(old, previous_xml(messages))
                 self.assertNotIn('<translation xml:space="preserve">', repair_feedback(messages))
-                self.assertIn('expected[0:2]=<expected_view xml:space="preserve">ab</expected_view>', repair_feedback(messages))
+                self.assertIn('+++ translation.normalized.txt', repair_feedback(messages))
 
     async def test_repairs_keep_full_source_contract_and_actual_candidate_for_all_error_types(self):
         translator, runtime = _repairing_translator([
-            '<xml><p id="1"><expression id="2">wrong</expression><expression id="3"/></p></xml>',
-            '<xml><p id="1"><expression id="2">ab</expression></p></xml>',
-            '<xml><p id="1"><expression id="2">a</expression><expression id="3">b</expression></p></xml>'])
+            '<xml><p id="1"><expression signature="1">wrong</expression><expression id="3"/></p></xml>',
+            '<xml><p id="1"><expression signature="1">ab</expression></p></xml>',
+            '<xml><p id="1"><expression signature="1">a</expression><expression signature="2">b</expression></p></xml>'])
         translator._translate_text_async = AsyncMock(return_value='ab')
         result, _ = await StructuredTranslation().translate(translator, TranslationTask(
             fromstring('<body><p><expression id="2" display="inline">SOURCE_REFERENCE_ONLY</expression><expression id="3" display="inline">REFERENCE</expression></p></body>'), SubmitKind.REPLACE, None),
@@ -111,7 +111,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         source = re.search(r'```XML\n(.*?)\n```', requests[2][1].message, re.S)
         assert source is not None
         required = decoded(source[1], 'xml')
-        self.assertEqual({node.get('id') for node in required.iter()}, {None, '1', '2', '3'})
+        self.assertEqual({node.get('signature') for node in required.iter()}, {None, '1', '2'})
         for messages in requests:
             payload = re.search(r'<translation\b.*?</translation>', messages[1].message, re.S)
             assert payload is not None
@@ -151,8 +151,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
 
     async def test_empty_inline_nodes_may_precede_filled_siblings_without_losing_identity(self):
         translator, runtime = _repairing_translator([
-            '<xml><p id="1"><i id="3"/><i id="4"/>'
-            '<i id="2">A</i></p></xml>'])
+            '<xml><p id="1"><i signature="2"/><i signature="3"/>'
+            '<i signature="1">A</i></p></xml>'])
         translator._translate_text_async = AsyncMock(return_value='A')
         source = fromstring('<body><p><i id="source-a">Alpha</i>'
                             '<i id="source-b">Beta</i>'
@@ -165,7 +165,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
 
     async def test_duplicate_source_values_do_not_require_each_identity_to_be_nonempty(self):
         translator, runtime = _repairing_translator([
-            '<xml><p id="1"><i id="2">Echo.</i><i id="3"/></p></xml>'])
+            '<xml><p id="1"><i signature="1">Echo.</i><i signature="2"/></p></xml>'])
         translator._translate_text_async = AsyncMock(return_value='Echo.')
         source = fromstring('<body><p><i id="source-a">Echo.</i>'
                             '<i id="source-b">Echo.</i></p></body>')
@@ -215,7 +215,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertEqual(runtime.context_value.calls, 3)
                 third = runtime.context_value.messages[2][0]
                 self.assertEqual(''.join(decoded(previous_xml(third), 'xml')[0].itertext()), 'Echo. Echo.')
-                self.assertIn('Missing 5, added 0', repair_feedback(third))
+                self.assertIn('3 times in the translation and 2 times in the candidate', repair_feedback(third))
                 self.assertIn('complete earlier answer from THIS loop', repair_feedback(third))
                 self.assertIn('already passed the required source structure checks', third[1].message)
                 self.assertEqual(third[1].message.count('```XML'), 1)
@@ -223,7 +223,7 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertNotIn('unterminated', previous_xml(third))
 
     async def test_diff_locations_do_not_freeze_the_models_field_allocation(self):
-        for text, permission in [('AAB', 'not required placement'), ('A', 'not a required destination')]:
+        for text in ('AAB', 'A'):
             with self.subTest(text=text):
                 translator, runtime = _repairing_translator([
                     f'<xml><p id="1">{text}</p><p id="2"/></xml>',
@@ -237,8 +237,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertEqual(result[1].text, 'AB')
                 self.assertEqual(runtime.context_value.calls, 2)
                 feedback = repair_feedback(runtime.context_value.messages[1][0])
-                self.assertIn(permission, feedback)
-                self.assertIn('p#1.text', feedback)
+                self.assertIn('+++ translation.normalized.txt', feedback)
+                self.assertNotIn('p#1.text', feedback)
                 self.assertNotIn('does not authorize emptying', feedback)
 
     async def test_nearer_text_with_missing_inline_node_is_a_repair_input_only(self):
@@ -287,15 +287,15 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual([n.tag for n in result[0]], ['i'])
         self.assertEqual(runtime.context_value.calls, 2)
         feedback = repair_feedback(runtime.context_value.messages[1][0])
-        self.assertIn('Unexpected inline identity', feedback)
+        self.assertIn('no permitted source tag/signature', feedback)
         self.assertNotIn('UNWRAP', feedback)
         self.assertNotIn('keeping every element, ID and attribute', feedback)
 
     async def test_surplus_expression_can_be_unwrapped_without_losing_its_text(self):
         translator, runtime = _repairing_translator([
-            '<xml><p id="1"><expression id="2">a</expression> '
-            '<expression id="3">b</expression> <expression id="4">c</expression></p></xml>',
-            '<xml><p id="1"><expression id="2">a</expression> <expression id="3">b</expression> c</p></xml>'])
+            '<xml><p id="1"><expression signature="1">a</expression> '
+            '<expression signature="2">b</expression> <expression signature="999">c</expression></p></xml>',
+            '<xml><p id="1"><expression signature="1">a</expression> <expression signature="2">b</expression> c</p></xml>'])
         translator._translate_text_async = AsyncMock(return_value='a b c')
         source = fromstring('<body><p><expression id="left" display="inline">u</expression>'
                             '<expression id="right" display="inline">v</expression></p></body>')
@@ -338,8 +338,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 outer = {'matched': 'ab', 'different': 'abc', 'outside': ''}[kind]
                 a, b = ('a', 'b') if kind == 'outside' else ('', '')
                 translator, runtime = _repairing_translator([
-                    f'<xml><p id="1">{outer}</p><expression id="2">{a}</expression><expression id="3">{b}</expression></xml>',
-                    '<xml><p id="1"><expression id="2">a</expression><expression id="3">b</expression></p></xml>'])
+                    f'<xml><p id="1">{outer}</p><expression signature="1">{a}</expression><expression signature="2">{b}</expression></xml>',
+                    '<xml><p id="1"><expression signature="1">a</expression><expression signature="2">b</expression></p></xml>'])
                 translator._translate_text_async = AsyncMock(return_value='ab')
                 result, _ = await StructuredTranslation().translate(translator, TranslationTask(fromstring(
                     '<body><p><expression id="2" display="inline">SOURCE</expression><expression id="3" display="inline">REFERENCE</expression></p></body>'), SubmitKind.REPLACE, None),
@@ -347,11 +347,10 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertEqual(''.join(result.itertext()), 'ab')
                 self.assertEqual(runtime.context_value.calls, 2)
                 feedback = repair_feedback(runtime.context_value.messages[1][0])
-                self.assertIn('Misplaced identity', feedback)
-                self.assertIn('under xml/p#1', feedback)
+                self.assertIn('Invalid or missing ID attribute', feedback)
+                self.assertIn('Inline contract violation', feedback)
                 self.assertNotIn('Remove this unexpected block', feedback)
-                self.assertEqual('ALREADY MATCHES' in feedback, kind == 'matched')
-                self.assertEqual('Extra range in p#1.text' in feedback, kind == 'different')
+                self.assertNotIn('RAW CONTENT STATUS', feedback)  # Invalid root slots cannot claim a reliable content view.
 
     async def test_duplicate_blocks_cannot_claim_content_is_already_complete(self):
         translator, runtime = _repairing_translator([
@@ -366,8 +365,8 @@ class LLMXMLBoundaryTests(IsolatedAsyncioTestCase):
 
     async def test_unowned_text_cannot_claim_content_is_already_complete(self):
         translator, runtime = _repairing_translator([
-            '<xml>unowned<p id="1"><expression id="2">a<expression id="3">b</expression></expression></p></xml>',
-            '<xml><p id="1"><expression id="2">a</expression><expression id="3">b</expression></p></xml>'])
+            '<xml>unowned<p id="1"><expression signature="1">a<expression signature="2">b</expression></expression></p></xml>',
+            '<xml><p id="1"><expression signature="1">a</expression><expression signature="2">b</expression></p></xml>'])
         translator._translate_text_async = AsyncMock(return_value='ab')
         result, _ = await StructuredTranslation().translate(translator, TranslationTask(fromstring(
             '<body><p><expression id="2" display="inline">source</expression>'

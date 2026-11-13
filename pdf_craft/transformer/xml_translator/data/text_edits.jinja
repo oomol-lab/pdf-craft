@@ -1,9 +1,0 @@
-{% for edit in edits %}
-{{ edit.kind }}: expected[{{ edit.a }}:{{ edit.b }}]={{ edit.expected }};
-candidate[{{ edit.c }}:{{ edit.d }}]={{ edit.actual }}
-expected context={{ edit.expected_before }}{{ edit.expected_after }}
-candidate context={{ edit.actual_before }}{{ edit.actual_after }}
-{% endfor %}
-These are NORMALIZED COMPARISON VIEW excerpts, not replacement text or XML fields.
-Backslashes are literal data inside these friendly XML quotes, not Python string
-escapes. Use the complete translation and original-context quotes for actual wording.

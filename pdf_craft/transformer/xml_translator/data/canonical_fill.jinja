@@ -13,24 +13,24 @@ capacity limit. Do not relocate the sidebar inside the main translated passage.
 Returning block 3 before block 2 does not move those fixed output positions.
 
 Formatting does not freeze source spelling:
-Source: <p id="1">the <code id="2">return</code> operands</p>
+Source: <p id="1">the <code>return</code> operands</p>
 Translation: "os operandos de retorno"
-CORRECT: <p id="1">os operandos de <code id="2">retorno</code></p>
+CORRECT: <p id="1">os operandos de <code>retorno</code></p>
 Do not replace "retorno" with "return" to make it look like valid source code.
-The tag and ID survive; their text follows the artist, even inside code.
+The tag survives; their text follows the artist, even inside code.
 
 Formula containers preserve formatting, not the source numeric value:
-Source: <p id="1"><expression id="2">3</expression> billion</p>
+Source: <p id="1"><expression>3</expression> billion</p>
 Translation: "30亿"
-CORRECT: <p id="1"><expression id="2">30</expression>亿</p>
+CORRECT: <p id="1"><expression>30</expression>亿</p>
 Do not restore 3. Prefer keeping this translated numeric content in the
 existing formula formatting, as shown. The tag does not require its source value.
 
 One translated formula can span several source formula containers:
-Translation: "$u=v+w$"; required expression IDs: 2 and 3.
-CORRECT: <p id="1"><expression id="2">$u=v+w$</expression><expression id="3"/></p>
-ALSO CORRECT: <p id="1"><expression id="2">$u=</expression><expression id="3">v+w$</expression></p>
-WRONG: <p id="1"><expression id="2">$u=$</expression><expression id="3">$v+w$</expression></p>
+Translation: "$u=v+w$"; required expression signatures: 1 and 2.
+CORRECT: <p id="1"><expression signature="1">$u=v+w$</expression><expression signature="2"/></p>
+ALSO CORRECT: <p id="1"><expression signature="1">$u=</expression><expression signature="2">v+w$</expression></p>
+WRONG: <p id="1"><expression signature="1">$u=$</expression><expression signature="2">$v+w$</expression></p>
 The last version inserts two dollar signs. A source container is not a separate
 mathematical boundary: never add delimiters to complete each container's formula.
 

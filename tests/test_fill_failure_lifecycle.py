@@ -57,7 +57,7 @@ class FillFailureLifecycleTests(IsolatedAsyncioTestCase):
         self.assertEqual([r['validation'] for r in rows], ['ProtocolRetry', 'ProtocolSuccess'])
         self.assertIn('Wrong.', rows[0]['response'])
         self.assertIn('Right.', rows[1]['response'])
-        self.assertIn('Missing', rows[0]['feedback'])
+        self.assertIn('+++ translation.normalized.txt', rows[0]['feedback'])
         self.assertEqual(summary['artist_text'], 'Right. Done.')
         self.assertIn('RuntimeError: submission failed', summary['error']['traceback'])
         self.assertEqual(len(list(self.root.iterdir())), 1)
@@ -115,7 +115,7 @@ class FillFailureLifecycleTests(IsolatedAsyncioTestCase):
         model_replies(self.model, 'Right. Done.', [
             '<xml><p id="1"><b id="oops">Right.</b></p><p id="2">Done.</p></xml>', self.good])
         await self.translate()
-        self.assertIn('Invalid inline ID', self.model.wire_calls[-1][-1].message)
+        self.assertIn('must not carry a node ID', self.model.wire_calls[-1][-1].message)
         self.assertEqual(list(self.root.iterdir()), [])
 
     async def test_diagnostics_disabled_does_not_create_archive(self):

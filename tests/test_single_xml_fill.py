@@ -40,9 +40,9 @@ class SingleXMLFillTests(IsolatedAsyncioTestCase):
         self.assertEqual(target[0].text, 'A correct sentence.')
         self.assertEqual(len(model.wire_calls), 3)
         feedback = model.wire_calls[-1][-1].message
-        self.assertIn('Missing', feedback)
-        self.assertIn('added', feedback)
-        self.assertIn('candidate[', feedback)
+        self.assertIn('--- candidate.normalized.txt', feedback)
+        self.assertIn('+++ translation.normalized.txt', feedback)
+        self.assertIn('@@ -', feedback)
         self.assertIn('rrect', feedback)
         self.assertIn('wr', feedback)
 

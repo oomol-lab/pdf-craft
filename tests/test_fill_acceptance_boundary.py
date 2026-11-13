@@ -4,14 +4,14 @@ from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
-from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
+from xml.etree.ElementTree import Element, fromstring, tostring
 from tiktoken import get_encoding
 
 from pdf_craft.document.migrations import _migrate_formula_coverage
 from pdf_craft.document.render import _compose_chapter, RenderMode
 from pdf_craft.extractor.chapter.chapter import Chapter, SourceAsset, DisplayFormula, encode
-from pdf_craft.transformer.fill_text import text_difference
-from pdf_craft.transformer.xml_translator.xml import decode_friendly
+from pdf_craft.transformer.fill_text import text_difference, comparison_text
+from tests.fill_diff_helpers import apply_displayed_diff
 from pdf_craft.transformer.word_count import count_xml_words
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.translation_coverage import NarrativeCoverage, read_coverage, write_narrative_coverage
@@ -31,36 +31,29 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertIn('missing an ID attribute', message)
         self.assertNotIn('Fix:', message)
 
-    def test_missing_excerpt_quotes_original_spacing_and_xml_characters(self):
-        expected = 'Alice & Bob. Alice & Bob.'
-        error = text_difference(expected, 'Alice & Bob.')
+    def test_diff_preserves_literal_xml_characters_in_comparison_data(self):
+        expected, actual = 'Alice & Bob. Alice & Bob.', 'Alice & Bob.'
+        error = text_difference(expected, actual)
         assert error is not None
-        excerpt = next(decode_friendly(error, tags='excerpt'))
-        self.assertEqual(excerpt.text, 'Alice & Bob.')
-        self.assertIn('not a proposed XML field', error)
+        self.assertEqual(apply_displayed_diff(error, actual), comparison_text(expected))
+        self.assertIn('+Alice&Bob.', error)
 
-    def test_repetitive_math_diagnostic_quotes_data_without_building_a_candidate(self):
+    def test_repetitive_math_diagnostic_does_not_build_or_modify_a_candidate(self):
         passage = r"\(\frac{49x}{100} = y\) "
-        expected = 'Question: ' + passage * 720 + r"\(\frac{49x}{100} ="
-        actual = 'Question: ' + passage * 659 + r"\(\frac{49x}{100} ="
+        expected, actual = passage*12, passage*10
         candidate = Element('fragment', {'id': '1'})
         candidate.text = actual
         before = tostring(candidate)
         error = text_difference(expected, actual, [candidate])
         assert error is not None
-        excerpt = next(decode_friendly(error, tags='excerpt'))
-        assert excerpt.text is not None
-        self.assertIn(excerpt.text, expected)
-        self.assertIn(r'\frac{49x}{100} = y', excerpt.text)
-        self.assertNotIn(r'\\frac', excerpt.text)
+        self.assertEqual(apply_displayed_diff(error, actual), comparison_text(expected))
         self.assertEqual(tostring(candidate), before)
-        self.assertIsNone(text_difference(expected, expected))
 
-    def test_original_excerpt_does_not_guess_math_or_unicode_offsets(self):
+    def test_unicode_and_math_diffs_use_the_complete_comparison_view(self):
         for expected in ['A e\u0301 B', r'A \(x+1\) B']:
             error = text_difference(expected, 'AB')
             assert error is not None
-            self.assertNotIn('Original translation excerpt', error)
+            self.assertEqual(apply_displayed_diff(error, 'AB'), comparison_text(expected))
 
     def test_empty_structure_keeps_resource_identity_and_original_reference(self):
         source = fromstring('<body><p>SOURCE_ONLY <b>REFERENCE</b></p></body>')
@@ -78,7 +71,7 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertIn('SOURCE_ONLY', ''.join(hill.request_element().itertext()))
 
     def test_large_structure_feedback_preserves_all_nodes_without_repeating_trees(self):
-        source = fromstring('<body><p>Source ' + '<expression display="inline">x</expression>' * 200 + '</p></body>')
+        source = fromstring('<body><p>Source ' + '<expression display="inline">x</expression>' * 400 + '</p></body>')
         segments = list(search_inline_segments(search_text_segments(source)))
         hill = HillClimbing(get_encoding('cl100k_base'), 10, BlockSegment('xml', segments))
         original = tostring(hill.request_element())
@@ -89,7 +82,7 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertEqual([node.get('id') for node in template.iter('expression')],
                          [node.get('id') for node in hill.request_element().iter('expression')])
         candidate = deepcopy(hill.request_element())
-        candidate[0].remove(candidate[0][-1])
+        candidate[0][:] = []
         self.assertIsNotNone(hill.validate(candidate))
         self.assertEqual(hill.inline_feedback_blocks(candidate), [])
         self.assertEqual(tostring(hill.request_element()), original)
@@ -115,24 +108,22 @@ class FillAcceptanceBoundaryTests(TestCase):
     def test_retired_formula_context_name_does_not_exempt_text_from_counting(self):
         self.assertEqual(count_xml_words(fromstring('<body><formula_context>Visible words.</formula_context></body>')), 2)
 
-    def test_missing_repeated_text_and_punctuation_have_the_same_hint(self):
-        for expected, actual in [('Echo.Echo.Echo.', 'Echo.Echo.'), ('.'*16, '.'*15),
-                                 ('A\u3000B A B', 'A\tB')]:
+    def test_missing_repeated_text_and_punctuation_have_conditional_count_hints(self):
+        for expected, actual in [('Echo.Echo.Echo.', 'Echo.Echo.'), ('.'*16, '.'*15), ('A　B A B', 'A\tB')]:
             with self.subTest(expected=expected):
                 error = text_difference(expected, actual)
                 assert error is not None
-                self.assertIn('NUMBER of occurrences', error)
-                self.assertIn('positions', error)
-        self.assertNotIn('NUMBER of occurrences', text_difference('Different', 'words') or '')
+                self.assertIn('Repeated occurrences may account', error)
+                self.assertEqual(apply_displayed_diff(error, actual), comparison_text(expected))
+        self.assertNotIn('Repeated occurrences', text_difference('Different', 'words') or '')
 
-    def test_many_block_locations_do_not_hide_actionable_field_locations(self):
+    def test_feedback_does_not_select_xml_field_destinations(self):
         blocks = [fromstring(f'<p id="{index}"><i>extra</i></p>') for index in range(20)]
         before = [tostring(block) for block in blocks]
-        error = text_difference('', 'extra' * 20, blocks)
+        error = text_difference('', 'extra'*20, blocks)
         assert error is not None
-        self.assertIn('block id=0:', error)
-        self.assertIn('field=p#0/i[0].text', error)
-        self.assertIn('entire_field_extra=True', error)
+        self.assertEqual(apply_displayed_diff(error, 'extra'*20), '')
+        self.assertNotIn('p#', error)
         self.assertEqual([tostring(block) for block in blocks], before)
 
     def test_missing_period_and_extra_wrapper_are_independent_repairs(self):
@@ -140,10 +131,10 @@ class FillAcceptanceBoundaryTests(TestCase):
         segments = list(search_inline_segments(search_text_segments(source)))
         hill = HillClimbing(get_encoding('cl100k_base'), 10, BlockSegment('xml', segments))
         candidates = [
-            ('<xml><p id="1"><b id="2"><i id="3">.</i></b></p><p id="4">Next</p></xml>', True, False),
-            ('<xml><p id="1"><b id="2"><i id="3">.</i></b></p><p id="4"><b><i>.</i></b>Next</p></xml>', False, True),
-            ('<xml><p id="1"><b id="2"><i id="3">.</i></b></p><p id="4">.Next</p></xml>', True, True),
-            ('<xml><p id="1"><b id="2"><i id="3">..</i></b></p><p id="4">Next</p></xml>', True, True),
+            ('<xml><p id="1"><b><i>.</i></b></p><p id="2">Next</p></xml>', True, False),
+            ('<xml><p id="1"><b><i>.</i></b></p><p id="2"><b><i>.</i></b>Next</p></xml>', True, True),
+            ('<xml><p id="1"><b><i>.</i></b></p><p id="2">.Next</p></xml>', True, True),
+            ('<xml><p id="1"><b><i>..</i></b></p><p id="2">Next</p></xml>', True, True),
         ]
         for xml, structure_valid, content_valid in candidates:
             with self.subTest(xml=xml):
@@ -154,48 +145,9 @@ class FillAcceptanceBoundaryTests(TestCase):
                                  content_valid)
                 self.assertEqual(tostring(candidate), before)
 
-    def test_interior_missing_gap_reports_field_and_raw_offsets_without_editing(self):
-        block = fromstring('<p id="9">a\u200bc</p>')
-        before = tostring(block)
-        error = text_difference('abc', 'a\u200bc', [block])
-        assert error is not None
-        self.assertIn('inside p#9.text', error)
-        self.assertIn('VIEW offset 1', error)
-        self.assertIn('raw character offset 2', error)
-        self.assertEqual(tostring(block), before)
 
-    def test_extra_range_quotes_actual_candidate_and_local_offsets_without_editing(self):
-        block = fromstring('<p id="9">a\u200bbc</p>')
-        before = tostring(block)
-        error = text_difference('a', 'a\u200bbc', [block])
-        assert error is not None
-        self.assertIn('Extra range in p#9.text', error)
-        self.assertIn('VIEW [1:3)', error)
-        self.assertIn('raw character range [2:4)', error)
-        self.assertEqual(next(decode_friendly(error, tags='extra_excerpt')).text, 'bc')
-        self.assertEqual(tostring(block), before)
 
-    def test_field_preview_does_not_silently_shorten_the_work_to_repair(self):
-        for count in (20, 80, 600):
-            with self.subTest(count=count):
-                block = Element('p', {'id': '1'})
-                block.text = 'Echo.' * count
-                before = tostring(block)
-                error = text_difference('Echo.' * (count-1), block.text, [block])
-                assert error is not None
-                previews = list(decode_friendly(error, tags='field_excerpt'))
-                self.assertTrue(previews)
-                self.assertEqual(previews[0].text, block.text[:300])
-                if len(block.text) > 300:
-                    self.assertIn(f'TRUNCATED: first 300 of {len(block.text)} characters', error)
-                self.assertEqual(tostring(block), before)
 
-    def test_exact_original_missing_excerpt_follows_partial_field_previews(self):
-        block = fromstring('<p id="1">Echo.</p>')
-        error = text_difference('Echo.' * 4, 'Echo.', [block])
-        assert error is not None
-        self.assertGreater(error.index('Original translation excerpt'), error.rindex('field_excerpt'))
-        self.assertEqual(next(decode_friendly(error, tags='excerpt')).text, 'Echo.' * 3)
 
     def test_repetition_diagnostics_never_replace_complete_text_acceptance(self):
         for unit, wanted, found in [('Echo.', 3, 2), ('.', 16, 15), ('a', 5, 4), ('Echo.', 2, 3),
@@ -206,57 +158,25 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertIsNotNone(text_difference('Echo.A.Echo.B.', 'Echo.B.Echo.A.'))
         self.assertIsNotNone(text_difference('Echo.' * 3, 'Repeat Echo. 3 times.'))
 
-    def test_local_missing_feedback_reports_exact_excerpt_and_field_without_editing(self):
-        block = fromstring('<p id="9"><i id="2">Echo.Echo.</i><i id="3">Echo.</i></p>')
-        before = tostring(block)
-        error = text_difference('Echo.' * 4, ''.join(block.itertext()), [block])
-        assert error is not None
-        self.assertEqual(next(decode_friendly(error, tags='excerpt')).text, 'Echo.')
-        self.assertIn('NUMBER of occurrences', error)
-        self.assertIn('p#9/i#3.text', error)
-        self.assertEqual(tostring(block), before)
 
-    def test_all_wholly_extra_fields_are_reported_by_actual_id_beyond_excerpt_limit(self):
-        block = fromstring('<p id="9">Kept.' + ''.join(
-            f'<i id="{100 + index}">Extra.</i>tail.' for index in range(20)) + '</p>')
-        before = tostring(block)
-        error = text_difference('Kept.', ''.join(block.itertext()), [block])
-        assert error is not None
-        for identifier in range(100, 120):
-            self.assertIn(f'- p#9/i#{identifier}.text', error)
-            self.assertIn(f'- p#9/i#{identifier}.tail', error)
-        self.assertIn('These 40 fields consist entirely of extra', error)
-        self.assertEqual(tostring(block), before)
-        self.assertIsNotNone(text_difference('Kept.', ''.join(block.itertext()), [block]))
 
-    def test_original_missing_excerpt_keeps_a_complete_moderate_gap_for_direct_copy(self):
-        unit = 'Repeated phrase. '
-        error = text_difference(unit * 100, unit * 20)
+    def test_moderate_diff_payload_is_complete(self):
+        expected, actual = 'Repeated phrase. '*100, 'Repeated phrase. '*20
+        error = text_difference(expected, actual)
         assert error is not None
-        excerpt = next(decode_friendly(error, tags='excerpt')).text
-        self.assertEqual(excerpt, (unit * 80).rstrip())
-        self.assertNotIn('This excerpt stops after', error)
+        self.assertNotIn('Display truncated', error)
+        self.assertEqual(apply_displayed_diff(error, actual), comparison_text(expected))
 
-    def test_long_diff_diagnostics_are_bounded_without_shortening_the_difference(self):
-        block = fromstring('<p id="9">' + 'Echo.' * 100 + '</p>')
-        before = tostring(block)
-        error = text_difference('Echo.' * 3000, ''.join(block.itertext()), [block])
+    def test_long_diff_diagnostics_are_bounded_but_acceptance_remains_exact(self):
+        actual, expected = 'Echo.'*100, 'Echo.'*3000
+        error = text_difference(expected, actual)
         assert error is not None
-        self.assertIn('Missing 14500, added 0 characters', error)
-        self.assertIn('6000 original characters', error)
-        self.assertLess(len(error), 12500)
-        self.assertEqual(tostring(block), before)
+        self.assertIn('Display truncated', error)
+        self.assertIn('6000 characters per changed range', error)
+        self.assertLess(len(error), 14000)
+        self.assertIsNone(text_difference(expected, expected))
+        self.assertIsNotNone(text_difference(expected, actual))
 
-    def test_end_gap_feedback_points_to_existing_field_without_changing_it(self):
-        block = fromstring('<p id="9"><i>.</i></p>')
-        before = tostring(block)
-        error = text_difference('..', '.', [block])
-        assert error is not None
-        self.assertIn('END', error)
-        self.assertIn('p#9/i[0].text', error)
-        self.assertIn('NORMALIZED COMPARISON VIEW', error)
-        self.assertNotIn('literal candidate', error)
-        self.assertEqual(tostring(block), before)
 
     def test_acceptance_is_read_only_even_when_a_tail_can_be_delivered(self):
         source = fromstring('<body><fragment>source</fragment><fragment>source</fragment></body>')
@@ -271,42 +191,30 @@ class FillAcceptanceBoundaryTests(TestCase):
         self.assertEqual(candidate[0].text, 'a')
         self.assertEqual(candidate[0].tail, 'b')
 
-    def test_math_comparison_reports_only_proven_field_offsets(self):
+    def test_diff_coordinates_belong_to_comparison_text_not_original_xml(self):
         block = fromstring('<p id="4">Value<expression>$20$.</expression></p>')
         before = tostring(block)
         error = text_difference('Value20.20.', 'Value$20$.', [block])
         assert error is not None
-        self.assertIn('p#4/expression[0].text', error)
-        self.assertIn('END', error)
+        self.assertEqual(apply_displayed_diff(error, 'Value$20$.'), comparison_text('Value20.20.'))
+        self.assertNotIn('p#4', error)
         self.assertEqual(tostring(block), before)
 
-    def test_cross_field_math_does_not_guess_normalized_field_offsets(self):
+    def test_cross_field_math_diff_stays_in_the_global_comparison_view(self):
         block = fromstring(r'<p id="4">Value<expression>$20</expression>$.</p>')
         error = text_difference('Value20.20.', 'Value$20$.', [block])
         assert error is not None
+        self.assertEqual(apply_displayed_diff(error, 'Value$20$.'), comparison_text('Value20.20.'))
         self.assertNotIn('field=', error)
-        self.assertNotIn('literal candidate', error)
 
-    def test_long_math_fallback_keeps_exact_literal_field_diagnostics(self):
-        block = Element('p', id='8')
-        for _ in range(700):
-            SubElement(block, 'expression').text = r'\(20\)'
-        actual = ''.join(block.itertext())
-        error = text_difference(actual + '.', actual, [block])
-        assert error is not None
-        self.assertIn('p#8/expression[699].text', error)
-        self.assertIn('END', error)
 
-    def test_repeated_context_keeps_the_exact_missing_occurrence_and_location(self):
-        prefix, suffix = 'Surrounding sentence. ' * 2000, ' Closing sentence.' * 2000
-        block = Element('p', id='6')
-        block.text = prefix + 'Echo.'
-        SubElement(block, 'span').text = suffix
-        error = text_difference(prefix + 'Echo.Echo.' + suffix, ''.join(block.itertext()), [block])
+    def test_long_repeated_context_keeps_a_complete_precise_diff(self):
+        prefix, suffix = 'Surrounding sentence. '*2000, ' Closing sentence.'*2000
+        actual, expected = prefix+'Echo.'+suffix, prefix+'Echo.Echo.'+suffix
+        error = text_difference(expected, actual)
         assert error is not None
-        self.assertIn('Missing 5, added 0', error)
-        self.assertIn('<expected_view xml:space="preserve">Echo.</expected_view>', error)
-        self.assertIn('p#6.text', error)
+        self.assertEqual(apply_displayed_diff(error, actual), comparison_text(expected))
+        self.assertLess(len(error), 2000)
 
     def test_formula_coverage_round_trips_and_controls_rendering(self):
         source = encode(Chapter(5, -1, [DisplayFormula(SourceAsset(1, 'formula', (0,0,10,10), content=['x+1']))]))

@@ -112,7 +112,7 @@ class TestEmptyInlineRoundTrip(unittest.TestCase):
         self.assertIsNotNone(errors)
         assert errors is not None
         message = generate_error_message(get_encoding('cl100k_base'), errors)
-        self.assertIn('Missing `<br>`', message or '')
+        self.assertIn('<br> must occur at least once', message or '')
 
     def test_empty_block_remains_a_block(self):
         root = fromstring('<div><p>Before</p><section key="kept"/><p>after</p></div>')

@@ -22,6 +22,7 @@ from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import XMLTranslator, TranslationTask
 from pdf_craft.transformer.xml_translator.xml_translator.submitter import SubmitKind
 from ..runtime import load_project_env, create_llm_from_env, model_request_options
+from .fill_regression_cases import RETIRED_FILL_CASES, regular_fill_cases
 from ._incident_fixtures import WHITESPACE, CONTEXT, load_case, source_math, materialize_source, EXTRA
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -140,7 +141,7 @@ async def case(base, key, output, llm, *, recorded_fill=None):
               'input_sha256': hashlib.sha256(evidence.read_bytes()).hexdigest()}
     runtime, usage = None, UsageCollector()
     try:
-        data, source, segments, hill = load_case(base, key)
+        data, source, segments, _hill = load_case(base, key)
         math, displays, provenance = source_math(base, key, data, source, segments)
         source = materialize_source(source, math, displays)
         if any(node.tag == 'expression' for node in source.iter()):
@@ -193,6 +194,10 @@ async def case(base, key, output, llm, *, recorded_fill=None):
 
 
 async def run(fixtures, output, profile, cases=None):
+    requested = tuple(cases) if cases else WHITESPACE + CONTEXT + EXTRA
+    selected = regular_fill_cases(requested)
+    if not selected:
+        raise ValueError('No active fill regression cases selected; retired cases are not passing tests.')
     output.mkdir(parents=True, exist_ok=False)
     load_project_env(ROOT)
     llm = create_llm_from_env(profile, cache_path=output / 'unused-cache', log_dir_path=output / 'request-status')
@@ -201,7 +206,7 @@ async def run(fixtures, output, profile, cases=None):
               'model': llm.model, 'profile': profile, 'temperature': llm.temperature,
               'top_p': llm.top_p, 'source_sha256': fingerprint(),
               'passed': False, 'results': []}
-    selected = tuple(cases) if cases else WHITESPACE + CONTEXT + EXTRA
+    report['retired_cases'] = {key: RETIRED_FILL_CASES[key] for key in requested if key in RETIRED_FILL_CASES}
     for key in selected:
         report['results'].append(await case(fixtures, key, output / key, llm))
         save(output / 'report.json', report)
@@ -220,7 +225,7 @@ def main():
     parser.add_argument('--fixtures', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--profile', default='fill')
-    parser.add_argument('--cases', nargs='+', choices=WHITESPACE + CONTEXT + EXTRA)
+    parser.add_argument('--cases', nargs='+', choices=regular_fill_cases(WHITESPACE + CONTEXT + EXTRA))
     args = parser.parse_args()
     raise SystemExit(0 if asyncio.run(run(args.fixtures.resolve(), args.output.resolve(), args.profile, args.cases)) else 1)
 

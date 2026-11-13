@@ -18,6 +18,7 @@ from pdf_craft.transformer.xml_translator.xml.friendly import decode_friendly
 from pdf_craft.extractor.chapter.chapter import encode, decode
 from tests.fill_fixtures import chapter, expression
 from tests.fill_fixtures import model_replies
+from tests.fill_diff_helpers import apply_displayed_diff
 from tests.test_epub_optional_cfi import book
 from tests.translation_model import translator_fixture
 
@@ -42,7 +43,7 @@ class ComparisonTests(TestCase):
                 self.assertEqual(comparison_distance(expected, actual), distance)
                 self.assertEqual(text_difference(expected, actual) is None, distance == 0)
 
-    def test_diagnostics_quote_literal_backslashes_and_original_context_without_repr(self):
+    def test_diff_quotes_literal_characters_without_mutating_xml(self):
         expected = r'Prefix \plain\name & <value> suffix'
         actual = r'Prefix \plain\na & <value> suffix'
         block = fromstring('<p id="1"/>')
@@ -50,21 +51,16 @@ class ComparisonTests(TestCase):
         original = tostring(block)
         feedback = text_difference(expected, actual, [block])
         assert feedback is not None
-        expected_context = next(decode_friendly(feedback, tags='expected_context'))
-        actual_context = next(decode_friendly(feedback, tags='candidate_context'))
-        self.assertEqual(expected_context.text, expected)
-        self.assertEqual(actual_context.text, actual)
-        field = next(decode_friendly(feedback, tags='field_excerpt'))
-        self.assertEqual(field.text, actual)
+        self.assertEqual(apply_displayed_diff(feedback, actual), comparison_text(expected))
         self.assertNotIn(r'\\plain', feedback)
-        self.assertIn('&amp; &lt;value&gt;', feedback)
         self.assertEqual(tostring(block), original)
 
     def test_context_is_not_synthesized_from_a_noninvertible_comparison_view(self):
         with patch('pdf_craft.transformer.fill_text.normalize_latex', side_effect=lambda value: value.replace('LONG', 'q')):
             feedback = text_difference('LONG B', 'wrong B')
         assert feedback is not None
-        self.assertNotIn('<expected_context', feedback)
+        assert feedback is not None
+        self.assertEqual(apply_displayed_diff(feedback, 'wrong B'), 'qB')
         self.assertNotIn('PAIRED ORIGINAL CONTEXT', feedback)
 
     def test_markdown_has_no_custom_formula_recognition(self):
@@ -84,9 +80,9 @@ class ComparisonTests(TestCase):
     def test_diff_reports_missing_added_characters(self):
         diff = text_difference('correct', 'wrong')
         assert diff is not None
-        self.assertIn('Missing', diff)
-        self.assertIn('added', diff)
-        self.assertIn('expected[', diff)
+        self.assertIn('--- candidate.normalized.txt', diff)
+        self.assertIn('+++ translation.normalized.txt', diff)
+        self.assertEqual(apply_displayed_diff(diff, 'wrong'), comparison_text('correct'))
 
     def test_detached_submission_cannot_replace_document_root(self):
         from copy import deepcopy
@@ -118,7 +114,7 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
         translator, model = translator_fixture()
         artist = r'\(x\) \(x\) \(x\)'
         model_replies(model, artist, [
-            r'<xml><fragment id="1"><expression id="2"/><expression id="3">\(x\) \(x\) \(x\)</expression></fragment></xml>'])
+            r'<xml><fragment id="1"><expression signature="1"/><expression signature="2">\(x\) \(x\) \(x\)</expression></fragment></xml>'])
         target = await NarrativeXMLTransformer(translator).transform(
             chapter([expression('x'), ' ', expression('x')]), error_policy=False)
         delivered = encode(decode(encode(target)))
@@ -136,10 +132,10 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
     async def test_extra_translated_passage_precedes_ending_after_last_required_slot(self):
         translator, model = translator_fixture()
         model_replies(model, 'a a a end', [
-            '<xml><fragment id="1"><expression id="2">a</expression> '
-            '<expression id="3">end</expression> <expression id="4">a</expression></fragment></xml>',
-            '<xml><fragment id="1"><expression id="2">a</expression> '
-            '<expression id="3">a</expression> a end</fragment></xml>'])
+            '<xml><fragment id="1"><expression signature="1">a</expression> '
+            '<expression signature="2">end</expression> <expression signature="999">a</expression></fragment></xml>',
+            '<xml><fragment id="1"><expression signature="1">a</expression> '
+            '<expression signature="2">a</expression> a end</fragment></xml>'])
         target = encode(await NarrativeXMLTransformer(translator).transform(
             chapter([expression('u'), ' ', expression('v'), ' source ending']), error_policy=False))
         self.assertIsNone(text_difference('a a a end', ''.join(target.itertext())))
@@ -160,7 +156,7 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
     async def test_boundary_whitespace_is_not_an_allocation_problem(self):
         source = fromstring('<body><p><b>One</b> two.</p><pre>code  x\n y</pre></body>')
         target, model = await self.translate('One two.\n\ncode  x\n y', [
-            '<xml><p id="1"><b id="2">One </b>two.</p><pre id="3">code x y</pre></xml>'], source=source)
+            '<xml><p id="1"><b>One </b>two.</p><pre id="2">code x y</pre></xml>'], source=source)
         self.assertEqual(target[1].text, 'code x y')
         self.assertEqual(len(model.wire_calls), 2)
 
@@ -168,7 +164,7 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
         target, model = await self.translate('Correct.', ['<xml><p id="1">Wrong.</p></xml>', '<xml><p id="1">Correct.</p></xml>'])
         self.assertEqual(target[0].text, 'Correct.')
         self.assertEqual(sum(c[0].message.startswith('You are a translator.') for c in model.wire_calls), 1)
-        self.assertIn('expected[', model.wire_calls[-1][-1].message)
+        self.assertIn('+++ translation.normalized.txt', model.wire_calls[-1][-1].message)
 
     async def test_numeric_conversion_pcex_and_epub(self):
         for epub in (False, True):
@@ -194,7 +190,7 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
     async def test_reordered_formula_ids_retain_real_attributes(self):
         source = fromstring('<body><p><math id="one"><mn>1</mn></math> then <math id="zero"><mn>0</mn></math>.</p></body>')
         target, _ = await self.translate('$0$ then $1$.', [
-            '<xml><p id="1"><expression id="3">$0$</expression> then <expression id="2">$1$</expression>.</p></xml>'],
+            '<xml><p id="1"><expression signature="2">$0$</expression> then <expression signature="1">$1$</expression>.</p></xml>'],
             source=source, formulas=XMLInterrupter())
         self.assertEqual([n.get('id') for n in target.iter('math')], ['zero', 'one'])
         self.assertEqual([n.findtext('semantics/annotation') for n in target.iter('math')], ['$0$', '$1$'])
@@ -202,7 +198,7 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
     async def test_merged_formula_and_plain_artist_math_have_no_range_gate(self):
         source = fromstring('<body><p><math><mi>x</mi></math> <math><mi>y</mi></math>.</p></body>')
         target, model = await self.translate('$xy$ and $q$.', [
-            '<xml><p id="1"><expression id="2">$xy$</expression><expression id="3"/> and $q$.</p></xml>'],
+            '<xml><p id="1"><expression signature="1">$xy$</expression><expression signature="2"/> and $q$.</p></xml>'],
             source=source, formulas=XMLInterrupter())
         self.assertEqual(XMLInterrupter().visible_text(target), '$xy$ and $q$.')
         self.assertEqual(len(model.wire_calls), 2)
@@ -282,13 +278,13 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
 
     async def test_extra_tail_wrapper_repairs_without_inventing_an_identity(self):
         source = fromstring('<body><p><span class="a">First</span><span class="b">Second</span></p></body>')
-        bad = '<xml><p id="1"><span id="2">A</span><span id="3">B</span><span id="4">tail</span></p></xml>'
-        good = '<xml><p id="1"><span id="2">A</span><span id="3">B</span>tail</p></xml>'
+        bad = '<xml><p id="1"><span signature="1">A</span><span signature="2">B</span><span signature="999">tail</span></p></xml>'
+        good = '<xml><p id="1"><span signature="1">A</span><span signature="2">B</span>tail</p></xml>'
         target, model = await self.translate('ABtail', [bad, good], source=source)
         self.assertEqual(''.join(target.itertext()), 'ABtail')
         self.assertEqual([node.get('class') for node in target.iter('span')], ['a', 'b'])
         self.assertEqual(len(model.wire_calls), 3)
-        self.assertIn('Unexpected inline identity <span id="4"/>', model.wire_calls[-1][-1].message)
+        self.assertIn('no permitted source tag/signature', model.wire_calls[-1][-1].message)
         self.assertIn('Required structure', model.wire_calls[-1][-1].message)
 
     async def test_formatting_does_not_authorize_removing_literal_punctuation(self):
@@ -298,7 +294,7 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
         target, model = await self.translate('EUR$^{2}$', [bad, good], source=source, formulas=XMLInterrupter())
         self.assertEqual(''.join(target.itertext()), 'EUR$^{2}$')
         self.assertEqual(len(model.wire_calls), 3)
-        self.assertIn('expected context=', model.wire_calls[-1][-1].message)
+        self.assertIn('+++ translation.normalized.txt', model.wire_calls[-1][-1].message)
 
     async def test_final_format_check_matches_actual_source_order(self):
         translator, model = translator_fixture()

@@ -27,10 +27,17 @@ span fields. Source lengths and container counts impose no content quota.
 Formula text and delimiters follow the translation, not the source. Redistribute
 passages when necessary while preserving required nesting and resource boundaries.
 
-Blocks with the same inline-scope are source siblings. Their direct inline
-children may move between those blocks, retaining IDs and complete subtrees.
-No movement across scopes or nesting levels is allowed. Unmarked blocks retain
-their source nesting. These request-local IDs do not change block output order.
+Blocks with the same inline-scope are real source siblings. Direct inline
+children may move between those blocks, never across scopes or nesting levels.
+Unmarked blocks have their own local inline domain. Block IDs remain unique and
+fix output positions. Inline tags do not use IDs: signature identifies an
+attribute variant, not an occurrence number. Reuse existing signature values
+when splitting or repeating a wrapper; never renumber them or assign a fresh
+value to an extra occurrence. For each tag, retain every supplied signature
+at least once across its domain; counts and positions may change. A tag without
+signature has only one attribute variant: retain it at least once and do not add
+signature. Do not invent tags or signatures. Child structure must still identify
+an unambiguous source template; moving a subtree preserves its nesting.
 
 Use the shared friendly XML text protocol: write text <, > and & as &lt;, &gt;
 and &amp;. Literal spelling &lt; is written &amp;lt;. These escapes are text,

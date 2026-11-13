@@ -38,16 +38,16 @@ class BoundaryNormalizationTests(TestCase):
 
     def test_missing_inline_feedback_shows_source_and_current_wrong_assignment(self):
         _, _, hill = setup('<body><p><code class="boolean">true</code> then <code class="function">errors.Is()</code></p></body>')
-        candidate = fromstring('<xml><p id="1">verdadeiro then <code id="2">errors.Is()</code></p></xml>')
+        candidate = fromstring('<xml><p id="1">verdadeiro then <code signature="1">errors.Is()</code></p></xml>')
         self.assertIsNotNone(hill.validate(candidate))
         blocks = hill.inline_feedback_blocks(candidate)
         self.assertEqual(len(blocks), 1)
         structure = fromstring(blocks[0]['source'])
-        self.assertEqual([node.get('id') for node in structure.iter('code')], ['2', '3'])
+        self.assertEqual([node.get('signature') for node in structure.iter('code')], ['1', '2'])
         self.assertEqual(''.join(structure.itertext()).strip(), '')
         self.assertIn('true', ''.join(hill.request_element().itertext()))
         self.assertIn('errors.Is()', ''.join(hill.request_element().itertext()))
-        self.assertIn('<code id="2">errors.Is()</code>', blocks[0]['candidate'])
+        self.assertIn('<code signature="1">errors.Is()</code>', blocks[0]['candidate'])
 
 
     def test_incident_epub_publisher_restores_mathml_namespace(self):

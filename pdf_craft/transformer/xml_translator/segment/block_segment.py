@@ -123,7 +123,7 @@ class BlockSegment:
         for index, inline_segment in enumerate(self._inline_segments):
             for immutable in immutable_by_index.get(index, []):
                 root_element.append(_clone_immutable_element(immutable.element))
-            node = inline_segment.create_element()
+            node = self._inline_scopes.create_element(inline_segment)
             scope = self._inline_scopes.label(inline_segment.id)
             if scope is not None:
                 node.set(SCOPE_ATTRIBUTE, scope)

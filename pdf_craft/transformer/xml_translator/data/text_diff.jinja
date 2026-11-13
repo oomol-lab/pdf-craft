@@ -1,0 +1,22 @@
+Visible text differs from the canonical translation.
+Character-based diff: candidate → translation, using the shared normalized comparison view.
+Hunk coordinates count Unicode characters, not lines. The complete translation remains the content reference.
+{{ fence }}diff
+--- candidate.normalized.txt
++++ translation.normalized.txt
+{% for hunk in hunks %}@@ -{{ hunk.old_start }},{{ hunk.old_length }} +{{ hunk.new_start }},{{ hunk.new_length }} @@
+{% for line in hunk.lines %}{{ line }}
+{% endfor %}{% endfor %}{{ fence }}
+{% if truncated %}
+Display truncated: at most 10 hunks, 6000 characters per changed range and 12000 changed characters total are shown. Hunk coordinates describe the full ranges; this preview is not a complete patch or replacement text.
+{% endif %}
+{% if matched %}
+Some “+” and “−” ranges contain matching text. This may reflect relocation rather than an additional or unwanted occurrence; the surrounding order may be worth checking.
+{% endif %}
+{% if counts %}
+An exact comparison-view passage occurs {{ counts[0] }} times in the translation and {{ counts[1] }} times in the candidate. Repeated occurrences may account for part of this difference.
+{% elif uncertain_counts %}
+Exact passages have different occurrence counts in the translation and candidate. Repeated occurrences may account for part of this difference.
+{% elif presence %}
+Some text marked “+” also appears elsewhere in the candidate. Its presence alone may not establish completeness; occurrence counts and ordering may be worth checking.
+{% endif %}
