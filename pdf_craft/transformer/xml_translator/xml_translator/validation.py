@@ -137,8 +137,7 @@ def generate_error_message(encoding: Encoding, errors_group: ErrorsGroup, omitte
         return None
 
     header = (
-        f"Found {errors_group.errors_count} error(s). Fix them and return "
-        "the COMPLETE corrected XML (not just the changed parts):"
+        f"Found {errors_group.errors_count} error(s):"
     )
     message_lines.insert(0, "")
     message_lines.insert(0, header)
@@ -146,14 +145,9 @@ def generate_error_message(encoding: Encoding, errors_group: ErrorsGroup, omitte
     if omitted_count > 0:
         message_lines.append("")
         message_lines.append(
-            f"... and {omitted_count} more error(s) omitted. "
-            f"Fix the above errors first, then resubmit for remaining issues."
+            f"... and {omitted_count} more error(s) omitted."
         )
         message_lines.append("")
-        message_lines.append("Remember: Return the entire <xml>...</xml> block with all corrections applied.")
-    else:
-        message_lines.append("")
-        message_lines.append("Return the entire <xml>...</xml> block with corrections.")
 
     return "\n".join(message_lines)
 
@@ -321,14 +315,12 @@ def _format_block_error(error: BlockError | FoundInvalidIDError, locations=None)
         if error.block is None:
             return (
                 f"Root tag mismatch: expected `{_xml_hint(error.expected_tag)}`, but found `{_xml_hint(error.instead_tag)}`. "
-                f"Fix: Change the root tag to `{_xml_hint(error.expected_tag)}`."
             )
         else:
             return (
                 f"Wrong tag for block at `{error.instead_tag}#{error.block[0]}`: "
                 f'expected `{_xml_hint(error.expected_tag, error.block[0])}`, '
                 f'but found `{_xml_hint(error.instead_tag, error.block[0])}`. '
-                f"Fix: Change the tag to `{_xml_hint(error.expected_tag)}`."
             )
     elif isinstance(error, BlockExpectedIDsError):
         return _FEEDBACK.get_template('missing_required_nodes.jinja').render(
@@ -344,17 +336,16 @@ def _format_block_error(error: BlockError | FoundInvalidIDError, locations=None)
             example = _xml_hint(error.element.tag)
         else:
             example = _xml_hint(error.element.tag, error.invalid_id)
-        return f"Invalid or missing ID attribute: {example}. Fix: Ensure all blocks have valid numeric IDs."
+        return f"Invalid or missing ID attribute: {example}."
     elif isinstance(error, BlockImmutableElementsError):
         expected = ", ".join(_format_immutable(element) for element in error.expected)
         found = ", ".join(_format_immutable(element) for element in error.found) or "none"
         return (
             "Immutable structural anchors changed. "
             f"Expected this exact sequence: {expected}. Found: {found}. "
-            "Restore every self-closing anchor unchanged and in the same position."
         )
     else:
-        return "Unknown block error. Fix: Review the block structure."
+        return "Unknown block error."
 
 
 def _xml_hint(tag: str, identity: object = None) -> str:
@@ -373,7 +364,7 @@ def _format_immutable(element) -> str:
 def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidIDError, block_id: int, locations=None) -> str:
     if isinstance(error, InlineLostIDError):
         selector = _build_inline_selector(encoding, error.stack, block_id, element=error.element)
-        return f"Element at `{selector}` is missing an ID attribute. Fix: Add the required ID attribute."
+        return f"Element at `{selector}` is missing an ID attribute."
 
     elif isinstance(error, InlineExpectedIDsError):
         return _FEEDBACK.get_template('missing_required_nodes.jinja').render(
@@ -399,7 +390,6 @@ def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidID
             return (
                 f"Missing `<{tag}>` elements at `{selector}`. "
                 f"Expected {expected}, but none were found. "
-                f"Fix: Add {expected} `<{tag}>` element(s) to this location."
             )
         elif found > expected:
             # 情况3: 数量过多
@@ -414,7 +404,6 @@ def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidID
             return (
                 f"Too few `<{tag}>` elements at `{selector}`. "
                 f"Expected {expected}, but only found {found} ({missing} missing). "
-                f"Fix: Add {missing} more `<{tag}>` element(s)."
             )
     elif isinstance(error, FoundInvalidIDError):
         if error.reason is not None:
@@ -423,9 +412,9 @@ def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidID
             example = _xml_hint(error.element.tag)
         else:
             example = _xml_hint(error.element.tag, error.invalid_id)
-        return f"Invalid inline ID: {example}. Fix: Ensure inline elements have valid numeric IDs."
+        return f"Invalid inline ID: {example}."
     else:
-        return "Unknown inline error. Fix: Review the inline structure."
+        return "Unknown inline error."
 
 
 def _build_inline_selector(

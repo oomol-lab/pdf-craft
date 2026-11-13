@@ -288,7 +288,7 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
         self.assertEqual(''.join(target.itertext()), 'ABtail')
         self.assertEqual([node.get('class') for node in target.iter('span')], ['a', 'b'])
         self.assertEqual(len(model.wire_calls), 3)
-        self.assertIn('EXTRA formatting wrapper', model.wire_calls[-1][-1].message)
+        self.assertIn('Unexpected inline identity <span id="4"/>', model.wire_calls[-1][-1].message)
         self.assertIn('Required structure', model.wire_calls[-1][-1].message)
 
     async def test_formatting_does_not_authorize_removing_literal_punctuation(self):

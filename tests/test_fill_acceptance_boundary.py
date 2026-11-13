@@ -21,13 +21,23 @@ from pdf_craft.transformer.xml_translator.xml_translator.hill_climbing import Hi
 
 
 class FillAcceptanceBoundaryTests(TestCase):
+    def test_missing_inline_id_keeps_the_error_fact_without_an_edit_instruction(self):
+        from pdf_craft.transformer.xml_translator.segment import InlineLostIDError
+        from pdf_craft.transformer.xml_translator.xml_translator.validation import _format_inline_error
+        parent = fromstring('<p><i>value</i></p>')
+        message = _format_inline_error(get_encoding('cl100k_base'),
+                                      InlineLostIDError(parent[0], [parent]), 1)
+        self.assertIn('p#1 > i', message)
+        self.assertIn('missing an ID attribute', message)
+        self.assertNotIn('Fix:', message)
+
     def test_missing_excerpt_quotes_original_spacing_and_xml_characters(self):
         expected = 'Alice & Bob. Alice & Bob.'
         error = text_difference(expected, 'Alice & Bob.')
         assert error is not None
         excerpt = next(decode_friendly(error, tags='excerpt'))
         self.assertEqual(excerpt.text, 'Alice & Bob.')
-        self.assertIn('not a new translation or a ready-made XML', error)
+        self.assertIn('not a proposed XML field', error)
 
     def test_repetitive_math_diagnostic_quotes_data_without_building_a_candidate(self):
         passage = r"\(\frac{49x}{100} = y\) "

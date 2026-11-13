@@ -1,9 +1,5 @@
 Original candidate excerpt corresponding to candidate[{{ start }}:{{ end }}]:
 {{ excerpt }}
-{% if truncated %}
-The displayed excerpt stops after 600 original characters; the reported extra
-range continues beyond it. Use the complete diff and your previous answer.
-{% endif %}
-This quotes existing extra characters, not text to insert. Remove the reported
-occurrence/range, not every occurrence of similar words. Retain surrounding
-correct content and all required nodes. Do not emit this diagnostic wrapper.
+{% if truncated %}The displayed excerpt stops after 600 original characters; the reported extra
+range continues beyond it.
+{% endif %}This quotes existing extra characters, not text to insert.

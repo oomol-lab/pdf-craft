@@ -1,30 +1,8 @@
-TARGETED STRUCTURE DIAGNOSTIC
-Required structure is the source XML template in this request. Your current
-XML is the preceding answer. A missing identity must remain present even if its
-text is empty: insert the required empty node, not source words.
-Do not close a parent merely because the translated text has ended. Emit every
-remaining required empty child before closing that parent. Empty nodes still
-carry source identities and are not optional punctuation.
-Compare the required structure with your current XML:
+STRUCTURE DIAGNOSTIC
+Required source structure and corresponding candidate blocks:
 {% for item in blocks %}
-Required structure (editable text is blank, not source wording to restore):
+Required structure (editable text is blank):
 {{ item.source }}
-Your current block:
+Candidate block:
 {{ item.candidate }}
 {% endfor %}
-Restore every required node with its own identity and legal nesting. Do not
-invent nodes or IDs. For an EXTRA formatting wrapper, unwrap it while keeping
-its content in place; removing only its ID does not remove the extra structure.
-Preserve the authoritative translation and its final reading order throughout
-this structural repair. Return the whole corrected XML.
-A required identity under the wrong parent is MISPLACED, not disposable. Move
-that node to its required parent from the template; retain its ID and content.
-An unexpected tag count at one parent does not mean its children can be deleted.
-Keep exactly one instance of each required identity. Unwrap only extra wrappers
-while preserving their text and required descendants; do not discard translation
-to repair nesting or duplicate identities.
-Text after a closing inline tag belongs in that tag's tail, not a new wrapper.
-For example, use <code id="7">value</code> remaining words, not
-<code id="7">value</code><span id="8"> remaining words</span> if that span is
-absent from the source. Keep required formatting slots, but never pad them with
-source words that are absent from the translation.
