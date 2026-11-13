@@ -6,6 +6,7 @@ from pdf_craft.common.whitespace import is_whitespace
 
 from .common import FoundInvalidIDError, validate_id_in_element
 from .inline_segment import InlineError, InlineSegment
+from .sibling_inline_scope import SCOPE_ATTRIBUTE, SiblingInlineScopes
 from .text_segment import TextSegment
 from .utils import IDGenerator, id_in_element
 
@@ -78,11 +79,14 @@ class BlockSegment:
         inline_segments: list[InlineSegment],
         immutable_elements: list[ImmutableBlockElement] | None = None,
     ) -> None:
+        self._inline_scopes = SiblingInlineScopes(
+            inline_segments, {item.before_block_index for item in immutable_elements or []})
         id_generator = IDGenerator()
         for inline_segment in inline_segments:
             inline_segment.id = id_generator.next_id()
             inline_segment.recreate_ids(id_generator)
 
+        self._inline_scopes.bind_ids()
         self._root_tag: str = root_tag
         self._inline_segments: list[InlineSegment] = inline_segments
         self._id2inline_segment: dict[int, InlineSegment] = dict((cast(int, s.id), s) for s in self._inline_segments)
@@ -119,7 +123,11 @@ class BlockSegment:
         for index, inline_segment in enumerate(self._inline_segments):
             for immutable in immutable_by_index.get(index, []):
                 root_element.append(_clone_immutable_element(immutable.element))
-            root_element.append(inline_segment.create_element())
+            node = inline_segment.create_element()
+            scope = self._inline_scopes.label(inline_segment.id)
+            if scope is not None:
+                node.set(SCOPE_ATTRIBUTE, scope)
+            root_element.append(node)
         for immutable in immutable_by_index.get(len(self._inline_segments), []):
             root_element.append(_clone_immutable_element(immutable.element))
         return root_element
@@ -156,6 +164,8 @@ class BlockSegment:
         ):
             yield BlockImmutableElementsError(expected_immutable, found_immutable)
 
+        candidates = {identity: node for node in validated_element
+                      if (identity := id_in_element(node)) is not None}
         remain_expected_elements: dict[int, Element] = dict(
             (id, inline_segment.parent) for id, inline_segment in self._id2inline_segment.items()
         )
@@ -181,7 +191,8 @@ class BlockSegment:
                         )
 
                     remain_expected_elements.pop(element_id, None)
-                    inline_errors = list(inline_segment.validate(child_validated_element))
+                    inline_errors = list(self._inline_scopes.validate(
+                        inline_segment, child_validated_element, candidates))
 
                     if inline_errors:
                         yield BlockContentError(
@@ -253,7 +264,7 @@ class BlockSegment:
             yield BlockSubmitter(
                 id=inline_segment_id,
                 origin_text_segments=list(inline_segment),
-                submitted_element=inline_segment.assign_attributes(child_element),
+                submitted_element=self._inline_scopes.adopt(inline_segment, child_element),
             )
 
 

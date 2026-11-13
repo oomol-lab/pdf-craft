@@ -140,10 +140,10 @@ class FillAcceptanceBoundaryTests(TestCase):
         segments = list(search_inline_segments(search_text_segments(source)))
         hill = HillClimbing(get_encoding('cl100k_base'), 10, BlockSegment('xml', segments))
         candidates = [
-            ('<xml><p id="1"><b><i>.</i></b></p><p id="2">Next</p></xml>', True, False),
-            ('<xml><p id="1"><b><i>.</i></b></p><p id="2"><b><i>.</i></b>Next</p></xml>', False, True),
-            ('<xml><p id="1"><b><i>.</i></b></p><p id="2">.Next</p></xml>', True, True),
-            ('<xml><p id="1"><b><i>..</i></b></p><p id="2">Next</p></xml>', True, True),
+            ('<xml><p id="1"><b id="2"><i>.</i></b></p><p id="3">Next</p></xml>', True, False),
+            ('<xml><p id="1"><b id="2"><i>.</i></b></p><p id="3"><b><i>.</i></b>Next</p></xml>', False, True),
+            ('<xml><p id="1"><b id="2"><i>.</i></b></p><p id="3">.Next</p></xml>', True, True),
+            ('<xml><p id="1"><b id="2"><i>..</i></b></p><p id="3">Next</p></xml>', True, True),
         ]
         for xml, structure_valid, content_valid in candidates:
             with self.subTest(xml=xml):

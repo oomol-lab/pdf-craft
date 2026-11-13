@@ -27,6 +27,11 @@ span fields. Source lengths and container counts impose no content quota.
 Formula text and delimiters follow the translation, not the source. Redistribute
 passages when necessary while preserving required nesting and resource boundaries.
 
+Blocks with the same inline-scope are source siblings. Their direct inline
+children may move between those blocks, retaining IDs and complete subtrees.
+No movement across scopes or nesting levels is allowed. Unmarked blocks retain
+their source nesting. These request-local IDs do not change block output order.
+
 Use the shared friendly XML text protocol: write text <, > and & as &lt;, &gt;
 and &amp;. Literal spelling &lt; is written &amp;lt;. These escapes are text,
 not document tags. Do not use CDATA sections.

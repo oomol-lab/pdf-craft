@@ -1,3 +1,9 @@
+{% if inline_scopes %}
+Source sibling scopes (block IDs; inline subtrees keep their internal nesting):
+{% for scope, blocks in inline_scopes.items() %}
+inline-scope {{ scope }}: {{ blocks | join(', ') }}
+{% endfor %}
+{% endif %}
 {% if source_xml is not none %}
 {% if candidate_xml %}
 Required source structure for this repair (editable words intentionally blank):

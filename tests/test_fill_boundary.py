@@ -160,7 +160,7 @@ class FillBoundaryTests(IsolatedAsyncioTestCase):
     async def test_boundary_whitespace_is_not_an_allocation_problem(self):
         source = fromstring('<body><p><b>One</b> two.</p><pre>code  x\n y</pre></body>')
         target, model = await self.translate('One two.\n\ncode  x\n y', [
-            '<xml><p id="1"><b>One </b>two.</p><pre id="2">code x y</pre></xml>'], source=source)
+            '<xml><p id="1"><b id="2">One </b>two.</p><pre id="3">code x y</pre></xml>'], source=source)
         self.assertEqual(target[1].text, 'code x y')
         self.assertEqual(len(model.wire_calls), 2)
 

@@ -697,7 +697,13 @@ class XMLTranslator:
 
         translation = Element('translation', {'xml:space': 'preserve'})
         translation.text = translated_text
-        source_xml = encode_friendly(hill_climbing.request_element())
+        source_element = hill_climbing.request_element()
+        inline_scopes: dict[str, list[str]] = {}
+        for block in source_element:
+            scope = block.get('inline-scope')
+            if scope is not None:
+                inline_scopes.setdefault(scope, []).append(block.attrib['id'])
+        source_xml = encode_friendly(source_element)
         user_message = (await self._fill_runtime.template('fill_input')).render(
             source_xml=source_xml,
             translated_text=encode_friendly(translation))
@@ -799,6 +805,7 @@ class XMLTranslator:
                                  repair_source_xml if previous is not None else source_xml)
                     user = repair_input.render(source_xml=structure,
                         candidate_xml=previous,
+                        inline_scopes=inline_scopes,
                         feedback=feedback, translated_text=encode_friendly(translation))
                     system = (Message(MessageRole.SYSTEM, repair_system_template.render())
                               if previous is not None else fixed_messages[0])

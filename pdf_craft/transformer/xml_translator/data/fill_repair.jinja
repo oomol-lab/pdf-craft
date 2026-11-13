@@ -16,10 +16,15 @@ required containers may stay empty. Redistribute consecutive passages when
 needed, preserving final reading order, nesting and resource boundaries. Block
 IDs fix output positions; rearranging blocks in your answer cannot move them.
 
+Direct inline children may move between blocks in the same declared inline-scope,
+keeping IDs and complete subtrees. No movement across scopes or nesting levels;
+unmarked blocks retain source nesting. Scope declarations come from the source,
+not new attributes in a candidate.
+
 Diagnostics describe the current allocation, not mandatory field quotas. Use
 actual translation characters, not normalized previews or count instructions.
 An extra wrapper may be UNWRAPPED while retaining its words; a misplaced required
-node must move to its proper parent, not be deleted. XML alone must be well formed;
+node must retain a permitted source position, not be deleted. XML alone must be well formed;
 source container boundaries do not justify extra mathematical delimiters.
 
 Translation: "Echo. Echo. Echo."

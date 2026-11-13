@@ -107,6 +107,19 @@ def generate_error_message(encoding: Encoding, errors_group: ErrorsGroup, omitte
             visit(node, path + '/' + node.tag + ('#' + identity if identity is not None else f'[{index}]'))
     if required_tree is not None:
         visit(required_tree, required_tree.tag)
+        scopes: dict[str, list[Element]] = {}
+        for block in required_tree:
+            scope = block.get('inline-scope')
+            if scope is not None:
+                scopes.setdefault(scope, []).append(block)
+        for scope, blocks in scopes.items():
+            parents = ', '.join(_xml_hint(block.tag, block.get('id')) for block in blocks)
+            for block in blocks:
+                for child in block:
+                    identity = child.get('id')
+                    if identity is not None and identity.isdecimal():
+                        locations[int(identity)] = child.tag, f'any sibling block in inline-scope {scope}: {parents}'
+                        visit(child, f'inline-scope {scope}/{child.tag}#{identity}')
     message_lines: list[str] = []
     for upper_error in errors_group.upper_errors:
         message_lines.append(_format_block_error(upper_error.error, locations))
