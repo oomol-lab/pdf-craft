@@ -11,12 +11,14 @@ class DeepSeekOCRLocalConfig:
     models_cache_path: Path | None = None
     local_only: bool = False
     enable_devices_numbers: tuple[int, ...] | None = None
+    runtime: Literal["cuda", "mlx"] = "cuda"
 
     def __init__(
         self,
         models_cache_path: PathLike | str | None = None,
         local_only: bool = False,
         enable_devices_numbers: Iterable[int] | None = None,
+        runtime: Literal["cuda", "mlx"] = "cuda",
     ) -> None:
         object.__setattr__(
             self,
@@ -24,6 +26,7 @@ class DeepSeekOCRLocalConfig:
             to_path(models_cache_path) if models_cache_path is not None else None,
         )
         object.__setattr__(self, "local_only", local_only)
+        object.__setattr__(self, "runtime", runtime)
         object.__setattr__(
             self,
             "enable_devices_numbers",

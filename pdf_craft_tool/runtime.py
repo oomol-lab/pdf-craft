@@ -63,6 +63,7 @@ def create_ocr_config_from_env(mode: OCRMode | None = None) -> OCRConfig:
     mode = mode or cast(OCRMode, _str("PDF_CRAFT_OCR_MODE", default="deepseek-ocr-local"))
     if mode == "deepseek-ocr-local":
         return DeepSeekOCRLocalConfig(
+            runtime=cast(Any, _str("PDF_CRAFT_DEEPSEEK_OCR_LOCAL_RUNTIME", default="cuda")),
             models_cache_path=_backend_str(
                 "PDF_CRAFT_DEEPSEEK_OCR_LOCAL_MODELS_CACHE_PATH",
                 "PDF_CRAFT_DEEPSEEK_MODELS_CACHE_PATH",
