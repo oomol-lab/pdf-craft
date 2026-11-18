@@ -45,8 +45,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://hub.oomol.com/package/pdf-craft"
+Homepage = "https://pdfcraft.ai/"
+"Online Converter" = "https://pdfcraft.ai/pdf-craft/"
 Repository = "https://github.com/oomol-lab/pdf-craft"
+Issues = "https://github.com/oomol-lab/pdf-craft/issues"
 
 [project.optional-dependencies]
 # Keep the upstream local runtime as one dependency declaration so its
