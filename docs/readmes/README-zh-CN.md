@@ -12,7 +12,7 @@
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
   </p>
   <p>
-    <a href="https://pdfcraft.ai/zh-CN/pdf-craft/"><strong>在线转换 PDF</strong></a> ·
+    <a href="https://pdfcraft.ai/zh-CN/pdf-craft/?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=pdfcraft_online&amp;utm_content=readme_zh_cn_top"><strong>在线转换 PDF</strong></a> ·
     <a href="#quick-start"><strong>Python 快速开始</strong></a> ·
     <a href="#documentation"><strong>使用文档</strong></a>
   </p>
