@@ -1,7 +1,7 @@
 # OCR backend 配置指南
 
 本指南面向需要在库层配置 OCR 的用户。README 已经给出选择方向：没有合适的本地 GPU
-时使用 vendor OCR；希望在本机运行模型时使用 local OCR。本指南进一步说明六种配置对象
+时使用 vendor OCR；希望在本机运行模型时使用 local OCR。本指南进一步说明七种配置对象
 的差异、字段和运行约束。
 
 ## 先决定运行位置
@@ -17,9 +17,10 @@ pdf-craft 的 OCR backend 分成两类：
 一次 OCR 运行只配置一个 backend。模型归属与运行方式可以分开选择：DeepSeek OCR 和
 DeepSeek OCR 2 来自 [DeepSeek](https://github.com/deepseek-ai/DeepSeek-OCR) 与
 [DeepSeek OCR 2](https://github.com/deepseek-ai/DeepSeek-OCR-2)，
-[Unlimited OCR](https://github.com/baidu/Unlimited-OCR) 来自百度。
+[Unlimited OCR](https://github.com/baidu/Unlimited-OCR) 来自百度，
+[MiniCPM-OCR](https://github.com/OpenBMB/MiniCPM-OCR) 来自 OpenBMB 与面壁智能。
 
-## 六种配置对象
+## 七种配置对象
 
 | 配置对象 | 模型 | 运行位置 | 适用条件 |
 | --- | --- | --- | --- |
@@ -29,6 +30,7 @@ DeepSeek OCR 2 来自 [DeepSeek](https://github.com/deepseek-ai/DeepSeek-OCR) �
 | `DeepSeekOCRVendorConfig` | DeepSeek OCR | 远程服务 | 使用 OpenAI-compatible OCR endpoint |
 | `DeepSeekOCR2VendorConfig` | DeepSeek OCR 2 | 远程服务 | 使用 OpenAI-compatible OCR 2 endpoint |
 | `UnlimitedOCRVendorConfig` | 百度 Unlimited OCR | 远程服务 | 使用百度 Unlimited OCR 服务 |
+| `MiniCPMOCRVendorConfig` | MiniCPM-OCR 1.0 | 远程服务 | 使用 ModelBest API 或自托管 MiniCPM-OCR 服务 |
 
 库 API 通过 `PDFOptions(ocr=...)` 接收配置对象，不读取环境变量。下面的例子都可以传给
 `PDFCraft(pdf=PDFOptions(...))`，再用于 `convert_pdf_to_markdown`、`convert_pdf_to_epub`
@@ -209,6 +211,46 @@ craft = PDFCraft(pdf=PDFOptions(
 ))
 ```
 
+### MiniCPM-OCR
+
+`MiniCPMOCRVendorConfig` 会把每一张渲染后的页面发送到 MiniCPM-OCR 服务，并使用其
+document-parse 响应中的版面区域。ModelBest API 与官方自托管 Docker 镜像都通过
+OpenAI-compatible chat completions endpoint 提供这项能力。
+
+```python
+from pdf_craft import (
+    ConcurrentExecutor, FixedCapacity, MiniCPMOCRVendorConfig,
+    PDFCraft, PDFOptions,
+)
+
+craft = PDFCraft(pdf=PDFOptions(
+    ocr=MiniCPMOCRVendorConfig(
+        base_url="https://api.modelbest.cn/v1",
+        api_key="your-api-key",
+    ),
+    ocr_executor=ConcurrentExecutor(FixedCapacity(8)),
+))
+```
+
+`model` 默认为 `MiniCPM-OCR-1.0`。上面的示例使用中国站；国际站使用
+`https://api.modelbest.ai/v1`。使用自托管服务时，把 `base_url` 指向服务地址并留空
+`api_key`；`model` 填写服务实际提供的名称，例如官方 Docker 镜像的 `minicpm-ocr`：
+
+```python
+ocr = MiniCPMOCRVendorConfig(
+    base_url="http://127.0.0.1:8000",
+    model="minicpm-ocr",
+)
+```
+
+服务必须运行完整的 MiniCPM-OCR 文档解析流水线（版面检测、区域识别和 Markdown 组装）。
+只处理单张裁剪图、不返回页面版面区域的普通视觉模型 endpoint 会被拒绝，并给出明确错误。
+这些请求会关闭方向校正，使返回的坐标框保持在渲染页面的坐标系中。页面图片过大时可能
+超过服务请求上限；可以降低 `ExtractionOptions` 的 `dpi`，或设置
+`max_page_image_file_size`。官方服务默认接收 Base64 Data URL；只有当你的部署接受
+HTTP(S) 图片 URL 时，才应使用图片 URL resolver。token 用量与累计 OCR token 预算依赖
+服务返回 `usage`；自托管 Web Demo 返回 0，因此该部署无法用预算限制用量。
+
 ### 自定义图片 URL
 
 默认情况下，Vendor OCR 会读取每张渲染后的 PNG，并生成 Base64 Data URL。若供应商支持或
@@ -241,9 +283,9 @@ craft = PDFCraft(pdf=PDFOptions(
 resolver 必须是异步函数，并在调用方事件循环中执行。每张逻辑 OCR 图片只会在需要时转换一次，
 网络重试会复用同一个 URL。脚注处理产生的第二阶段图片属于另一张逻辑图片，会单独转换。
 
-DeepSeek OCR 把返回值直接写入 `image_url.url`。Unlimited OCR 会把 Base64 Data URL 写入
-`file_data`，把 HTTP(S) URL 写入 `file_url`。上传、签名、过期时间、清理、缓存与存储服务的
-并发策略由提供 resolver 的应用负责。
+DeepSeek OCR 与 MiniCPM-OCR 把返回值直接写入 `image_url.url`。Unlimited OCR 会把
+Base64 Data URL 写入 `file_data`，把 HTTP(S) URL 写入 `file_url`。上传、签名、过期时间、
+清理、缓存与存储服务的并发策略由提供 resolver 的应用负责。
 
 ## `PDFOptions` 的配置边界
 

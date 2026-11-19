@@ -69,6 +69,7 @@ from .ocr_config import (
     DeepSeekOCRLocalConfig,
     DeepSeekOCRVendorConfig,
     LocalOCRConfig,
+    MiniCPMOCRVendorConfig,
     OCRConfig,
     OCRMode,
     VendorOCRConfig,

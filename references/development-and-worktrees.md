@@ -15,7 +15,7 @@ poetry install --with dev
 
 本包通过 `doc-page-extractor[local]` 获得上游本地 OCR 运行时栈，但不直接声明 `torch` 或 `torchvision`。只有当任务需要指定 CPU 或 CUDA wheel 时，才按当前环境覆盖安装 `torch` 和 `torchvision`。
 
-真实 OCR 有六种配置入口：
+真实 OCR 有七种配置入口：
 
 - `DeepSeekOCRLocalConfig`：本地 DeepSeek OCR，真实转换需要 CUDA。
 - `DeepSeekOCR2LocalConfig`：本地 DeepSeek OCR 2，真实转换需要 CUDA。
@@ -23,6 +23,7 @@ poetry install --with dev
 - `DeepSeekOCRVendorConfig`：DeepSeek OCR 供应商模式。
 - `DeepSeekOCR2VendorConfig`：DeepSeek OCR 2 供应商模式。
 - `UnlimitedOCRVendorConfig`：Unlimited OCR 供应商模式。
+- `MiniCPMOCRVendorConfig`：MiniCPM-OCR 供应商模式。
 
 库代码不得自动读取 `.env`。未发布的 `pdf_craft_tool` CLI 通过 `pdf_craft_tool/runtime.py` 加载工作区 `.env` 并创建显式配置对象。所有手动运行时变量使用 `PDF_CRAFT_` 前缀：OCR 使用 `PDF_CRAFT_OCR_MODE` 和对应的 `PDF_CRAFT_*_OCR_*` 配置；文本 LLM 通过可复用的 `PDF_CRAFT_LLM_<PROFILE>_*` profile 配置。默认 profile 可在运行时从 `oo llm config --json` 获取 OOMOL 凭据，不能复用 OCR-only endpoint。
 

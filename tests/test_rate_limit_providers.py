@@ -11,8 +11,8 @@ import openai
 
 from pdf_craft import (
     ConcurrentExecutor, DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig,
-    FixedCapacity, JEV, LLM, RateLimitedError, RateLimitScope, RateLimitTimeoutError,
-    RetryPolicy, UnlimitedOCRVendorConfig,
+    FixedCapacity, JEV, LLM, MiniCPMOCRVendorConfig, RateLimitedError,
+    RateLimitScope, RateLimitTimeoutError, RetryPolicy, UnlimitedOCRVendorConfig,
 )
 from pdf_craft.jev import JEVRuntime, _provider_error as jev_error
 from pdf_craft.llm.runtime import LLMRuntime
@@ -80,8 +80,11 @@ class ProviderRateLimitTests(unittest.IsolatedAsyncioTestCase):
             assert isinstance(normalized, RateLimitedError)
             self.assertEqual(normalized.retry_after, 2)
 
-    async def test_deepseek_both_versions_zero_retry_budget(self):
-        for config_type in (DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig):
+    async def test_chat_completion_backends_zero_retry_budget(self):
+        for config_type in (
+            DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig,
+            MiniCPMOCRVendorConfig,
+        ):
             with self.subTest(config=config_type), VirtualTime() as clock:
                 calls = 0
                 def handler(request):

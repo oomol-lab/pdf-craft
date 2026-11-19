@@ -69,6 +69,7 @@ analysis/OCR 缓存。
 - `JEV`、`FootnoteOptions`、`FootnoteRefinement`
 - `DeepSeekOCRLocalConfig`、`DeepSeekOCR2LocalConfig`、`UnlimitedOCRLocalConfig`
 - `DeepSeekOCRVendorConfig`、`DeepSeekOCR2VendorConfig`、`UnlimitedOCRVendorConfig`
+- `MiniCPMOCRVendorConfig`
 - `AsyncPDFHandler`、`AsyncPDFDocument`
 - `BookMeta`、`TableRender`、`LaTeXRender`
 

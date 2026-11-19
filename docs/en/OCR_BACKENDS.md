@@ -2,7 +2,7 @@
 
 Choose one OCR configuration for each PDF extraction. Local backends run models on a CUDA-capable NVIDIA GPU; vendor backends send pages to a remote service. Use local OCR for local or offline processing after models are cached. Use vendor OCR when you do not have CUDA or prefer managed compute.
 
-DeepSeek OCR and DeepSeek OCR 2 are from [DeepSeek](https://github.com/deepseek-ai/DeepSeek-OCR); [Unlimited OCR](https://github.com/baidu/Unlimited-OCR) is from Baidu.
+DeepSeek OCR and DeepSeek OCR 2 are from [DeepSeek](https://github.com/deepseek-ai/DeepSeek-OCR); [Unlimited OCR](https://github.com/baidu/Unlimited-OCR) is from Baidu; [MiniCPM-OCR](https://github.com/OpenBMB/MiniCPM-OCR) is from OpenBMB and ModelBest.
 
 | Configuration | Model | Runtime |
 | --- | --- | --- |
@@ -12,6 +12,7 @@ DeepSeek OCR and DeepSeek OCR 2 are from [DeepSeek](https://github.com/deepseek-
 | `DeepSeekOCRVendorConfig` | DeepSeek OCR | OpenAI-compatible remote service |
 | `DeepSeekOCR2VendorConfig` | DeepSeek OCR 2 | OpenAI-compatible remote service |
 | `UnlimitedOCRVendorConfig` | Unlimited OCR | Baidu remote service |
+| `MiniCPMOCRVendorConfig` | MiniCPM-OCR 1.0 | ModelBest API or self-hosted MiniCPM-OCR service |
 
 Pass a configuration through `PDFOptions(ocr=...)`; the library does not load `.env` files.
 
@@ -60,6 +61,54 @@ from pdf_craft import UnlimitedOCRVendorConfig
 ocr = UnlimitedOCRVendorConfig(ak="your-access-key", sk="your-secret-key")
 ```
 
+### MiniCPM-OCR
+
+`MiniCPMOCRVendorConfig` sends each rendered page to a MiniCPM-OCR service and
+uses the layout regions in its document-parse response. Both the ModelBest API
+and the official self-hosted Docker image expose this through an
+OpenAI-compatible chat completions endpoint.
+
+```python
+from pdf_craft import (
+    ConcurrentExecutor, FixedCapacity, MiniCPMOCRVendorConfig,
+    PDFCraft, PDFOptions,
+)
+
+craft = PDFCraft(pdf=PDFOptions(
+    ocr=MiniCPMOCRVendorConfig(
+        base_url="https://api.modelbest.cn/v1",
+        api_key="your-api-key",
+    ),
+    ocr_executor=ConcurrentExecutor(FixedCapacity(8)),
+))
+```
+
+`model` defaults to `MiniCPM-OCR-1.0`. The example uses the China site; use
+`https://api.modelbest.ai/v1` for the global site. For a self-hosted service,
+point `base_url` at the service and leave `api_key` empty; set `model` to the
+name the service advertises, such as `minicpm-ocr` for the official Docker
+image:
+
+```python
+ocr = MiniCPMOCRVendorConfig(
+    base_url="http://127.0.0.1:8000",
+    model="minicpm-ocr",
+)
+```
+
+The service must run the complete MiniCPM-OCR document parsing pipeline
+(layout detection, region recognition, and Markdown assembly). A plain
+vision-model endpoint that only recognizes one crop per request does not return
+page layout regions and is rejected with a clear error. Orientation correction
+is disabled for these requests so the returned boxes stay in the rendered
+page's coordinate space. Very large page images may exceed a service's request
+size limit; lower `dpi` or set `max_page_image_file_size` in
+`ExtractionOptions`. The official services expect the default Base64 Data URL;
+use an image URL resolver only when your deployment accepts HTTP(S) image URLs.
+Token usage and cumulative OCR token budgets rely on the service reporting
+`usage`; the self-hosted Web Demo reports zero, so budgets cannot limit that
+deployment.
+
 ### Supplying image URLs
 
 By default, Vendor OCR reads each rendered PNG and sends it as a Base64 Data URL. Applications
@@ -94,7 +143,7 @@ The resolver is asynchronous and runs on the caller's event loop. Each logical O
 resolved lazily once, and its URL is reused across transport retries. A
 second-stage footnote image is a separate logical image and is resolved independently.
 
-DeepSeek OCR sends the returned value through `image_url.url`. Unlimited OCR sends Base64 Data
+DeepSeek OCR and MiniCPM-OCR send the returned value through `image_url.url`. Unlimited OCR sends Base64 Data
 URLs through `file_data` and HTTP(S) URLs through `file_url`. Uploading, signing, expiry,
 cleanup, caching, and storage-specific concurrency belong to the application that provides the
 resolver.

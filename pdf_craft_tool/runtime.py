@@ -18,6 +18,7 @@ from pdf_craft import (
     DeepSeekOCRVendorConfig,
     LLM,
     JEV,
+    MiniCPMOCRVendorConfig,
     OCRConfig,
     OCRMode,
     UnlimitedOCRLocalConfig,
@@ -136,6 +137,16 @@ def create_ocr_config_from_env(mode: OCRMode | None = None) -> OCRConfig:
             base_url=_str("PDF_CRAFT_UNLIMITED_OCR_BASE_URL", default="https://aip.baidubce.com"),
             poll_interval_seconds=_float("PDF_CRAFT_UNLIMITED_OCR_POLL_INTERVAL_SECONDS", default=2.0),
             timeout_seconds=_int("PDF_CRAFT_UNLIMITED_OCR_TIMEOUT_SECONDS", default=180),
+        )
+    if mode == "minicpm-ocr-vendor":
+        return MiniCPMOCRVendorConfig(
+            base_url=_required("PDF_CRAFT_MINICPM_OCR_BASE_URL"),
+            api_key=_str("PDF_CRAFT_MINICPM_OCR_API_KEY"),
+            model=_str("PDF_CRAFT_MINICPM_OCR_MODEL", default="MiniCPM-OCR-1.0"),
+            temperature=_float("PDF_CRAFT_MINICPM_OCR_TEMPERATURE", default=0.0),
+            top_p=_optional_float("PDF_CRAFT_MINICPM_OCR_TOP_P"),
+            max_tokens=_int("PDF_CRAFT_MINICPM_OCR_MAX_TOKENS", default=8000),
+            timeout_seconds=_int("PDF_CRAFT_MINICPM_OCR_TIMEOUT_SECONDS", default=180),
         )
     raise SystemExit(f"Unsupported PDF_CRAFT_OCR_MODE: {mode}")
 

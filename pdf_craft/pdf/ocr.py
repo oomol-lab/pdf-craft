@@ -26,8 +26,8 @@ from ..concurrency import (
 from ..error import OCRError, PDFError
 from ..metering import AbortedCheck, check_aborted
 from ..ocr_config import (
-    DeepSeekOCR2VendorConfig, DeepSeekOCRVendorConfig, OCRConfig,
-    UnlimitedOCRVendorConfig, VendorOCRConfig,
+    DeepSeekOCR2VendorConfig, DeepSeekOCRVendorConfig, MiniCPMOCRVendorConfig,
+    OCRConfig, UnlimitedOCRVendorConfig, VendorOCRConfig,
 )
 from ..runtime import IO_DOMAIN, OCR_DOMAIN, ExecutionDomain, run_cancellable, temporary_directory
 from .handler import DefaultPDFHandler, PDFHandler
@@ -96,6 +96,7 @@ class OCR:
             DeepSeekOCRVendorConfig,
             DeepSeekOCR2VendorConfig,
             UnlimitedOCRVendorConfig,
+            MiniCPMOCRVendorConfig,
         ))
 
     def predownload(self, revision: str | None) -> None:
@@ -1018,6 +1019,12 @@ def _decode_vendor_response(config, item, response):
                 cast(Any, image), response.raw_text or "", source="deepseek-ocr2-vendor",
             )
         source = "deepseek-ocr2-vendor"
+    elif isinstance(config, MiniCPMOCRVendorConfig):
+        from .minicpm_ocr import parse_minicpm_ocr_layouts
+        layouts = parse_minicpm_ocr_layouts(
+            response.data, item.image_path, source="minicpm-ocr-vendor",
+        )
+        source = "minicpm-ocr-vendor"
     elif isinstance(config, UnlimitedOCRVendorConfig):
         from doc_page_extractor.adapters.unlimited import parse_unlimited_ocr_layouts
         layouts = parse_unlimited_ocr_layouts(

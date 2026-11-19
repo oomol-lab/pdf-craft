@@ -13,6 +13,7 @@ from ..ocr_config import (
     DeepSeekOCR2VendorConfig,
     DeepSeekOCRLocalConfig,
     DeepSeekOCRVendorConfig,
+    MiniCPMOCRVendorConfig,
     OCRConfig,
     UnlimitedOCRLocalConfig,
     UnlimitedOCRVendorConfig,
@@ -152,6 +153,11 @@ class PageExtractorNode:
                     poll_interval_seconds=self._ocr.poll_interval_seconds,
                     timeout_seconds=self._ocr.timeout_seconds,
                 )
+            )
+        if isinstance(self._ocr, MiniCPMOCRVendorConfig):
+            raise TypeError(
+                "MiniCPMOCRVendorConfig is handled by the vendor OCR "
+                "transport; it does not create a local page extractor."
             )
         raise TypeError(f"Unsupported OCR config: {type(self._ocr).__name__}")
 

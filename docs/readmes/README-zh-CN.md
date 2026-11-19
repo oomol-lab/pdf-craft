@@ -146,7 +146,7 @@ craft.convert_pdf_to_markdown(
 
 ## OCR 与运行要求
 
-PDF Craft 支持 **DeepSeek OCR、DeepSeek OCR 2 和 Unlimited OCR**，每个模型系列都有本地和远程配置。
+PDF Craft 支持 **DeepSeek OCR、DeepSeek OCR 2、Unlimited OCR 和 MiniCPM-OCR**。前三者提供本地和远程配置，MiniCPM-OCR 使用远程服务。
 
 远程 OCR 使用标准安装包。如果你明确需要本地 OCR，请安装额外依赖：
 
@@ -194,7 +194,7 @@ python -m pip install "pdf-craft[local]"
 
 PDF Craft 使用 [MIT 许可证](../../LICENSE)。第三方依赖及所选 OCR 模型适用各自的许可证。
 
-感谢 [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR)、[DeepSeek OCR 2](https://github.com/deepseek-ai/DeepSeek-OCR-2)、[Unlimited OCR](https://github.com/baidu/Unlimited-OCR)、[doc-page-extractor](https://github.com/Moskize91/doc-page-extractor) 和 [pyahocorasick](https://github.com/WojciechMula/pyahocorasick) 等开源项目。
+感谢 [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR)、[DeepSeek OCR 2](https://github.com/deepseek-ai/DeepSeek-OCR-2)、[Unlimited OCR](https://github.com/baidu/Unlimited-OCR)、[MiniCPM-OCR](https://github.com/OpenBMB/MiniCPM-OCR)、[doc-page-extractor](https://github.com/Moskize91/doc-page-extractor) 和 [pyahocorasick](https://github.com/WojciechMula/pyahocorasick) 等开源项目。
 
 <!-- community-footer:start -->
 

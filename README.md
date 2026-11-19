@@ -166,7 +166,7 @@ See [PDF conversion and translation](docs/en/PDF_TRANSLATION.md), [EPUB translat
 
 ## OCR and runtime requirements
 
-PDF Craft supports **DeepSeek OCR, DeepSeek OCR 2, and Unlimited OCR**, each with local and remote configurations.
+PDF Craft supports **DeepSeek OCR, DeepSeek OCR 2, Unlimited OCR, and MiniCPM-OCR**. DeepSeek OCR, DeepSeek OCR 2, and Unlimited OCR offer local and remote configurations; MiniCPM-OCR uses a remote service.
 
 The standard installation supports remote OCR. For local OCR, install the extra:
 
@@ -213,7 +213,7 @@ If PDF Craft helps you, a Star helps others discover it.
 
 PDF Craft uses the [MIT license](LICENSE). Third-party dependencies and selected OCR models retain their own licenses.
 
-Thanks to [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR), [DeepSeek OCR 2](https://github.com/deepseek-ai/DeepSeek-OCR-2), [Unlimited OCR](https://github.com/baidu/Unlimited-OCR), [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor), [pyahocorasick](https://github.com/WojciechMula/pyahocorasick) and the open-source projects that make PDF Craft possible.
+Thanks to [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR), [DeepSeek OCR 2](https://github.com/deepseek-ai/DeepSeek-OCR-2), [Unlimited OCR](https://github.com/baidu/Unlimited-OCR), [MiniCPM-OCR](https://github.com/OpenBMB/MiniCPM-OCR), [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor), [pyahocorasick](https://github.com/WojciechMula/pyahocorasick) and the open-source projects that make PDF Craft possible.
 
 <!-- community-footer:start -->
 

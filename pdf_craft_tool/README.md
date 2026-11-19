@@ -10,7 +10,7 @@ Renderer、Pipeline 和 Transformer。
 poetry run python -m pdf_craft_tool --help
 ```
 
-先复制 `.env.template` 为 `.env`，一次性填写全部六种 `PDF_CRAFT_*` OCR 配置；切换
+先复制 `.env.template` 为 `.env`，一次性填写全部七种 `PDF_CRAFT_*` OCR 配置；切换
 backend 时不需要再修改 `.env`。翻译或可选的 TOC 层级增强需要文本 chat-completion LLM profile；OCR-only endpoint
 不能代替它。默认 profile 使用本机 `oo llm config --json` 提供的 OOMOL 连接，凭据不写入 `.env`。
 JEV 页审核通过官方 TypeSafe SDK 直连，使用 `.env` 中独立的
@@ -26,7 +26,7 @@ poetry run python -m pdf_craft_tool analysis review-jev \
 
 ## OCR backend 配置与选择
 
-`.env.template` 为以下六种 backend 分别保留配置分组：
+`.env.template` 为以下七种 backend 分别保留配置分组：
 
 - `deepseek-ocr-local`
 - `deepseek-ocr2-local`
@@ -34,6 +34,7 @@ poetry run python -m pdf_craft_tool analysis review-jev \
 - `deepseek-ocr-vendor`
 - `deepseek-ocr2-vendor`
 - `unlimited-ocr-vendor`
+- `minicpm-ocr-vendor`
 
 `PDF_CRAFT_OCR_MODE` 只是未传参数时的默认选择，不会启用、清空或覆盖其他 backend。
 所有 PDF CLI 命令和 `smoke run` 的 `--ocr-mode` 都可显式选择其中一个 backend；矩阵在每个
@@ -282,7 +283,7 @@ poetry run python -m pdf_craft_tool smoke matrix \
 多章节英文 EPUB 翻译，并统一使用大于 1 的并发容量。local OCR route 在无 CUDA
 环境中会记录为 skipped，不应伪装为 passed。
 
-全部六种 OCR backend 的最小矩阵位于 `tests/smoke/all_ocr_backends.json`：
+全部七种 OCR backend 的最小矩阵位于 `tests/smoke/all_ocr_backends.json`：
 
 ```shell
 poetry run python -m pdf_craft_tool smoke matrix \

@@ -127,6 +127,22 @@ class UnlimitedOCRVendorConfig:
         _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
 
 
+@dataclass(frozen=True)
+class MiniCPMOCRVendorConfig:
+    base_url: str
+    api_key: str = field(default="", repr=False)
+    model: str = "MiniCPM-OCR-1.0"
+    temperature: float | None = 0.0
+    top_p: float | None = None
+    max_tokens: int = 8000
+    timeout_seconds: int = 180
+    retry_times: int = 2
+    retry_interval_seconds: float = 1.0
+
+    def __post_init__(self) -> None:
+        _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
+
+
 def _validate_vendor_retry(retry_times: int, retry_interval_seconds: float) -> None:
     if retry_times < 0:
         raise ValueError("retry_times cannot be negative")
@@ -139,6 +155,7 @@ LocalOCRConfig: TypeAlias = (
 )
 VendorOCRConfig: TypeAlias = (
     DeepSeekOCRVendorConfig | DeepSeekOCR2VendorConfig | UnlimitedOCRVendorConfig
+    | MiniCPMOCRVendorConfig
 )
 OCRConfig: TypeAlias = LocalOCRConfig | VendorOCRConfig
 OCRMode: TypeAlias = Literal[
@@ -148,6 +165,7 @@ OCRMode: TypeAlias = Literal[
     "deepseek-ocr-vendor",
     "deepseek-ocr2-vendor",
     "unlimited-ocr-vendor",
+    "minicpm-ocr-vendor",
 ]
 
 

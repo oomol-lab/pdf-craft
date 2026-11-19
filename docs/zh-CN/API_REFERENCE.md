@@ -608,7 +608,7 @@ EPUB-only 程序直接构造不带 PDF 配置的 `PDFCraft()` 或 `AsyncPDFCraft
 
 ## OCR 配置对象
 
-六种配置对象分为 local 和 vendor 两组：
+七种配置对象分为 local 和 vendor 两组：
 
 ```python
 DeepSeekOCRLocalConfig(
@@ -625,13 +625,23 @@ DeepSeekOCRVendorConfig(
     max_tokens=8000,
     timeout_seconds=180,
 )
+MiniCPMOCRVendorConfig(
+    base_url="https://api.modelbest.cn/v1",
+    api_key="...",
+    model="MiniCPM-OCR-1.0",
+    temperature=0.0,
+    top_p=None,
+    max_tokens=8000,
+    timeout_seconds=180,
+)
 ```
 
 `DeepSeekOCR2LocalConfig` 与 `DeepSeekOCRLocalConfig` 字段相同；
 `UnlimitedOCRLocalConfig` 字段相同。`DeepSeekOCR2VendorConfig` 字段与
 `DeepSeekOCRVendorConfig` 相同。`UnlimitedOCRVendorConfig` 使用 `ak`、`sk`、可选的
-`base_url`、`poll_interval_seconds` 和 `timeout_seconds`。local 配置使用本机 CUDA 和模型
-缓存，vendor 配置使用远程服务；六种配置不能混用。
+`base_url`、`poll_interval_seconds` 和 `timeout_seconds`。`MiniCPMOCRVendorConfig`
+的 `api_key` 可以为空（自托管服务），`model` 默认为 `MiniCPM-OCR-1.0`。local 配置使用
+本机 CUDA 和模型缓存，vendor 配置使用远程服务；七种配置不能混用。
 
 `await predownload_models(models_cache_path=None, revision=None, ocr=None)` 可以提前
 下载 local 模型。传入 `ocr` 时不能再同时传入 `models_cache_path`；`pdf_handler` 仅在需要替换
