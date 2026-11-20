@@ -406,14 +406,48 @@ class VendorOCRRuntime:
         response = sent["response"]
         assert isinstance(data, dict)
         assert isinstance(response, httpx.Response)
-        content, input_tokens, output_tokens = _chat_completion_text(
-            data, response, "DeepSeek OCR",
+        usage_value = data.get("usage")
+        if usage_value is not None and not isinstance(usage_value, dict):
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid usage",
+            )
+        usage = usage_value or {}
+        choices_value = data.get("choices")
+        if not isinstance(choices_value, list) or not choices_value:
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid choices",
+            )
+        choice = choices_value[0]
+        if not isinstance(choice, dict):
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid choice",
+            )
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid message",
+            )
+        content = message.get("content")
+        if not isinstance(content, str):
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid content",
+            )
+        token_counts = (
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
         )
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in token_counts
+        ):
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid token usage",
+            )
         return VendorOCRResponse(
             data=data,
             raw_text=content,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            input_tokens=token_counts[0],
+            output_tokens=token_counts[1],
         )
 
     async def _request_minicpm(
@@ -423,50 +457,49 @@ class VendorOCRRuntime:
     ) -> VendorOCRResponse:
         config = self.config
         assert isinstance(config, MiniCPMOCRVendorConfig)
-        payload = await IO_DOMAIN.run(
-            _minicpm_payload, request.image_url, config,
-        )
+        payload = await IO_DOMAIN.run(_minicpm_payload, request.image_url, config)
 
-        async def send() -> dict[str, Any]:
+        async def send() -> VendorOCRResponse:
             if started is not None:
                 started.set()
-            with request_attempt(self.config) as attempt_usage:
+            with request_attempt(config) as attempt_usage:
                 headers = {
                     "Content-Type": "application/json",
                     "Accept": "application/json",
                     "User-Agent": "pdf-craft-vendor-ocr/1.0",
-                    **current_headers(),
                 }
                 if config.api_key:
                     headers["Authorization"] = f"Bearer {config.api_key}"
+                headers.update(current_headers())
                 response = await self._require_client().post(
-                    _chat_completions_url(config.base_url),
-                    headers=headers,
-                    json=payload,
+                    _chat_completions_url(config.base_url), headers=headers, json=payload,
                 )
                 try:
                     observe_tokens(response.json().get("usage"))
                 except (ValueError, AttributeError):
                     pass
                 data = _checked_response(response, request.page_index, "MiniCPM-OCR")
+                usage_value = data.get("usage")
+                if usage_value is not None and not isinstance(usage_value, dict):
+                    _raise_malformed_response(response, "MiniCPM-OCR response has invalid usage")
+                usage = usage_value or {}
+                counts = (usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+                if any(isinstance(value, bool) or not isinstance(value, int) or value < 0
+                       for value in counts):
+                    _raise_malformed_response(response, "MiniCPM-OCR response has invalid token usage")
+                # Layout blocks are authoritative; the service need not return Markdown.
+                choices = data.get("choices") or []
+                raw_text = None
+                if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                    message = choices[0].get("message")
+                    if isinstance(message, dict) and isinstance(message.get("content"), str):
+                        raw_text = message["content"]
                 if attempt_usage is not None:
                     attempt_usage.accept()
-                return {"data": data, "response": response}
+                return VendorOCRResponse(data=data, raw_text=raw_text,
+                                         input_tokens=counts[0], output_tokens=counts[1])
 
-        sent = await self.executor.run(send)
-        data = sent["data"]
-        response = sent["response"]
-        assert isinstance(data, dict)
-        assert isinstance(response, httpx.Response)
-        content, input_tokens, output_tokens = _chat_completion_text(
-            data, response, "MiniCPM-OCR", content_required=False,
-        )
-        return VendorOCRResponse(
-            data=data,
-            raw_text=content,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-        )
+        return await self.executor.run(send)
 
     async def _request_unlimited(
         self,
@@ -895,33 +928,15 @@ def _deepseek_payload(
     return payload
 
 
-def _minicpm_payload(
-    image_url: str,
-    config: MiniCPMOCRVendorConfig,
-) -> dict[str, Any]:
+def _minicpm_payload(image_url: str, config: MiniCPMOCRVendorConfig) -> dict[str, Any]:
+    prompt = (Path(__file__).parent / "prompts" / "minicpm.jinja").read_text(encoding="utf-8").strip()
     payload: dict[str, Any] = {
         "model": config.model,
-        "messages": [{
-            "role": "user",
-            "content": [
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": image_url,
-                    },
-                },
-                {
-                    "type": "text",
-                    "text": "Text Recognition:",
-                },
-            ],
-        }],
-        "minicpm_ocr": {
-            "mode": "ocr_only",
-            # The returned boxes describe the page as sent. Letting the service
-            # rotate the image would make them unusable for the PDF page.
-            "upright": False,
-        },
+        "messages": [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": image_url}},
+            {"type": "text", "text": prompt},
+        ]}],
+        "minicpm_ocr": {"mode": "ocr_only", "upright": False},
         "max_tokens": config.max_tokens,
         "stream": False,
     }
@@ -930,58 +945,6 @@ def _minicpm_payload(
     if config.top_p is not None:
         payload["top_p"] = config.top_p
     return payload
-
-
-def _chat_completion_text(
-    data: dict[str, Any],
-    response: httpx.Response,
-    action: str,
-    *,
-    content_required: bool = True,
-) -> tuple[str, int, int]:
-    usage_value = data.get("usage")
-    if usage_value is not None and not isinstance(usage_value, dict):
-        _raise_malformed_response(
-            response, f"{action} response has invalid usage",
-        )
-    usage = usage_value or {}
-    choices_value = data.get("choices")
-    if not content_required and (choices_value is None or choices_value == []):
-        content = ""
-    else:
-        if not isinstance(choices_value, list) or not choices_value:
-            _raise_malformed_response(
-                response, f"{action} response has invalid choices",
-            )
-        choice = choices_value[0]
-        if not isinstance(choice, dict):
-            _raise_malformed_response(
-                response, f"{action} response has invalid choice",
-            )
-        message = choice.get("message")
-        if not isinstance(message, dict):
-            _raise_malformed_response(
-                response, f"{action} response has invalid message",
-            )
-        content = message.get("content")
-        if content is None and not content_required:
-            content = ""
-        elif not isinstance(content, str):
-            _raise_malformed_response(
-                response, f"{action} response has invalid content",
-            )
-    token_counts = (
-        usage.get("prompt_tokens", 0),
-        usage.get("completion_tokens", 0),
-    )
-    if any(
-        isinstance(value, bool) or not isinstance(value, int) or value < 0
-        for value in token_counts
-    ):
-        _raise_malformed_response(
-            response, f"{action} response has invalid token usage",
-        )
-    return content, token_counts[0], token_counts[1]
 
 
 def _checked_response(
