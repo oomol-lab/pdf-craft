@@ -1,0 +1,7 @@
+# Runtime for the repository-local Apple Silicon CLI.
+mlx==0.29.3
+mlx-vlm==0.3.4
+mlx-lm==0.28.3
+transformers==4.57.1
+huggingface-hub>=0.36,<1.0
+readerwriterlock==1.0.9

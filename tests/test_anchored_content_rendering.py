@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 from typing import cast
 from zipfile import ZipFile
 
+import pytest
 from PIL import Image as PILImage
 from epub_generator import LaTeXRender, TableRender
 
@@ -34,9 +35,9 @@ def _side_image_flow(asset_hash: str) -> TextFlowItem:
     ])
 
 
-def _write_image(assets: Path) -> str:
+def _write_image(assets: Path, color="navy", mode="RGB") -> str:
     temporary = assets / "temporary.png"
-    PILImage.new("RGB", (20, 20), "navy").save(temporary)
+    PILImage.new(mode, (20, 20), color).save(temporary)
     asset_hash = sha256(temporary.read_bytes()).hexdigest()
     temporary.rename(assets / f"{asset_hash}.png")
     return asset_hash
@@ -103,15 +104,25 @@ def test_markdown_keeps_text_continuous_when_an_anchored_image_cannot_render():
         assert rendered == "How-ever"
 
 
-def test_epub_applies_float_only_to_the_precise_anchored_image_occurrence():
+@pytest.mark.parametrize(("color", "mode", "title", "rendered"), [
+    ("navy", "RGB", None, True),
+    ("white", "RGB", None, False),
+    ("white", "RGBA", None, False),
+    ("#fefefe", "RGB", None, True),
+    ((255, 255, 255, 0), "RGBA", None, True),
+    ("white", "RGB", "Image label.", True),
+])
+def test_epub_applies_float_only_to_the_precise_anchored_image_occurrence(color, mode, title, rendered):
     with TemporaryDirectory() as directory:
         root = Path(directory)
         assets = root / "assets"
         chapters = root / "chapters"
         assets.mkdir()
         chapters.mkdir()
-        asset_hash = _write_image(assets)
+        asset_hash = _write_image(assets, color, mode)
         flow = _side_image_flow(asset_hash)
+        if title:
+            cast(SourceAsset, flow.children[1]).title = [title]
         # The same raster also appears standalone.  Hash-based post-processing
         # would incorrectly float both; occurrence markers must not.
         chapter = Chapter(None, -1, [
@@ -129,7 +140,12 @@ def test_epub_applies_float_only_to_the_precise_anchored_image_occurrence():
 
         with ZipFile(epub) as archive:
             xhtml = archive.read("OEBPS/Text/head.xhtml").decode("utf-8")
+            assert any(name.endswith(".png") for name in archive.namelist()) == rendered
             css = archive.read("OEBPS/styles/style.css").decode("utf-8")
+        if not rendered:
+            assert "Before the illustration.After the illustration." in xhtml
+            assert "<img " not in xhtml
+            return
         assert "pdf-craft-float-marker" not in xhtml
         assert "pdf-craft-anchored-float pdf-craft-anchored-float-start" in xhtml
         assert xhtml.count("pdf-craft-anchored-float") == 2

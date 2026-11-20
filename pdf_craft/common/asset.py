@@ -1,5 +1,6 @@
 import hashlib
 import uuid
+from contextlib import suppress
 from pathlib import Path
 from typing import Literal
 
@@ -9,6 +10,12 @@ AssetRef = Literal["image", "table", "formula", "equation"]
 # ``equation`` is an OCR/PageLayout input category.  PCEX v3 normalizes it to
 # ``formula`` before encoding; strict v3 XML decoding rejects equation.
 ASSET_TAGS: tuple[AssetRef, ...] = ("image", "table", "formula", "equation")
+
+
+def is_solid_white_image(image_path: Path) -> bool:
+    with suppress(OSError, ValueError), Image.open(image_path) as image:
+        return image.mode in {"RGB", "RGBA"} and image.convert("RGBA").getextrema() == ((255, 255),) * 4
+    return False
 
 
 class AssetHub:
