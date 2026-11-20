@@ -16,7 +16,8 @@ from typesafe_sdk import AsyncTypeSafeClient
 
 from pdf_craft import (
     AsyncPDFCraft, PDFCraft, ConcurrentExecutor, FixedCapacity, LLM,
-    DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig, UnlimitedOCRVendorConfig,
+    DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig, MiniCPMOCRVendorConfig,
+    UnlimitedOCRVendorConfig,
     JEV, RetryPolicy, XMLTranslator,
 )
 from pdf_craft._policy import policy_operation
@@ -176,8 +177,11 @@ class RequestHeaderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sorted(seen), ['one', 'two'])
         self.assertEqual(current_headers(), {})
 
-    async def test_both_deepseek_backends_shared_runtime_and_batch_scope(self):
-        for config_type in (DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig):
+    async def test_chat_completion_backends_shared_runtime_and_batch_scope(self):
+        for config_type in (
+            DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig,
+            MiniCPMOCRVendorConfig,
+        ):
             seen, counts = [], Counter()
 
             async def respond(request):

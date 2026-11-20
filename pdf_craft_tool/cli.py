@@ -994,6 +994,7 @@ def _ocr_modes() -> tuple[str, ...]:
     return (
         "deepseek-ocr-local", "deepseek-ocr2-local", "unlimited-ocr-local",
         "deepseek-ocr-vendor", "deepseek-ocr2-vendor", "unlimited-ocr-vendor",
+        "minicpm-ocr-vendor",
     )
 
 

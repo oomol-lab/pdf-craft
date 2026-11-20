@@ -11,6 +11,7 @@ from pdf_craft import (
     DeepSeekOCR2VendorConfig,
     DeepSeekOCRLocalConfig,
     DeepSeekOCRVendorConfig,
+    MiniCPMOCRVendorConfig,
     UnlimitedOCRLocalConfig,
     UnlimitedOCRVendorConfig,
 )
@@ -59,11 +60,27 @@ class TestOCRConfig(unittest.TestCase):
             ak="secret-ak",
             sk="secret-sk",
         )
+        minicpm = MiniCPMOCRVendorConfig(
+            base_url="https://example.com",
+            api_key="secret-minicpm",
+        )
 
         self.assertNotIn("secret-key", repr(deepseek))
         self.assertNotIn("secret-key-2", repr(deepseek2))
         self.assertNotIn("secret-ak", repr(unlimited))
         self.assertNotIn("secret-sk", repr(unlimited))
+        self.assertNotIn("secret-minicpm", repr(minicpm))
+
+    def test_minicpm_vendor_config_defaults_to_official_model(self):
+        config = MiniCPMOCRVendorConfig(base_url="https://example.com/v1")
+
+        self.assertEqual(config.model, "MiniCPM-OCR-1.0")
+        self.assertEqual(config.api_key, "")
+        self.assertEqual(config.temperature, 0.0)
+        self.assertEqual(config.max_tokens, 8000)
+        self.assertEqual(config.timeout_seconds, 180)
+        self.assertEqual(config.retry_times, 2)
+        self.assertEqual(config.retry_interval_seconds, 1.0)
 
     def test_ocr_config_cannot_mix_with_models_cache_options(self):
         config = DeepSeekOCRVendorConfig(

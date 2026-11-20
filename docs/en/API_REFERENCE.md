@@ -321,6 +321,7 @@ All OCR configuration objects are immutable dataclasses and are passed to `PDFOp
 | `DeepSeekOCRVendorConfig` | `base_url`, `api_key`, `model` | `temperature`, `top_p`, `max_tokens=8000`, `timeout_seconds=180` |
 | `DeepSeekOCR2VendorConfig` | `base_url`, `api_key`, `model` | `temperature`, `top_p`, `max_tokens=8000`, `timeout_seconds=180` |
 | `UnlimitedOCRVendorConfig` | `ak`, `sk` | `base_url="https://aip.baidubce.com"`, `poll_interval_seconds=2.0`, `timeout_seconds=180` |
+| `MiniCPMOCRVendorConfig` | `base_url` | `api_key=""`, `model="MiniCPM-OCR-1.0"`, `temperature=0.0`, `top_p`, `max_tokens=8000`, `timeout_seconds=180` |
 
 See [OCR backends](OCR_BACKENDS.md) for model origin, runtime requirements, and selection guidance.
 

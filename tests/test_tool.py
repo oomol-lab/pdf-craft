@@ -350,6 +350,14 @@ class TestPDFCraftTool(unittest.TestCase):
                 },
                 "UnlimitedOCRVendorConfig",
             ),
+            (
+                "minicpm-ocr-vendor",
+                {
+                    "PDF_CRAFT_MINICPM_OCR_BASE_URL": "https://ocr.example/v1",
+                    "PDF_CRAFT_MINICPM_OCR_API_KEY": "key",
+                },
+                "MiniCPMOCRVendorConfig",
+            ),
         )
         for mode, values, expected_type in cases:
             with self.subTest(mode=mode), patch.dict("os.environ", {

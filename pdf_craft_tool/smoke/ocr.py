@@ -5,6 +5,7 @@ from pdf_craft import (
     DeepSeekOCR2VendorConfig,
     DeepSeekOCRLocalConfig,
     DeepSeekOCRVendorConfig,
+    MiniCPMOCRVendorConfig,
     OCRConfig,
     OCRMode,
     UnlimitedOCRLocalConfig,
@@ -26,4 +27,6 @@ def create_ocr_config(mode: OCRMode, values: dict[str, Any]) -> OCRConfig:
         return DeepSeekOCR2VendorConfig(**values)
     if mode == "unlimited-ocr-vendor":
         return UnlimitedOCRVendorConfig(**values)
+    if mode == "minicpm-ocr-vendor":
+        return MiniCPMOCRVendorConfig(**values)
     raise ValueError(f"unsupported OCR mode: {mode}")
