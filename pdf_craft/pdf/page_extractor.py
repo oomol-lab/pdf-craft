@@ -155,10 +155,16 @@ class PageExtractorNode:
                 )
             )
         if isinstance(self._ocr, MiniCPMOCRVendorConfig):
-            raise TypeError(
-                "MiniCPMOCRVendorConfig is handled by the vendor OCR "
-                "transport; it does not create a local page extractor."
+            from doc_page_extractor.adapters.minicpm import (
+                MiniCPMOCRVendorConfig as UpstreamMiniCPMOCRVendorConfig,
             )
+            from doc_page_extractor.extractor import create_minicpm_ocr_vendor_page_extractor
+
+            return create_minicpm_ocr_vendor_page_extractor(UpstreamMiniCPMOCRVendorConfig(
+                base_url=self._ocr.base_url, api_key=self._ocr.api_key, model=self._ocr.model,
+                temperature=self._ocr.temperature, top_p=self._ocr.top_p,
+                max_tokens=self._ocr.max_tokens, timeout_seconds=self._ocr.timeout_seconds,
+            ))
         raise TypeError(f"Unsupported OCR config: {type(self._ocr).__name__}")
 
     def download_models(self, revision: str | None) -> None:
