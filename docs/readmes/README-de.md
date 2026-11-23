@@ -8,7 +8,7 @@
     <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/merge-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/merge-build.yml" alt="CI" /></a>
     <a href="../../LICENSE"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="MIT" /></a>
     <a href="https://pdfcraft.ai/de-DE/docs/getting-started/mcp/"><img src="https://img.shields.io/badge/MCP-ready-111827" alt="MCP ready" /></a>
-    <a href="https://pdfcraft.ai/openapi.json"><img src="https://img.shields.io/badge/OpenAPI-3.1-6BA539" alt="OpenAPI 3.1" /></a>
+    <a href="https://pdfcraft.ai/openapi.json"><img src="https://img.shields.io/badge/OpenAPI-3.0.3-6BA539" alt="OpenAPI 3.0.3" /></a>
   </p>
   <p>
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>

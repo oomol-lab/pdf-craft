@@ -8,7 +8,7 @@
     <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/merge-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/merge-build.yml" alt="CI" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="MIT" /></a>
     <a href="https://pdfcraft.ai/docs/getting-started/mcp/"><img src="https://img.shields.io/badge/MCP-ready-111827" alt="MCP ready" /></a>
-    <a href="https://pdfcraft.ai/openapi.json"><img src="https://img.shields.io/badge/OpenAPI-3.1-6BA539" alt="OpenAPI 3.1" /></a>
+    <a href="https://pdfcraft.ai/openapi.json"><img src="https://img.shields.io/badge/OpenAPI-3.0.3-6BA539" alt="OpenAPI 3.0.3" /></a>
   </p>
   <p>
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
@@ -24,9 +24,9 @@ PDF Craft is a Python library for scanned books, research papers, and technical 
 
 <table>
   <tr>
-    <td width="33.33%" align="center"><img src="docs/images/deployment-options/pdfcraft-cloud.svg" alt="PDF Craft Cloud" width="140"></td>
-    <td width="33.33%" align="center"><img src="docs/images/deployment-options/self-hosted.svg" alt="Self-hosted" width="140"></td>
-    <td width="33.33%" align="center"><img src="docs/images/deployment-options/api-mcp.svg" alt="API &amp; MCP" width="140"></td>
+    <td width="33.33%" align="center"><img src="https://raw.githubusercontent.com/oomol-lab/pdf-craft/main/docs/images/deployment-options/pdfcraft-cloud.svg" alt="PDF Craft Cloud" width="140"></td>
+    <td width="33.33%" align="center"><img src="https://raw.githubusercontent.com/oomol-lab/pdf-craft/main/docs/images/deployment-options/self-hosted.svg" alt="Self-hosted" width="140"></td>
+    <td width="33.33%" align="center"><img src="https://raw.githubusercontent.com/oomol-lab/pdf-craft/main/docs/images/deployment-options/api-mcp.svg" alt="API &amp; MCP" width="140"></td>
   </tr>
   <tr>
     <td width="33.33%" valign="top">No GPU or model setup required. Convert scanned PDFs to EPUB or Markdown and translate whole books online with pay-as-you-go credits.</td>
