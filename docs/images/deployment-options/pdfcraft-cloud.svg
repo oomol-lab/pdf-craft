@@ -1,26 +1,52 @@
 <svg width="176" height="50" viewBox="0 0 176 50" fill="none" xmlns="http://www.w3.org/2000/svg">
   <style>
-    .brand-mark,
     .brand-wordmark {
       fill: #0d1117;
     }
 
     @media (prefers-color-scheme: dark) {
-      .brand-mark,
       .brand-wordmark {
         fill: #f6f8fa;
       }
     }
   </style>
-  <title>PDF Craft Cloud</title>
-  <g class="brand-mark" transform="translate(4 5) scale(0.8)">
-    <path d="M15.114 15.6519C14.1586 15.6519 13.3842 16.4258 13.3842 17.3805C13.3842 18.3352 14.1586 19.1091 15.114 19.1091C16.0693 19.1091 16.8438 18.3352 16.8438 17.3805C16.8438 16.4258 16.0693 15.6519 15.114 15.6519Z"/>
-    <path d="M34.9107 32.7458C34.9107 31.7911 35.6851 31.0172 36.6405 31.0172C37.5958 31.0172 38.3703 31.7911 38.3703 32.7458C38.3703 33.7005 37.5958 34.4744 36.6405 34.4744C35.6851 34.4744 34.9107 33.7005 34.9107 32.7458Z"/>
-    <path fill-rule="evenodd" clip-rule="evenodd" d="M0.922852 25C0.922852 11.1929 12.0953 0 25.8772 0C39.6591 0 50.8316 11.1929 50.8316 25C50.8316 38.8071 39.6591 50 25.8772 50C12.0953 50 0.922852 38.8071 0.922852 25ZM10.6933 17.3805C10.6933 14.9408 12.6725 12.963 15.114 12.963C17.0863 12.963 18.7569 14.2538 19.3261 16.0361H21.2644C24.555 16.0361 27.2226 18.7018 27.2226 21.9901V28.1362C27.2226 29.9395 28.6855 31.4014 30.49 31.4014H32.4283C32.9975 29.619 34.6682 28.3283 36.6405 28.3283C39.0819 28.3283 41.0611 30.3061 41.0611 32.7458C41.0611 35.1855 39.0819 37.1633 36.6405 37.1633C34.6682 37.1633 32.9975 35.8726 32.4283 34.0903H30.49C27.1994 34.0903 24.5318 31.4246 24.5318 28.1362V21.9901C24.5318 20.1868 23.0689 18.725 21.2644 18.725H19.3261C18.7569 20.5073 17.0863 21.798 15.114 21.798C12.6725 21.798 10.6933 19.8203 10.6933 17.3805Z"/>
+  <title>PDF Craft</title>
+  <defs>
+    <clipPath id="pdfcraft-icon-clip">
+      <rect x="16" y="6" width="38" height="38" rx="9"/>
+    </clipPath>
+    <linearGradient id="pdfcraft-paper" x1="16" y1="6" x2="54" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDF6E7"/>
+      <stop offset="100%" stop-color="#F2E2C4"/>
+    </linearGradient>
+    <linearGradient id="pdfcraft-corner" x1="38" y1="6" x2="54" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#D1624B"/>
+      <stop offset="100%" stop-color="#A83A27"/>
+    </linearGradient>
+    <linearGradient id="pdfcraft-curl" x1="39" y1="7" x2="52" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFF9EE"/>
+      <stop offset="100%" stop-color="#E7D3B0"/>
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#pdfcraft-icon-clip)">
+    <rect x="16" y="6" width="38" height="38" rx="9" fill="url(#pdfcraft-paper)"/>
+    <path d="M37.5 6H54V22.5C51.2 19.6 48.2 18.2 44.4 17.6C41.7 17.1 40.8 15.6 40.5 12.6C40.2 9.6 39.3 7.5 37.5 6Z" fill="url(#pdfcraft-corner)"/>
+    <path d="M37.5 6C39.8 7.6 40.9 10.2 41.3 13.7C41.7 16.5 43.1 17.7 46.0 18.2C49.2 18.7 51.8 20.1 54 22.5C52.0 19.1 49.2 16.2 45.8 12.8C42.7 9.7 39.8 7.4 37.5 6Z" fill="url(#pdfcraft-curl)"/>
+    <text
+      x="35"
+      y="30.5"
+      text-anchor="middle"
+      font-family="Georgia, 'Times New Roman', serif"
+      font-size="13.2"
+      font-weight="700"
+      letter-spacing="0.4"
+      fill="#9A261E"
+    >PDF</text>
   </g>
+  <rect x="16.5" y="6.5" width="37" height="37" rx="8.5" stroke="#DEC9A4" stroke-width="1"/>
   <text
     class="brand-wordmark"
-    x="54"
+    x="63"
     y="31"
     font-family="Arial, Helvetica, sans-serif"
     font-size="16"
