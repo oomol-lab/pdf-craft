@@ -7,6 +7,8 @@
     <a href="https://pypi.org/project/pdf-craft/"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="Python 版本" /></a>
     <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/merge-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/merge-build.yml" alt="构建状态" /></a>
     <a href="../../LICENSE"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="MIT 许可证" /></a>
+    <a href="https://pdfcraft.ai/zh-CN/docs/getting-started/mcp/"><img src="https://img.shields.io/badge/MCP-ready-111827" alt="MCP ready" /></a>
+    <a href="https://pdfcraft.ai/openapi.json"><img src="https://img.shields.io/badge/OpenAPI-3.0.3-6BA539" alt="OpenAPI 3.0.3" /></a>
   </p>
   <p>
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
@@ -19,6 +21,26 @@
 </div>
 
 PDF Craft 是一个面向扫描书籍、论文和技术文档的 Python 库，可将扫描版 PDF 转换为便于编辑的 Markdown 或适合阅读的 EPUB。还可以将 PDF 或 EPUB 中的内容翻译成其他语言，生成译文或双语 EPUB，也能将译文写回原始 PDF 页面。转换时会识别正文、章节、目录、脚注、表格、公式和图片，让扫描页面中的内容可以继续检索、编辑和阅读。
+
+<table>
+  <tr>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/pdfcraft-cloud.svg" alt="PDF Craft Cloud" width="140"></td>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/self-hosted.svg" alt="Self-hosted" width="140"></td>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/api-mcp.svg" alt="API &amp; MCP" width="140"></td>
+  </tr>
+  <tr>
+    <td width="33.33%" valign="top">无需配置 GPU 或本地模型，在浏览器直接将扫描版 PDF 转为 EPUB 或 Markdown，并支持整书翻译，按量计费且额度长期有效。</td>
+    <td width="33.33%" valign="top">使用 <code>pip install pdf-craft</code> 在本机或私有服务运行，自由掌控本地 OCR 模型、LLM 接口和文件。</td>
+    <td width="33.33%" valign="top">通过托管 REST API 与远程 MCP 服务，将扫描 PDF 转换和整书翻译直接接入 Claude、Cursor 或你自己的应用。</td>
+  </tr>
+  <tr>
+    <td width="33.33%" align="center">🚀 <a href="https://pdfcraft.ai/zh-CN/pdf-craft/"><strong>PDF Craft 在线版</strong></a></td>
+    <td width="33.33%" align="center"><a href="#quick-start"><strong>本地自托管</strong></a></td>
+    <td width="33.33%" align="center"><a href="https://pdfcraft.ai/zh-CN/docs/getting-started/mcp/"><strong>API 与 MCP 文档</strong></a></td>
+  </tr>
+</table>
+
+可直接在线使用 [PDF 转 EPUB](https://pdfcraft.ai/zh-CN/pdf-craft/)、[扫描版 PDF 翻译](https://pdfcraft.ai/zh-CN/pdf-translator/) 与 [EPUB 双语翻译](https://pdfcraft.ai/zh-CN/epub-translator/)，或在[转换案例](https://pdfcraft.ai/zh-CN/library/)中查看原页对照效果。
 
 ## 直接在线转换，无需安装
 

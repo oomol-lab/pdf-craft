@@ -7,6 +7,8 @@
     <a href="https://pypi.org/project/pdf-craft/"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="Python" /></a>
     <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/merge-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/merge-build.yml" alt="CI" /></a>
     <a href="../../LICENSE"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="MIT" /></a>
+    <a href="https://pdfcraft.ai/fr-FR/docs/getting-started/mcp/"><img src="https://img.shields.io/badge/MCP-ready-111827" alt="MCP ready" /></a>
+    <a href="https://pdfcraft.ai/openapi.json"><img src="https://img.shields.io/badge/OpenAPI-3.0.3-6BA539" alt="OpenAPI 3.0.3" /></a>
   </p>
   <p>
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
@@ -19,6 +21,26 @@
 </div>
 
 PDF Craft est une bibliothèque Python conçue pour les livres numérisés, les articles scientifiques et les documents techniques. Elle transforme les PDF numérisés en Markdown facile à modifier ou en EPUB adapté à la lecture. Elle peut aussi traduire le contenu de PDF et d’EPUB dans une autre langue, créer des EPUB traduits ou bilingues et réinsérer la traduction sur les pages du PDF d’origine. Texte, chapitres, table des matières, notes de bas de page, tableaux, formules et images sont reconnus pour rendre le contenu consultable, modifiable et lisible au-delà des pages scannées.
+
+<table>
+  <tr>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/pdfcraft-cloud.svg" alt="PDF Craft Cloud" width="140"></td>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/self-hosted.svg" alt="Self-hosted" width="140"></td>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/api-mcp.svg" alt="API &amp; MCP" width="140"></td>
+  </tr>
+  <tr>
+    <td width="33.33%" valign="top">Sans GPU ni installation locale. Convertissez des PDF scannés en EPUB ou Markdown et traduisez des livres entiers en ligne à l'usage.</td>
+    <td width="33.33%" valign="top">Exécutez localement avec <code>pip install pdf-craft</code> tout en gardant le contrôle de vos modèles OCR, LLM et fichiers.</td>
+    <td width="33.33%" valign="top">Connectez l'OCR et la traduction PDF/EPUB à Claude, Cursor ou vos applications via l'API REST hébergée et le serveur MCP distant.</td>
+  </tr>
+  <tr>
+    <td width="33.33%" align="center">🚀 <a href="https://pdfcraft.ai/fr-FR/pdf-craft/"><strong>PDF Craft en ligne</strong></a></td>
+    <td width="33.33%" align="center"><a href="#quick-start"><strong>Auto-héberger</strong></a></td>
+    <td width="33.33%" align="center"><a href="https://pdfcraft.ai/fr-FR/docs/getting-started/mcp/"><strong>Docs API &amp; MCP</strong></a></td>
+  </tr>
+</table>
+
+Utilisez PDF Craft en ligne pour [convertir un PDF en EPUB](https://pdfcraft.ai/fr-FR/pdf-craft/), [traduire un PDF scanné](https://pdfcraft.ai/fr-FR/pdf-translator/) ou [traduire un EPUB bilingue](https://pdfcraft.ai/fr-FR/epub-translator/), ou consultez les [Exemples de conversion](https://pdfcraft.ai/fr-FR/library/).
 
 ## Convertissez vos fichiers en ligne, sans rien installer
 

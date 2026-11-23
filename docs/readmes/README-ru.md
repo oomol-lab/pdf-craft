@@ -7,6 +7,8 @@
     <a href="https://pypi.org/project/pdf-craft/"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="Python" /></a>
     <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/merge-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/merge-build.yml" alt="CI" /></a>
     <a href="../../LICENSE"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="MIT" /></a>
+    <a href="https://pdfcraft.ai/ru-RU/docs/getting-started/mcp/"><img src="https://img.shields.io/badge/MCP-ready-111827" alt="MCP ready" /></a>
+    <a href="https://pdfcraft.ai/openapi.json"><img src="https://img.shields.io/badge/OpenAPI-3.0.3-6BA539" alt="OpenAPI 3.0.3" /></a>
   </p>
   <p>
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
@@ -19,6 +21,26 @@
 </div>
 
 PDF Craft — библиотека Python для сканированных книг, научных статей и технических документов. Она превращает сканированные PDF в удобный для редактирования Markdown или для чтения EPUB. PDF Craft также переводит содержимое PDF и EPUB на другие языки, создаёт EPUB с переводом или с оригиналом и переводом и записывает перевод на исходные страницы PDF. Библиотека распознаёт основной текст, главы, оглавление, сноски, таблицы, формулы и изображения, чтобы содержимое сканов можно было искать, редактировать и читать.
+
+<table>
+  <tr>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/pdfcraft-cloud.svg" alt="PDF Craft Cloud" width="140"></td>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/self-hosted.svg" alt="Self-hosted" width="140"></td>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/api-mcp.svg" alt="API &amp; MCP" width="140"></td>
+  </tr>
+  <tr>
+    <td width="33.33%" valign="top">Без GPU и локальной настройки моделей. Конвертируйте сканы PDF в EPUB или Markdown и переводите книги онлайн с оплатой по факту.</td>
+    <td width="33.33%" valign="top">Запускайте локально через <code>pip install pdf-craft</code> с полным контролем над OCR-моделями, LLM и файлами.</td>
+    <td width="33.33%" valign="top">Подключайте OCR-конвертацию и перевод PDF/EPUB к Claude, Cursor и своим приложениям через REST API и удалённый MCP-сервер.</td>
+  </tr>
+  <tr>
+    <td width="33.33%" align="center">🚀 <a href="https://pdfcraft.ai/ru-RU/pdf-craft/"><strong>PDF Craft Онлайн</strong></a></td>
+    <td width="33.33%" align="center"><a href="#quick-start"><strong>Локальный запуск</strong></a></td>
+    <td width="33.33%" align="center"><a href="https://pdfcraft.ai/ru-RU/docs/getting-started/mcp/"><strong>Документация API и MCP</strong></a></td>
+  </tr>
+</table>
+
+Используйте PDF Craft Онлайн для [конвертации PDF в EPUB](https://pdfcraft.ai/ru-RU/pdf-craft/), [перевода сканированных PDF](https://pdfcraft.ai/ru-RU/pdf-translator/) и [двуязычного перевода EPUB](https://pdfcraft.ai/ru-RU/epub-translator/), или посмотрите [Примеры конвертации](https://pdfcraft.ai/ru-RU/library/).
 
 ## Конвертируйте прямо в браузере — без установки
 

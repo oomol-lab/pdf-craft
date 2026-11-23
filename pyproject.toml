@@ -47,6 +47,9 @@ dependencies = [
 [project.urls]
 Homepage = "https://pdfcraft.ai/"
 "Online Converter" = "https://pdfcraft.ai/pdf-craft/"
+"PDF Translator" = "https://pdfcraft.ai/pdf-translator/"
+Documentation = "https://pdfcraft.ai/docs/getting-started/overview/"
+"MCP Server" = "https://pdfcraft.ai/docs/getting-started/mcp/"
 Repository = "https://github.com/oomol-lab/pdf-craft"
 Issues = "https://github.com/oomol-lab/pdf-craft/issues"
 
