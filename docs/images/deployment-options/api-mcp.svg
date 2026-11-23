@@ -1,0 +1,45 @@
+<svg width="176" height="50" viewBox="0 0 176 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Plug icon adapted from Tabler Icons (MIT). -->
+  <style>
+    .api-mcp-icon {
+      stroke: #0d1117;
+    }
+
+    .api-mcp-wordmark {
+      fill: #0d1117;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .api-mcp-icon {
+        stroke: #f6f8fa;
+      }
+
+      .api-mcp-wordmark {
+        fill: #f6f8fa;
+      }
+    }
+  </style>
+  <title>API and MCP</title>
+  <g
+    class="api-mcp-icon"
+    transform="translate(14 9) scale(1.3333)"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M7 12l5 5l-1.5 1.5a3.536 3.536 0 1 1 -5 -5l1.5 -1.5"/>
+    <path d="M17 12l-5 -5l1.5 -1.5a3.536 3.536 0 1 1 5 5l-1.5 1.5"/>
+    <path d="M3 21l2.5 -2.5"/>
+    <path d="M18.5 5.5l2.5 -2.5"/>
+    <path d="M10 11l-2 2"/>
+    <path d="M13 14l-2 2"/>
+  </g>
+  <text
+    class="api-mcp-wordmark"
+    x="56"
+    y="31"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="15"
+    font-weight="700"
+  >API &amp; MCP</text>
+</svg>

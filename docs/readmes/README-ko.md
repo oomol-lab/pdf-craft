@@ -7,6 +7,8 @@
     <a href="https://pypi.org/project/pdf-craft/"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="Python" /></a>
     <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/merge-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/merge-build.yml" alt="CI" /></a>
     <a href="../../LICENSE"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="MIT" /></a>
+    <a href="https://pdfcraft.ai/ko-KR/docs/getting-started/mcp/"><img src="https://img.shields.io/badge/MCP-ready-111827" alt="MCP ready" /></a>
+    <a href="https://pdfcraft.ai/openapi.json"><img src="https://img.shields.io/badge/OpenAPI-3.1-6BA539" alt="OpenAPI 3.1" /></a>
   </p>
   <p>
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
@@ -19,6 +21,26 @@
 </div>
 
 PDF Craft는 스캔한 책, 논문, 기술 문서를 위한 Python 라이브러리입니다. 스캔 PDF를 편집하기 좋은 Markdown이나 읽기 편한 EPUB으로 변환합니다. PDF와 EPUB의 내용을 다른 언어로 번역해 번역문만 담은 EPUB 또는 원문과 번역문을 함께 담은 이중 언어 EPUB을 만들 수 있으며, 번역문을 원본 PDF 페이지에 넣을 수도 있습니다. 본문, 장, 목차, 각주, 표, 수식, 이미지를 인식해 스캔 이미지에 갇혀 있던 내용을 검색하고 편집하며 읽을 수 있게 합니다.
+
+<table>
+  <tr>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/pdfcraft-cloud.svg" alt="PDF Craft Cloud" width="140"></td>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/self-hosted.svg" alt="Self-hosted" width="140"></td>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/api-mcp.svg" alt="API &amp; MCP" width="140"></td>
+  </tr>
+  <tr>
+    <td width="33.33%" valign="top">GPU나 모델 설정 없이 브라우저에서 스캔 PDF를 EPUB이나 Markdown으로 변환하고 책 전체를 번역하세요. 구독 없는 종량제 크레딧을 지원합니다.</td>
+    <td width="33.33%" valign="top"><code>pip install pdf-craft</code>로 로컬 환경이나 원격 OCR 서버에서 직접 실행하며 모델과 파일을 온전히 제어합니다.</td>
+    <td width="33.33%" valign="top">호스팅 REST API와 원격 MCP 서버를 통해 Claude, Cursor 또는 자체 앱에 PDF OCR 변환과 번역을 연동하세요.</td>
+  </tr>
+  <tr>
+    <td width="33.33%" align="center">🚀 <a href="https://pdfcraft.ai/ko-KR/pdf-craft/"><strong>PDF Craft 온라인</strong></a></td>
+    <td width="33.33%" align="center"><a href="#quick-start"><strong>셀프 호스팅</strong></a></td>
+    <td width="33.33%" align="center"><a href="https://pdfcraft.ai/ko-KR/docs/getting-started/mcp/"><strong>API 및 MCP 문서</strong></a></td>
+  </tr>
+</table>
+
+PDF Craft 온라인에서 [PDF를 EPUB으로 변환](https://pdfcraft.ai/ko-KR/pdf-craft/), [스캔 PDF 번역](https://pdfcraft.ai/ko-KR/pdf-translator/), [이중 언어 EPUB 번역](https://pdfcraft.ai/ko-KR/epub-translator/)을 바로 사용하거나 [변환 예시](https://pdfcraft.ai/ko-KR/library/)를 확인해 보세요.
 
 ## 설치 없이 브라우저에서 바로 변환하세요
 

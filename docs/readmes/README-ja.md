@@ -7,6 +7,8 @@
     <a href="https://pypi.org/project/pdf-craft/"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="Python" /></a>
     <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/merge-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/merge-build.yml" alt="CI" /></a>
     <a href="../../LICENSE"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="MIT" /></a>
+    <a href="https://pdfcraft.ai/ja-JP/docs/getting-started/mcp/"><img src="https://img.shields.io/badge/MCP-ready-111827" alt="MCP ready" /></a>
+    <a href="https://pdfcraft.ai/openapi.json"><img src="https://img.shields.io/badge/OpenAPI-3.1-6BA539" alt="OpenAPI 3.1" /></a>
   </p>
   <p>
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
@@ -19,6 +21,26 @@
 </div>
 
 PDF Craft は、スキャンした書籍や論文、技術文書を扱う Python ライブラリです。スキャン PDF を編集しやすい Markdown や読書に適した EPUB に変換できます。PDF や EPUB の内容を別の言語に翻訳し、訳文のみ、または原文と訳文を併記した EPUB を作成することも、訳文を元の PDF ページに書き戻すこともできます。本文、章、目次、脚注、表、数式、画像を認識し、画像のままだったページを検索・編集・読書に使える形にします。
+
+<table>
+  <tr>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/pdfcraft-cloud.svg" alt="PDF Craft Cloud" width="140"></td>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/self-hosted.svg" alt="Self-hosted" width="140"></td>
+    <td width="33.33%" align="center"><img src="../images/deployment-options/api-mcp.svg" alt="API &amp; MCP" width="140"></td>
+  </tr>
+  <tr>
+    <td width="33.33%" valign="top">GPU やローカルモデルの準備は不要。ブラウザからスキャン PDF を EPUB・Markdown へ変換し、書籍全体を翻訳できます（従量課金、期限なし）。</td>
+    <td width="33.33%" valign="top"><code>pip install pdf-craft</code> で自分の環境やリモート OCR と連携して実行。モデルやファイルを完全に管理できます。</td>
+    <td width="33.33%" valign="top">ホスト型 REST API とリモート MCP サーバーを通じて、Claude や Cursor、自社アプリに PDF 変換と翻訳を組み込めます。</td>
+  </tr>
+  <tr>
+    <td width="33.33%" align="center">🚀 <a href="https://pdfcraft.ai/ja-JP/pdf-craft/"><strong>PDF Craft オンライン版</strong></a></td>
+    <td width="33.33%" align="center"><a href="#quick-start"><strong>セルフホスト</strong></a></td>
+    <td width="33.33%" align="center"><a href="https://pdfcraft.ai/ja-JP/docs/getting-started/mcp/"><strong>API・MCP ドキュメント</strong></a></td>
+  </tr>
+</table>
+
+オンライン版では [PDF から EPUB 変換](https://pdfcraft.ai/ja-JP/pdf-craft/)、[スキャン PDF 翻訳](https://pdfcraft.ai/ja-JP/pdf-translator/)、[対訳 EPUB 翻訳](https://pdfcraft.ai/ja-JP/epub-translator/) を利用でき、[変換サンプル](https://pdfcraft.ai/ja-JP/library/) で元の PDF と並べて確認できます。
 
 ## インストール不要。ブラウザーでそのまま変換
 
