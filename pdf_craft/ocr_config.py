@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
-from typing import Iterable, Literal, TypeAlias
+from typing import Iterable, Literal, Self, TypeAlias
 
 from .to_path import to_path
 
@@ -96,6 +96,11 @@ class DeepSeekOCRVendorConfig:
     def __post_init__(self) -> None:
         _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
 
+    @classmethod
+    def official(cls, api_key: str) -> Self:
+        """Use the OCR endpoint on api.deepseek.com with a DeepSeek API key."""
+        return cls("https://api.deepseek.com/v1/tools/ocr", api_key, model="")
+
 
 @dataclass(frozen=True)
 class DeepSeekOCR2VendorConfig:
@@ -162,6 +167,7 @@ OCRMode: TypeAlias = Literal[
     "deepseek-ocr-local",
     "deepseek-ocr2-local",
     "unlimited-ocr-local",
+    "deepseek-ocr-official",
     "deepseek-ocr-vendor",
     "deepseek-ocr2-vendor",
     "unlimited-ocr-vendor",

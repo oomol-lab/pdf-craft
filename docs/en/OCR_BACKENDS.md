@@ -9,7 +9,7 @@ DeepSeek OCR and DeepSeek OCR 2 are from [DeepSeek](https://github.com/deepseek-
 | `DeepSeekOCRLocalConfig` | DeepSeek OCR | Local GPU |
 | `DeepSeekOCR2LocalConfig` | DeepSeek OCR 2 | Local GPU |
 | `UnlimitedOCRLocalConfig` | Unlimited OCR | Local GPU |
-| `DeepSeekOCRVendorConfig` | DeepSeek OCR | OpenAI-compatible remote service |
+| `DeepSeekOCRVendorConfig` | DeepSeek OCR | OpenAI-compatible remote service, or DeepSeek's OCR API via `official()` |
 | `DeepSeekOCR2VendorConfig` | DeepSeek OCR 2 | OpenAI-compatible remote service |
 | `UnlimitedOCRVendorConfig` | Unlimited OCR | Baidu remote service |
 | `MiniCPMOCRVendorConfig` | MiniCPM-OCR 1.0 | ModelBest API or self-hosted MiniCPM-OCR service |
@@ -52,6 +52,33 @@ craft = PDFCraft(pdf=PDFOptions(
     ocr_executor=ConcurrentExecutor(FixedCapacity(8)),
 ))
 ```
+
+### Official DeepSeek OCR API
+
+Use `DeepSeekOCRVendorConfig.official()` with a DeepSeek API key to submit rendered
+page images to `https://api.deepseek.com/v1/tools/ocr`. The API selects the model.
+
+```python
+import os
+
+from pdf_craft import (
+    ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity, PDFCraft, PDFOptions,
+)
+
+craft = PDFCraft(pdf=PDFOptions(
+    ocr=DeepSeekOCRVendorConfig.official(os.environ["DEEPSEEK_API_KEY"]),
+    ocr_executor=ConcurrentExecutor(FixedCapacity(1)),
+))
+craft.convert_pdf_to_epub("book.pdf", "book.epub")
+```
+
+If you supply an `ocr_image_url_resolver`, it must return a Base64 image Data URL
+for this endpoint. See the [official OCR API](https://api-docs.deepseek.com/guides/ocr/).
+
+For the repository's local CLI, set `PDF_CRAFT_DEEPSEEK_OCR_OFFICIAL_API_KEY` in
+the project `.env` and select `--ocr-mode deepseek-ocr-official` on `pdf convert`.
+
+### Baidu Unlimited OCR
 
 `UnlimitedOCRVendorConfig` takes Baidu `ak` and `sk`; its `base_url` defaults to `https://aip.baidubce.com`. It also accepts `poll_interval_seconds`, `timeout_seconds`, `retry_times`, and `retry_interval_seconds`. The DeepSeek vendor configurations expose the same retry controls.
 

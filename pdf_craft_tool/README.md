@@ -26,11 +26,12 @@ poetry run python -m pdf_craft_tool analysis review-jev \
 
 ## OCR backend 配置与选择
 
-`.env.template` 为以下七种 backend 分别保留配置分组：
+`.env.template` 为每种 OCR 模式保留配置分组。
 
 - `deepseek-ocr-local`
 - `deepseek-ocr2-local`
 - `unlimited-ocr-local`
+- `deepseek-ocr-official`
 - `deepseek-ocr-vendor`
 - `deepseek-ocr2-vendor`
 - `unlimited-ocr-vendor`
@@ -40,6 +41,14 @@ poetry run python -m pdf_craft_tool analysis review-jev \
 所有 PDF CLI 命令和 `smoke run` 的 `--ocr-mode` 都可显式选择其中一个 backend；矩阵在每个
 run 的 `backend` 字段中选择。local backend 使用自己的模型缓存、offline 和可选 CUDA device
 配置；vendor backend 使用自己的认证和 endpoint 配置。
+
+DeepSeek 官方 OCR 模式由 API 选择模型。在仓库根目录的 `.env` 中填写
+`PDF_CRAFT_DEEPSEEK_OCR_OFFICIAL_API_KEY`，然后运行现有 PDF 转换命令。
+
+```bash
+poetry run python -m pdf_craft_tool pdf convert book.pdf \
+  --ocr-mode deepseek-ocr-official --format epub --output book.epub
+```
 
 `deepseek-ocr2-local` 的本地实测路径使用 `--ocr-size base`；不要把 `tiny`
 当作该 backend 的可靠默认 preset。CLI 和库层都会在显式使用

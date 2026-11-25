@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 from unittest.mock import Mock, patch
 
-from pdf_craft import OCRTokensMetering
+from pdf_craft import DeepSeekOCRVendorConfig, OCRTokensMetering
 from pdf_craft_tool.cli import (
     _ExtractionResult,
     _page_indexes,
@@ -23,7 +23,10 @@ from pdf_craft_tool.cli import (
     _work_dir,
 )
 from pdf_craft_tool.paths import create_run_directory
-from pdf_craft_tool.runtime import create_llm_from_env, create_ocr_config_from_env, ocr_mode_from_env
+from pdf_craft_tool.runtime import (
+    create_llm_from_env, create_ocr_config_from_env, ocr_mode_from_env, ocr_values_from_env,
+)
+from pdf_craft_tool.smoke.ocr import create_ocr_config
 
 
 class TestPDFCraftTool(unittest.TestCase):
@@ -224,6 +227,18 @@ class TestPDFCraftTool(unittest.TestCase):
     def test_ocr_mode_uses_the_prefixed_runtime_variable(self):
         with patch.dict("os.environ", {"PDF_CRAFT_OCR_MODE": "unlimited-ocr-vendor"}, clear=True):
             self.assertEqual(ocr_mode_from_env(), "unlimited-ocr-vendor")
+
+    def test_official_deepseek_mode_uses_the_same_config_in_cli_and_smoke(self):
+        args = _parser().parse_args([
+            "pdf", "convert", "source.pdf", "--format", "epub",
+            "--ocr-mode", "deepseek-ocr-official",
+        ])
+        with patch.dict("os.environ", {"PDF_CRAFT_DEEPSEEK_OCR_OFFICIAL_API_KEY": "test-key"}, clear=True):
+            cli_config = create_ocr_config_from_env(args.ocr_mode)
+            smoke_config = create_ocr_config(args.ocr_mode, ocr_values_from_env(args.ocr_mode))
+
+        self.assertEqual(cli_config, DeepSeekOCRVendorConfig.official("test-key"))
+        self.assertEqual(smoke_config, cli_config)
 
     def test_each_local_backend_reads_its_own_environment_namespace(self):
         cases = (
