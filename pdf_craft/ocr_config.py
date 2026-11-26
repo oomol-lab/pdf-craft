@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
-from typing import Iterable, Literal, Self, TypeAlias
+from typing import Iterable, Literal, TypeAlias
 
 from .to_path import to_path
 
@@ -96,10 +96,16 @@ class DeepSeekOCRVendorConfig:
     def __post_init__(self) -> None:
         _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
 
-    @classmethod
-    def official(cls, api_key: str) -> Self:
-        """Use the OCR endpoint on api.deepseek.com with a DeepSeek API key."""
-        return cls("https://api.deepseek.com/v1/tools/ocr", api_key, model="")
+
+@dataclass(frozen=True)
+class DeepSeekOfficialOCRConfig:
+    api_key: str = field(repr=False)
+    timeout_seconds: int = 180
+    retry_times: int = 2
+    retry_interval_seconds: float = 1.0
+
+    def __post_init__(self) -> None:
+        _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
 
 
 @dataclass(frozen=True)
@@ -160,15 +166,15 @@ LocalOCRConfig: TypeAlias = (
 )
 VendorOCRConfig: TypeAlias = (
     DeepSeekOCRVendorConfig | DeepSeekOCR2VendorConfig | UnlimitedOCRVendorConfig
-    | MiniCPMOCRVendorConfig
+    | MiniCPMOCRVendorConfig | DeepSeekOfficialOCRConfig
 )
 OCRConfig: TypeAlias = LocalOCRConfig | VendorOCRConfig
 OCRMode: TypeAlias = Literal[
     "deepseek-ocr-local",
     "deepseek-ocr2-local",
     "unlimited-ocr-local",
-    "deepseek-ocr-official",
     "deepseek-ocr-vendor",
+    "deepseek-ocr-official",
     "deepseek-ocr2-vendor",
     "unlimited-ocr-vendor",
     "minicpm-ocr-vendor",

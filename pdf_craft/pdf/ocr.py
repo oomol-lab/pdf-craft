@@ -26,7 +26,7 @@ from ..concurrency import (
 from ..error import OCRError, PDFError
 from ..metering import AbortedCheck, check_aborted
 from ..ocr_config import (
-    DeepSeekOCR2VendorConfig, DeepSeekOCRVendorConfig, MiniCPMOCRVendorConfig, OCRConfig,
+    DeepSeekOCR2VendorConfig, DeepSeekOCRVendorConfig, DeepSeekOfficialOCRConfig, MiniCPMOCRVendorConfig, OCRConfig,
     UnlimitedOCRVendorConfig, VendorOCRConfig,
 )
 from ..runtime import IO_DOMAIN, OCR_DOMAIN, ExecutionDomain, run_cancellable, temporary_directory
@@ -94,6 +94,7 @@ class OCR:
     def is_vendor(self) -> bool:
         return isinstance(self._config, (
             DeepSeekOCRVendorConfig,
+            DeepSeekOfficialOCRConfig,
             DeepSeekOCR2VendorConfig,
             UnlimitedOCRVendorConfig,
             MiniCPMOCRVendorConfig,
@@ -978,6 +979,7 @@ class OCR:
 def _supports_vendor_stages(config: OCRConfig) -> bool:
     return isinstance(config, (
         DeepSeekOCRVendorConfig,
+        DeepSeekOfficialOCRConfig,
         DeepSeekOCR2VendorConfig,
     ))
 
@@ -1005,7 +1007,14 @@ def _decode_vendor_response(config, item, response):
     from doc_page_extractor.structure import build_structured_page
     from doc_page_extractor.types import OCRPageResult
 
-    if isinstance(config, DeepSeekOCRVendorConfig):
+    if isinstance(config, DeepSeekOfficialOCRConfig):
+        from doc_page_extractor.adapters.deepseek import parse_deepseek_official_ocr_layouts
+        with PILImage.open(item.request_path) as image:
+            layouts = parse_deepseek_official_ocr_layouts(cast(Any, image), response.raw_text or "")
+        if response.raw_text and response.raw_text.strip() and not layouts:
+            raise ValueError("DeepSeek official OCR returned text without usable layout coordinates")
+        source = "deepseek-ocr-official"
+    elif isinstance(config, DeepSeekOCRVendorConfig):
         from doc_page_extractor.adapters.deepseek import parse_deepseek_ocr_layouts
         with PILImage.open(item.request_path) as image:
             layouts = parse_deepseek_ocr_layouts(

@@ -5,6 +5,7 @@ from pdf_craft import (
     DeepSeekOCR2VendorConfig,
     DeepSeekOCRLocalConfig,
     DeepSeekOCRVendorConfig,
+    DeepSeekOfficialOCRConfig,
     MiniCPMOCRVendorConfig,
     OCRConfig,
     OCRMode,
@@ -22,7 +23,7 @@ def create_ocr_config(mode: OCRMode, values: dict[str, Any]) -> OCRConfig:
     if mode == "unlimited-ocr-local":
         return UnlimitedOCRLocalConfig(**values)
     if mode == "deepseek-ocr-official":
-        return DeepSeekOCRVendorConfig.official(**values)
+        return DeepSeekOfficialOCRConfig(**values)
     if mode == "deepseek-ocr-vendor":
         return DeepSeekOCRVendorConfig(**values)
     if mode == "deepseek-ocr2-vendor":
