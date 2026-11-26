@@ -8,6 +8,7 @@ import asyncio
 import base64
 import inspect
 import json
+import logging
 import re
 import time
 from collections.abc import Mapping, AsyncGenerator, AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable
@@ -41,6 +42,9 @@ from ..ocr_config import (
     VendorOCRConfig,
 )
 from ..runtime import IO_DOMAIN
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 OCRImageURLResolver = Callable[[Path], Awaitable[str]]
@@ -106,6 +110,10 @@ class _UnlimitedTokenExpiredError(OperationError):
 
 class _UnlimitedResubmitError(OperationError):
     """The provider discarded a task, so the page must be submitted again."""
+
+
+class _DeepSeekOfficialTransientError(OperationError):
+    """DeepSeek reported a temporary recognition failure after accepting the upload."""
 
 
 class VendorOCRRuntime:
@@ -373,6 +381,11 @@ class VendorOCRRuntime:
         assert isinstance(config, (
             DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig,
         ))
+        if (
+            isinstance(config, DeepSeekOCRVendorConfig)
+            and config.base_url.rstrip("/").endswith("/v1/tools/ocr")
+        ):
+            return await self._request_deepseek_official(request, config, started)
         payload = await IO_DOMAIN.run(
             _deepseek_payload, request.image_url, config,
         )
@@ -449,6 +462,118 @@ class VendorOCRRuntime:
             input_tokens=token_counts[0],
             output_tokens=token_counts[1],
         )
+
+    async def _request_deepseek_official(
+        self,
+        request: _ResolvedVendorOCRInput,
+        config: DeepSeekOCRVendorConfig,
+        started: asyncio.Event | None,
+    ) -> VendorOCRResponse:
+        action = "DeepSeek official OCR"
+        if not request.image_url.lower().startswith("data:"):
+            raise OperationError(f"{action} requires a Base64 image Data URL")
+        header, encoded = request.image_url.split(",", 1)
+        media_type = header[5:].split(";", 1)[0]
+        image = await IO_DOMAIN.run(
+            base64.b64decode, encoded + "=" * (-len(encoded) % 4),
+        )
+
+        async def send() -> VendorOCRResponse:
+            if started is not None:
+                started.set()
+            with request_attempt(config) as attempt_usage:
+                _LOGGER.info(
+                    "%s | PDF page %d | Uploading image (%d bytes) and waiting for OCR",
+                    action, request.page_index, len(image),
+                )
+                request_started = time.perf_counter()
+                try:
+                    response = await self._require_client().post(
+                        config.base_url.rstrip("/"),
+                        headers={
+                            "Authorization": f"Bearer {config.api_key}",
+                            "Accept": "application/json",
+                            **current_headers(),
+                        },
+                        data={"purpose": "rich_layout_recognition"},
+                        files={"file": (request.image_path.name, image, media_type)},
+                    )
+                except httpx.TransportError as error:
+                    _LOGGER.info(
+                        "%s | PDF page %d | Request ended after %.1f s (%s)",
+                        action, request.page_index, time.perf_counter() - request_started,
+                        type(error).__name__,
+                    )
+                    raise
+                _LOGGER.info(
+                    "%s | PDF page %d | Response received (HTTP %d, %.1f s)",
+                    action, request.page_index, response.status_code,
+                    time.perf_counter() - request_started,
+                )
+                data = _checked_response(response, request.page_index, action)
+                usage = data.get("usage")
+                observe_tokens(usage)
+                if "error" in data:
+                    error = data["error"]
+                    message = f"{action} failed: {_response_message(response)}"
+                    if isinstance(error, dict) and error.get("message") in (
+                        "The OCR service is temporarily unavailable. Please try again later.",
+                        "Internal Server Error",
+                    ):
+                        _raise_malformed_response(
+                            response, message, error_type=_DeepSeekOfficialTransientError,
+                        )
+                    _raise_malformed_response(response, message)
+                pages = data.get("pages")
+                if not isinstance(pages, list) or len(pages) != 1 or not isinstance(pages[0], dict):
+                    _raise_malformed_response(response, f"{action} expected one page in the response")
+                page = pages[0]
+                index = page.get("index")
+                if type(index) is not int or index != 0:
+                    _raise_malformed_response(response, f"{action} returned an invalid page index (expected 0)")
+                finish_reason = page.get("finish_reason")
+                content = page.get("text")
+                if finish_reason == "length":
+                    counts = usage if isinstance(usage, dict) else {}
+                    input_tokens = counts.get("input_tokens")
+                    output_tokens = counts.get("output_tokens")
+                    ocr_id = data.get("id")
+                    message = (
+                        f"{action} truncated the page (finish_reason=length): "
+                        f"pdf_page={request.page_index}, http_status={response.status_code}, "
+                        f"ocr_id={ocr_id if isinstance(ocr_id, str) else None!r}, "
+                        f"input_tokens={input_tokens if type(input_tokens) is int else None}, "
+                        f"output_tokens={output_tokens if type(output_tokens) is int else None}, "
+                        f"image_bytes={len(image)}, "
+                        f"text_chars={len(content) if isinstance(content, str) else None}"
+                    )
+                    _LOGGER.info("%s", message)
+                    _raise_malformed_response(response, message)
+                if finish_reason != "stop":
+                    _raise_malformed_response(response, f"{action} returned an invalid page finish reason")
+                if not isinstance(content, str):
+                    _raise_malformed_response(response, f"{action} returned invalid page text")
+                # The official API uses box tags, while the existing parser uses det tags.
+                content = re.sub(
+                    r"<[|｜](/?)(ref|box|det)[|｜]>",
+                    lambda match: f"<|{match[1]}{'det' if match[2] == 'box' else match[2]}|>",
+                    content,
+                )
+                if content.strip() and "<|det|>" not in content:
+                    _raise_malformed_response(response, f"{action} returned text without layout coordinates")
+                if usage is None:
+                    usage = {}
+                if not isinstance(usage, dict):
+                    _raise_malformed_response(response, f"{action} returned invalid token usage")
+                input_tokens = usage.get("input_tokens", 0)
+                output_tokens = usage.get("output_tokens", 0)
+                if any(type(count) is not int or count < 0 for count in (input_tokens, output_tokens)):
+                    _raise_malformed_response(response, f"{action} returned invalid token counts")
+                if attempt_usage is not None:
+                    attempt_usage.accept()
+                return VendorOCRResponse(data, content, input_tokens, output_tokens)
+
+        return await self.executor.run(send)
 
     async def _request_minicpm(
         self,
@@ -997,6 +1122,7 @@ def _raise_malformed_response(
     message: str,
     *,
     cause: Exception | None = None,
+    error_type: type[OperationError] = OperationError,
 ) -> Never:
     raw_error = httpx.HTTPStatusError(
         message, request=response.request, response=response,
@@ -1004,7 +1130,7 @@ def _raise_malformed_response(
     if cause is not None:
         raw_error.__cause__ = cause
     envelope = _vendor_error(message, raw_error)
-    raise OperationError(message, cause=envelope) from envelope
+    raise error_type(message, cause=envelope) from envelope
 
 
 def _response_message(response: httpx.Response) -> str:
@@ -1022,6 +1148,8 @@ def _retry_after(response: httpx.Response) -> float | None:
 
 
 def _is_retryable(error: OperationError) -> bool:
+    if isinstance(error, _DeepSeekOfficialTransientError):
+        return True
     cause = _root_cause(error)
     if isinstance(cause, httpx.TransportError):
         return True

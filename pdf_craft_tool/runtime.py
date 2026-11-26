@@ -110,6 +110,10 @@ def create_ocr_config_from_env(mode: OCRMode | None = None) -> OCRConfig:
                 "PDF_CRAFT_UNLIMITED_OCR_LOCAL_ENABLE_DEVICES_NUMBERS"
             ),
         )
+    if mode == "deepseek-ocr-official":
+        return DeepSeekOCRVendorConfig.official(
+            _required("PDF_CRAFT_DEEPSEEK_OCR_OFFICIAL_API_KEY"),
+        )
     if mode == "deepseek-ocr-vendor":
         return DeepSeekOCRVendorConfig(
             base_url=_required("PDF_CRAFT_DEEPSEEK_OCR_BASE_URL"),
@@ -158,7 +162,10 @@ def ocr_mode_from_env() -> OCRMode:
 
 def ocr_values_from_env(mode: OCRMode) -> dict[str, object]:
     """Return the explicit values used by a smoke run without exposing secrets."""
-    return asdict(create_ocr_config_from_env(mode))
+    values = asdict(create_ocr_config_from_env(mode))
+    if mode == "deepseek-ocr-official":
+        return {"api_key": values["api_key"]}
+    return values
 
 
 def create_llm_from_env(profile: str, *, cache_path: Path, log_dir_path: Path) -> LLM:

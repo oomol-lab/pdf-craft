@@ -21,6 +21,8 @@ def create_ocr_config(mode: OCRMode, values: dict[str, Any]) -> OCRConfig:
         return DeepSeekOCR2LocalConfig(**values)
     if mode == "unlimited-ocr-local":
         return UnlimitedOCRLocalConfig(**values)
+    if mode == "deepseek-ocr-official":
+        return DeepSeekOCRVendorConfig.official(**values)
     if mode == "deepseek-ocr-vendor":
         return DeepSeekOCRVendorConfig(**values)
     if mode == "deepseek-ocr2-vendor":

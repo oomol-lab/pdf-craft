@@ -5,8 +5,13 @@ import json
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
 from urllib.parse import parse_qs
+from unittest.mock import patch
+from zipfile import ZipFile
 
 import httpx
 from doc_page_extractor.extraction_context import AbortError
@@ -16,6 +21,7 @@ from pdf_craft import (
     ConcurrentExecutor,
     DeepSeekOCR2VendorConfig,
     DeepSeekOCRVendorConfig,
+    ExtractionOptions,
     FixedCapacity,
     OCRImageURLResolver,
     OperationError,
@@ -41,6 +47,112 @@ def _resolver_returning(value: str) -> OCRImageURLResolver:
 
 
 class VendorOCRImageURLTests(unittest.IsolatedAsyncioTestCase):
+    async def test_official_deepseek_multipart_to_epub(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request.url)
+            self.assertEqual(request.method, "POST")
+            self.assertEqual(request.headers["Authorization"], "Bearer test-key")
+            content_type = request.headers["Content-Type"]
+            self.assertTrue(content_type.startswith("multipart/form-data;"))
+            multipart = BytesParser(policy=policy.default).parsebytes(
+                f"Content-Type: {content_type}\r\n\r\n".encode() + request.content,
+            )
+            parts = {part.get_param("name", header="content-disposition"): part
+                     for part in multipart.iter_parts()}
+            self.assertEqual(set(parts), {"purpose", "file"})
+            self.assertEqual(parts["purpose"].get_content(), "rich_layout_recognition")
+            self.assertEqual(parts["file"].get_content_type(), "image/png")
+            self.assertTrue(parts["file"].get_content().startswith(b"\x89PNG\r\n\x1a\n"))
+            response = json.dumps({
+                "pages": [{
+                    "index": 0,
+                    "text": "<｜ref｜>text<｜/ref｜><｜box｜>[[100,100,900,200]]<｜/box｜>"
+                            "A page recognized by DeepSeek.",
+                    "finish_reason": "stop",
+                }],
+                "usage": {"input_tokens": 12, "output_tokens": 34},
+            })
+            return httpx.Response(200, request=request, text="\n\n" + response)
+
+        craft = AsyncPDFCraft(pdf=PDFOptions(
+            ocr=DeepSeekOCRVendorConfig.official("test-key"),
+            ocr_executor=ConcurrentExecutor(FixedCapacity(1)),
+        ))
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pdf_craft.pdf.vendor_ocr.httpx.AsyncClient", return_value=client,
+        ):
+            output = Path(directory) / "book.epub"
+            source = Path(__file__).parent / "assets/pdf/friendly.pdf"
+            result = await craft.convert_pdf_to_epub(
+                source, output, extraction=ExtractionOptions(page_indexes={1}),
+            )
+            with ZipFile(output) as epub:
+                self.assertTrue(any(
+                    b"A page recognized by DeepSeek." in epub.read(name)
+                    for name in epub.namelist() if name.endswith((".html", ".xhtml"))
+                ))
+        self.assertEqual(calls, [httpx.URL("https://api.deepseek.com/v1/tools/ocr")])
+        self.assertEqual((result.input_tokens, result.output_tokens), (12, 34))
+
+    async def test_official_deepseek_reports_invalid_page_details(self):
+        cases = (
+            ({"error": {"message": "OCR did not finish in time"}}, "did not finish in time"),
+            ({
+                "id": "ocr-truncated",
+                "pages": [{"index": 0, "text": "partial", "finish_reason": "length"}],
+                "usage": {"input_tokens": 256, "output_tokens": 4096},
+            }, r"truncated the page \(finish_reason=length\): "
+               "pdf_page=1, http_status=200, ocr_id='ocr-truncated', "
+               "input_tokens=256, output_tokens=4096, image_bytes=1, text_chars=7"),
+            ({"pages": [{"index": 1, "text": "complete", "finish_reason": "stop"}]},
+             "invalid page index"),
+            ({"pages": [{"index": 0, "text": "unconfirmed"}]},
+             "invalid page finish reason"),
+        )
+        for body, message in cases:
+            with self.subTest(message=message):
+                calls = 0
+
+                def handler(request: httpx.Request) -> httpx.Response:
+                    nonlocal calls
+                    calls += 1
+                    return httpx.Response(200, request=request, json=body)
+
+                client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+                with patch("pdf_craft.pdf.vendor_ocr.httpx.AsyncClient", return_value=client):
+                    async with create_vendor_ocr_request(
+                        DeepSeekOCRVendorConfig.official("test-key"),
+                        ConcurrentExecutor(FixedCapacity(1)),
+                        _resolver_returning("data:image/png;base64,YQ=="),
+                    ) as request:
+                        with self.assertRaisesRegex(OperationError, message):
+                            await request(VendorOCRInput(1, Path("page.png"), lambda: False))
+                self.assertEqual(calls, 1)
+
+    async def test_official_deepseek_retries_temporary_errors_in_success_status(self):
+        responses = iter([
+            {"error": {"message": "The OCR service is temporarily unavailable. Please try again later."}},
+            {"error": {"message": "Internal Server Error"}},
+            {"pages": [{"index": 0, "text": "", "finish_reason": "stop"}]},
+        ])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, request=request, json=next(responses))
+
+        config = replace(DeepSeekOCRVendorConfig.official("test-key"), retry_interval_seconds=0)
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        with patch("pdf_craft.pdf.vendor_ocr.httpx.AsyncClient", return_value=client):
+            async with create_vendor_ocr_request(
+                config,
+                ConcurrentExecutor(FixedCapacity(1)),
+                _resolver_returning("data:image/png;base64,YQ=="),
+            ) as request:
+                result = await request(VendorOCRInput(1, Path("page.png"), lambda: False))
+        self.assertEqual(result.raw_text, "")
+
     async def test_public_resolver_reaches_the_vendor_engine(self):
         async def resolve(_path: Path) -> str:
             return "https://images.invalid/page.png"

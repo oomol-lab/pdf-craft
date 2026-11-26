@@ -27,7 +27,7 @@ DeepSeek OCR 2 来自 [DeepSeek](https://github.com/deepseek-ai/DeepSeek-OCR) �
 | `DeepSeekOCRLocalConfig` | DeepSeek OCR | 本机 GPU | 有 CUDA，使用 DeepSeek OCR 本地模型 |
 | `DeepSeekOCR2LocalConfig` | DeepSeek OCR 2 | 本机 GPU | 有 CUDA，使用 DeepSeek OCR 2 本地模型 |
 | `UnlimitedOCRLocalConfig` | 百度 Unlimited OCR | 本机 GPU | 有 CUDA，使用 Unlimited OCR 本地模型 |
-| `DeepSeekOCRVendorConfig` | DeepSeek OCR | 远程服务 | 使用 OpenAI-compatible OCR endpoint |
+| `DeepSeekOCRVendorConfig` | DeepSeek OCR | 远程服务 | 使用 OpenAI-compatible OCR endpoint，或通过 `official()` 使用 DeepSeek 官方 OCR API |
 | `DeepSeekOCR2VendorConfig` | DeepSeek OCR 2 | 远程服务 | 使用 OpenAI-compatible OCR 2 endpoint |
 | `UnlimitedOCRVendorConfig` | 百度 Unlimited OCR | 远程服务 | 使用百度 Unlimited OCR 服务 |
 | `MiniCPMOCRVendorConfig` | MiniCPM-OCR 1.0 | 远程服务 | 使用 ModelBest API 或自托管 MiniCPM-OCR 服务 |
@@ -180,6 +180,31 @@ ocr = DeepSeekOCR2VendorConfig(
     model="deepseek-ocr2",
 )
 ```
+
+### DeepSeek 官方 OCR API
+
+调用 `DeepSeekOCRVendorConfig.official()` 并传入 DeepSeek 官方 API Key，即可将渲染后的页面
+逐页提交到 `https://api.deepseek.com/v1/tools/ocr`。服务端会选择模型。
+
+```python
+import os
+
+from pdf_craft import (
+    ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity, PDFCraft, PDFOptions,
+)
+
+craft = PDFCraft(pdf=PDFOptions(
+    ocr=DeepSeekOCRVendorConfig.official(os.environ["DEEPSEEK_API_KEY"]),
+    ocr_executor=ConcurrentExecutor(FixedCapacity(1)),
+))
+craft.convert_pdf_to_epub("book.pdf", "book.epub")
+```
+
+如果配置了 `ocr_image_url_resolver`，此接口要求它返回 Base64 图片 Data URL。
+参见 [DeepSeek 官方 OCR API](https://api-docs.deepseek.com/zh-cn/guides/ocr/)。
+
+使用仓库内的 CLI 时，在项目 `.env` 中设置 `PDF_CRAFT_DEEPSEEK_OCR_OFFICIAL_API_KEY`，
+然后给 `pdf convert` 传入 `--ocr-mode deepseek-ocr-official`。
 
 ### 百度 Unlimited OCR
 
