@@ -318,6 +318,7 @@ All OCR configuration objects are immutable dataclasses and are passed to `PDFOp
 | `DeepSeekOCRLocalConfig` | none | `models_cache_path`, `local_only`, `enable_devices_numbers` |
 | `DeepSeekOCR2LocalConfig` | none | `models_cache_path`, `local_only`, `enable_devices_numbers` |
 | `UnlimitedOCRLocalConfig` | none | `models_cache_path`, `local_only`, `enable_devices_numbers` |
+| `DeepSeekOfficialOCRConfig` | `api_key` | `timeout_seconds=180`, `retry_times=2`, `retry_interval_seconds=1.0` |
 | `DeepSeekOCRVendorConfig` | `base_url`, `api_key`, `model` | `temperature`, `top_p`, `max_tokens=8000`, `timeout_seconds=180` |
 | `DeepSeekOCR2VendorConfig` | `base_url`, `api_key`, `model` | `temperature`, `top_p`, `max_tokens=8000`, `timeout_seconds=180` |
 | `UnlimitedOCRVendorConfig` | `ak`, `sk` | `base_url="https://aip.baidubce.com"`, `poll_interval_seconds=2.0`, `timeout_seconds=180` |

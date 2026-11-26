@@ -504,14 +504,14 @@ files = [
 
 [[package]]
 name = "doc-page-extractor"
-version = "1.2.3"
+version = "1.2.4"
 description = "Document page extraction tool with local and vendor OCR backends"
 optional = false
 python-versions = "<3.14,>=3.10"
 groups = ["main"]
 files = [
-    {file = "doc_page_extractor-1.2.3-py3-none-any.whl", hash = "sha256:be6c817134bb776c6f63bbdae6040b782aedac0a445a71847b6073afb3cb4234"},
-    {file = "doc_page_extractor-1.2.3.tar.gz", hash = "sha256:f40ca516e2f2d231d6778cd9624c8b94caaabbc20408848b6048c0273d8abbb3"},
+    {file = "doc_page_extractor-1.2.4-py3-none-any.whl", hash = "sha256:23808c324f02b683b232c22a2cf8eb3f5d05f837a26824583b3425fb0802fda3"},
+    {file = "doc_page_extractor-1.2.4.tar.gz", hash = "sha256:7272997d2577e5a464e018d64ab26ab9af2f11211dd87979f1a2dc80ce5e2411"},
 ]
 
 [package.dependencies]
@@ -3327,4 +3327,4 @@ local = ["doc-page-extractor"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "bab1c62d345531ddcbc890c70b4ba2f2478ddb137e2c8f75f06db86a9f4a9e10"
+content-hash = "98904f1ad2a48d2dadfe714c64562b15633b98d67bb3f2026e49379062bfb2b1"

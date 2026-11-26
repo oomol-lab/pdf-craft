@@ -15,11 +15,12 @@ poetry install --with dev
 
 本包通过 `doc-page-extractor[local]` 获得上游本地 OCR 运行时栈，但不直接声明 `torch` 或 `torchvision`。只有当任务需要指定 CPU 或 CUDA wheel 时，才按当前环境覆盖安装 `torch` 和 `torchvision`。
 
-真实 OCR 有七种配置入口：
+真实 OCR 有八种配置入口：
 
 - `DeepSeekOCRLocalConfig`：本地 DeepSeek OCR，真实转换需要 CUDA。
 - `DeepSeekOCR2LocalConfig`：本地 DeepSeek OCR 2，真实转换需要 CUDA。
 - `UnlimitedOCRLocalConfig`：本地 Unlimited OCR，真实转换需要 CUDA。
+- `DeepSeekOfficialOCRConfig`：DeepSeek 官方 OCR 接口，直接上传页面图片。
 - `DeepSeekOCRVendorConfig`：DeepSeek OCR 供应商模式。
 - `DeepSeekOCR2VendorConfig`：DeepSeek OCR 2 供应商模式。
 - `UnlimitedOCRVendorConfig`：Unlimited OCR 供应商模式。

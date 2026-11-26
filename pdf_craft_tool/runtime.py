@@ -16,6 +16,7 @@ from pdf_craft import (
     DeepSeekOCR2VendorConfig,
     DeepSeekOCRLocalConfig,
     DeepSeekOCRVendorConfig,
+    DeepSeekOfficialOCRConfig,
     LLM,
     JEV,
     MiniCPMOCRVendorConfig,
@@ -111,8 +112,9 @@ def create_ocr_config_from_env(mode: OCRMode | None = None) -> OCRConfig:
             ),
         )
     if mode == "deepseek-ocr-official":
-        return DeepSeekOCRVendorConfig.official(
-            _required("PDF_CRAFT_DEEPSEEK_OCR_OFFICIAL_API_KEY"),
+        return DeepSeekOfficialOCRConfig(
+            api_key=_required("PDF_CRAFT_DEEPSEEK_OCR_OFFICIAL_API_KEY"),
+            timeout_seconds=_int("PDF_CRAFT_DEEPSEEK_OCR_OFFICIAL_TIMEOUT_SECONDS", default=180),
         )
     if mode == "deepseek-ocr-vendor":
         return DeepSeekOCRVendorConfig(
@@ -162,10 +164,7 @@ def ocr_mode_from_env() -> OCRMode:
 
 def ocr_values_from_env(mode: OCRMode) -> dict[str, object]:
     """Return the explicit values used by a smoke run without exposing secrets."""
-    values = asdict(create_ocr_config_from_env(mode))
-    if mode == "deepseek-ocr-official":
-        return {"api_key": values["api_key"]}
-    return values
+    return asdict(create_ocr_config_from_env(mode))
 
 
 def create_llm_from_env(profile: str, *, cache_path: Path, log_dir_path: Path) -> LLM:
